@@ -196,6 +196,36 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
 /* トースト */
 .toast { position: fixed; bottom: 24px; right: 24px; background: #333; color: white; padding: 10px 18px; border-radius: 6px; font-size: 13px; z-index: 999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
 .toast.show { opacity: 1; }
+
+/* ===== スマホ表示 ===== */
+body.mobile-view { font-size: 14px; }
+body.mobile-view header { padding: 8px 12px; }
+body.mobile-view header h1 { font-size: 15px; }
+body.mobile-view .subtitle { font-size: 10px; }
+body.mobile-view .content { padding: 10px 10px; }
+body.mobile-view .top-bar { padding: 8px 10px; gap: 6px; }
+body.mobile-view .tab { padding: 10px 12px; font-size: 13px; }
+body.mobile-view .btn { padding: 8px 14px; font-size: 13px; }
+body.mobile-view .btn-sm { padding: 6px 10px; font-size: 12px; }
+body.mobile-view .months-grid { flex-direction: column; gap: 12px; }
+body.mobile-view .month-block { min-width: unset; max-width: unset; width: 100%; }
+body.mobile-view .cal-cell { min-height: 60px; padding: 4px; }
+body.mobile-view .cal-cell .day-num { font-size: 14px; }
+body.mobile-view .cal-cell .holiday-name { font-size: 9px; }
+body.mobile-view .request-badge { font-size: 13px; padding: 2px 6px; }
+body.mobile-view .count-bar { font-size: 10px; }
+body.mobile-view .type-grid { gap: 10px; }
+body.mobile-view .type-btn { padding: 14px 8px; font-size: 20px; }
+body.mobile-view .legend { gap: 8px; font-size: 12px; padding: 8px 10px; }
+body.mobile-view .admin-table-wrap { max-height: 58vh; }
+body.mobile-view .admin-table { font-size: 12px; }
+body.mobile-view .stats-row { gap: 8px; }
+body.mobile-view .stat-card .stat-val { font-size: 18px; }
+body.mobile-view .login-wrap { margin: 20px auto; padding: 20px; }
+body.mobile-view .modal { padding: 16px; }
+body.mobile-view .staff-mgmt-grid { grid-template-columns: 1fr; }
+body.mobile-view .pdf-list li { flex-wrap: wrap; gap: 6px; }
+body.mobile-view .pdf-list .pdf-meta { width: 100%; }
 </style>
 </head>
 <body>
@@ -208,6 +238,7 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
   <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
     <span id="current-user-label" style="font-size:12px;opacity:0.8;"></span>
     <button class="btn btn-gray btn-sm" id="logout-btn" onclick="logout()" style="display:none;">ログアウト</button>
+    <button class="btn btn-sm" id="view-toggle-btn" onclick="toggleViewMode()" style="background:rgba(255,255,255,0.2);color:white;border:1px solid rgba(255,255,255,0.4);"></button>
   </div>
 </header>
 
@@ -263,7 +294,6 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
       <strong>凡例：</strong>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FCE4C0;border:1px solid #f0c080;"></div>夏</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#E2EFDA;border:1px solid #aad4a0;"></div>有</div>
-      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#EAD8F5;border:1px solid #c0a0e0;"></div>振/振◆</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#EEEEEE;border:1px solid #ccc;"></div>特</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#DBEAFE;border:1px solid #93C5FD;"></div>業</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#CFFAFE;border:1px solid #67E8F9;"></div>出</div>
@@ -361,7 +391,7 @@ const DEFAULT_TEAMS = {
   '事務':    ['鎌田','高澤','大井'],
 };
 
-const REQUEST_TYPES = ['特', '夏', '有', '振', '振◆', '業', '出', '×'];
+const REQUEST_TYPES = ['特', '夏', '有', '振◆', '業', '出', '×'];
 
 const TYPE_STYLE = {
   '特':  ['#EEEEEE','#555555'],
@@ -373,6 +403,24 @@ const TYPE_STYLE = {
   '出':  ['#CFFAFE','#0E7490'],
   '×':  ['#FADBD8','#CC0000'],
 };
+
+// ============================================================
+// 表示モード（スマホ / PC 切り替え）
+// ============================================================
+function initViewMode() {
+  const saved = localStorage.getItem('kiboushu_view_mode');
+  const mode = saved || (window.innerWidth < 768 ? 'mobile' : 'pc');
+  setViewMode(mode);
+}
+function setViewMode(mode) {
+  localStorage.setItem('kiboushu_view_mode', mode);
+  document.body.classList.toggle('mobile-view', mode === 'mobile');
+  const btn = document.getElementById('view-toggle-btn');
+  if (btn) btn.textContent = mode === 'mobile' ? '💻 PC表示' : '📱 スマホ表示';
+}
+function toggleViewMode() {
+  setViewMode(document.body.classList.contains('mobile-view') ? 'pc' : 'mobile');
+}
 
 // ============================================================
 // 対象期間（動的）
@@ -1657,6 +1705,7 @@ rebuildStaffPanel();
 rebuildAdminPanel();
 updateTitle();
 populateLoginSelect();
+initViewMode();
 </script>
 </body>
 </html>
