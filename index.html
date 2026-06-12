@@ -232,17 +232,6 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
   </div>
 </div>
 
-<!-- PDFビューアモーダル -->
-<div class="modal-overlay" id="pdf-viewer-modal">
-  <div class="modal">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-      <strong id="pdf-viewer-title" style="flex:1;font-size:13px;color:var(--blue);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></strong>
-      <button class="btn btn-success btn-sm" id="pdf-download-btn">⬇ ダウンロード</button>
-      <button class="btn btn-gray btn-sm" onclick="closePdfViewer()">✕ 閉じる</button>
-    </div>
-    <iframe id="pdf-viewer-frame" src=""></iframe>
-  </div>
-</div>
 
 <!-- パスワード入力モーダル -->
 <div class="modal-overlay" id="pw-modal">
@@ -1386,27 +1375,16 @@ function deletePdf(i) {
   renderStaffMgmt();
 }
 
-let _pdfBlobUrl = null;
-
 function viewPdf(i) {
   const pdf = loadRulePdfs()[i];
   if (!pdf) return;
-  // data URL → Blob URL に変換（Chromeのブロック回避）
   const base64 = pdf.data.split(',')[1];
   const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: 'application/pdf' });
-  if (_pdfBlobUrl) URL.revokeObjectURL(_pdfBlobUrl);
-  _pdfBlobUrl = URL.createObjectURL(blob);
-  document.getElementById('pdf-viewer-title').textContent = pdf.name;
-  document.getElementById('pdf-viewer-frame').src = _pdfBlobUrl;
-  document.getElementById('pdf-download-btn').onclick = () => downloadPdf(i);
-  document.getElementById('pdf-viewer-modal').classList.add('open');
-}
-
-function closePdfViewer() {
-  document.getElementById('pdf-viewer-modal').classList.remove('open');
-  document.getElementById('pdf-viewer-frame').src = '';
-  if (_pdfBlobUrl) { URL.revokeObjectURL(_pdfBlobUrl); _pdfBlobUrl = null; }
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  // タブが開いた後にURLを解放（少し遅延）
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function downloadPdf(i) {
