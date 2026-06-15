@@ -1064,71 +1064,74 @@ function closeAdmin() {
 function renderAdminTable(m, containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  const teams  = loadTeams();
-  const data   = loadData();
-  const days   = daysInMonth(m);
-  const staff  = Object.values(teams).flat();
-
+  const teams = loadTeams();
+  const data  = loadData();
+  const days  = daysInMonth(m);
+  const staff = Object.values(teams).flat();
   const dayCounts = computeDayCounts(m, data, staff);
 
-  let thead = '<thead><tr><th class="col-name">氏名</th>';
-  for (let d = 1; d <= days; d++) {
-    const sat = isSat(m,d), sun = isSun(m,d), hol = isHoliday(m,d);
-    const bg = hol ? '#E8600A' : sun ? '#B03020' : sat ? '#1565C0' : '';
-    const style = bg ? `style="background:${bg};"` : '';
-    thead += `<th ${style}>${d}<br><small>${getDow(m,d)}</small></th>`;
+  // thead: 2行（チーム行 + 名前行）
+  let thead = '<thead>';
+  thead += '<tr><th class="col-name" rowspan="2">日付</th><th rowspan="2" style="min-width:32px;">上限</th><th rowspan="2" style="min-width:40px;">申請数</th>';
+  for (const [team, members] of Object.entries(teams)) {
+    if (members.length > 0)
+      thead += `<th colspan="${members.length}" style="background:#2060A0;font-size:10px;">${team}</th>`;
   }
-  thead += '<th>計</th></tr></thead>';
+  thead += '</tr><tr>';
+  for (const [, members] of Object.entries(teams)) {
+    for (const name of members)
+      thead += `<th style="font-size:10px;min-width:36px;">${name}</th>`;
+  }
+  thead += '</tr></thead>';
+
+  // tbody: 各日付が1行
+  const staffCounts = {};
+  staff.forEach(n => staffCounts[n] = 0);
 
   let tbody = '<tbody>';
-
-  // 上限行（土日祝は∞）
-  tbody += '<tr class="row-limit"><td class="col-name">上限</td>';
   for (let d = 1; d <= days; d++) {
+    const sat = isSat(m,d), sun = isSun(m,d), hol = isHoliday(m,d), wknd = isWeekend(m,d);
     const lim = getLimit(m,d);
-    tbody += `<td>${lim === Infinity ? '∞' : lim}</td>`;
-  }
-  tbody += '<td>-</td></tr>';
-
-  // 申請数行
-  tbody += '<tr class="row-count"><td class="col-name">申請数</td>';
-  let grandTotal = 0;
-  for (let d = 1; d <= days; d++) {
-    const c = dayCounts[d], lim = getLimit(m,d);
-    grandTotal += c;
+    const c   = dayCounts[d];
     const over = lim !== Infinity && c > lim;
     const near = lim !== Infinity && c === lim;
-    const cls = over ? ' class="over"' : near ? ' class="near"' : '';
-    tbody += `<td${cls}>${c || ''}</td>`;
-  }
-  tbody += `<td>${grandTotal || ''}</td></tr>`;
 
-  for (const [team, members] of Object.entries(teams)) {
-    tbody += `<tr class="row-team"><td class="col-name">${team}</td><td colspan="${days + 1}" style="text-align:left;padding:3px 8px;">${members.length}名</td></tr>`;
+    const dayBg   = hol ? 'var(--holiday)' : wknd ? 'var(--weekend)' : '';
+    const numColor = hol ? 'var(--orange)' : sun ? 'var(--red)' : sat ? '#1565C0' : '';
+    const holName  = HOLIDAYS_BUILTIN[dateStr(m,d)] || '';
 
-    for (const name of members) {
-      const myData = data[name] || {};
-      let cnt = 0;
-      let row = `<tr><td class="col-name">${name}</td>`;
-      for (let d = 1; d <= days; d++) {
-        const ds   = dateStr(m, d);
-        const type = myData[ds] || '';
-        const hol  = isHoliday(m, d);
-        const wknd = isWeekend(m, d);
+    tbody += `<tr>`;
+    tbody += `<td class="col-name" style="${dayBg ? `background:${dayBg};` : ''}white-space:nowrap;">`;
+    tbody += `<strong style="${numColor ? `color:${numColor};` : ''}">${d}</strong> <small>${getDow(m,d)}</small>`;
+    if (holName) tbody += `<br><span style="font-size:9px;color:var(--orange);">${holName}</span>`;
+    tbody += `</td>`;
+    tbody += `<td>${lim === Infinity ? '∞' : lim}</td>`;
+    const cntCls = over ? ' class="over"' : near ? ' class="near"' : '';
+    tbody += `<td${cntCls}>${c || ''}</td>`;
+
+    for (const [, members] of Object.entries(teams)) {
+      for (const name of members) {
+        const type = (data[name] || {})[dateStr(m, d)] || '';
         const cellCls = hol ? ' class="holiday"' : wknd ? ' class="weekend"' : '';
         let cell = '';
         if (type) {
           const [bg, fg] = TYPE_STYLE[type] || ['#eee','#333'];
           cell = `<span style="background:${bg};color:${fg};padding:1px 4px;border-radius:2px;font-size:10px;font-weight:bold;">${type}</span>`;
-          cnt++;
+          staffCounts[name]++;
         }
-        row += `<td${cellCls}>${cell}</td>`;
+        tbody += `<td${cellCls}>${cell}</td>`;
       }
-      row += `<td><strong>${cnt || ''}</strong></td></tr>`;
-      tbody += row;
     }
+    tbody += '</tr>';
   }
-  tbody += '</tbody>';
+
+  // 合計行
+  tbody += '<tr class="row-count"><td class="col-name">合計</td><td>-</td><td>-</td>';
+  for (const [, members] of Object.entries(teams)) {
+    for (const name of members)
+      tbody += `<td><strong>${staffCounts[name] || ''}</strong></td>`;
+  }
+  tbody += '</tr></tbody>';
 
   container.innerHTML = `<div class="admin-table-wrap"><table class="admin-table">${thead}${tbody}</table></div>`;
 }
