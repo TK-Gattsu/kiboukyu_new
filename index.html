@@ -1071,30 +1071,86 @@ function buildPdfListHtml(pdfs) {
 function renderExtraDatesView(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  const dates = loadExtraDates();
-  if (!dates.length) { container.innerHTML = '<div style="padding:24px;color:#888;text-align:center;">追加日程はありません</div>'; return; }
+  const extraSet = new Set(loadExtraDates());
+  if (!extraSet.size) { container.innerHTML = '<div style="padding:24px;color:#888;text-align:center;">追加日程はありません</div>'; return; }
   const data = loadData();
-  const dows = ['日','月','火','水','木','金','土'];
   const confirmed = currentUser && isConfirmed(currentUser);
-  let html = '<div style="display:flex;flex-wrap:wrap;gap:12px;padding:4px 0;">';
-  for (const ds of dates) {
-    const [y, m, d] = ds.split('-').map(Number);
-    const dow = new Date(y, m-1, d).getDay();
-    const dowStr = dows[dow];
-    const sat = dow === 6, sun = dow === 0, hol = HOLIDAYS_BUILTIN[ds] || '';
-    const cellBg = hol ? 'var(--holiday)' : (sat||sun) ? 'var(--weekend)' : 'white';
-    const numColor = hol ? 'var(--orange)' : sun ? 'var(--red)' : sat ? '#1565C0' : '#333';
-    const myReq = currentUser ? (data[currentUser] || {})[ds] || '' : '';
-    const [bg, fg] = myReq ? (TYPE_STYLE[myReq] || ['#eee','#333']) : [null, null];
-    const clickAttr = (!confirmed && currentUser) ? `onclick="openExtraDateModal('${ds}')" style="cursor:pointer;"` : `title="確定済みのため編集できません"`;
-    html += `<div class="cal-cell" style="background:${cellBg};border-radius:6px;min-width:90px;padding:8px 10px;box-shadow:0 1px 3px rgba(0,0,0,0.1);" ${clickAttr}>
-      <div class="day-num" style="color:${numColor};">${m}/${d}（${dowStr}）</div>
-      ${hol ? `<div class="holiday-name">${hol}</div>` : ''}
-      ${myReq ? `<span class="request-badge" style="background:${bg};color:${fg};">${myReq}</span>` : '<span style="font-size:10px;color:#aaa;margin-top:4px;display:block;">未申請</span>'}
-    </div>`;
+
+  // 月ごとにグループ化
+  const monthSet = new Set();
+  for (const ds of extraSet) { const [y, m] = ds.split('-'); monthSet.add(`${y}-${m}`); }
+
+  container.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'months-grid';
+  container.appendChild(wrap);
+
+  for (const ym of [...monthSet].sort()) {
+    const [y, m] = ym.split('-').map(Number);
+    const block = document.createElement('div');
+    block.className = 'month-block';
+    block.innerHTML = `<div class="month-header">${y}年${m}月　<span style="font-size:11px;opacity:0.8;">（追加日程）</span></div>`;
+
+    const grid = document.createElement('div');
+    grid.className = 'cal-grid';
+    ['日','月','火','水','木','金','土'].forEach((label, i) => {
+      const cell = document.createElement('div');
+      cell.className = 'cal-dow' + (i===0?' sun':i===6?' sat':'');
+      cell.textContent = label;
+      grid.appendChild(cell);
+    });
+
+    // 月初の空白
+    const fd = new Date(y, m-1, 1).getDay();
+    for (let i = 0; i < fd; i++) {
+      const c = document.createElement('div'); c.className = 'cal-cell empty'; grid.appendChild(c);
+    }
+
+    const days = new Date(y, m, 0).getDate();
+    for (let d = 1; d <= days; d++) {
+      const ds  = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const dow = new Date(y, m-1, d).getDay();
+      const sat = dow === 6, sun = dow === 0;
+      const hol = HOLIDAYS_BUILTIN[ds] || '';
+      const wknd = sat || sun;
+      const isExtra = extraSet.has(ds);
+
+      const cell = document.createElement('div');
+      let cls = 'cal-cell';
+      if (hol) cls += ' holiday'; else if (wknd) cls += ' weekend';
+      if (sat) cls += ' sat'; if (sun) cls += ' sun';
+      if (!isExtra) { cls += ' empty'; cell.style.opacity = '0.25'; }
+      cell.className = cls;
+
+      const myReq = isExtra && currentUser ? (data[currentUser] || {})[ds] || '' : '';
+      let html = `<div class="day-num">${d}</div>`;
+      if (hol && isExtra) html += `<div class="holiday-name">${hol}</div>`;
+      if (myReq) {
+        const [bg, fg] = TYPE_STYLE[myReq] || ['#eee','#333'];
+        html += `<span class="request-badge" style="background:${bg};color:${fg};">${myReq}</span>`;
+      }
+      if (isExtra && !wknd && !hol) {
+        const count = Object.values(data).filter(v => v[ds]).length;
+        const barStyle = count >= 5 ? ' style="color:var(--red);font-weight:bold;"'
+                       : count === 4 ? ' style="color:var(--orange);font-weight:bold;"' : '';
+        html += `<div class="count-bar"${barStyle}>${count}/5</div>`;
+      }
+      cell.innerHTML = html;
+
+      if (isExtra && currentUser && !confirmed) {
+        const lim = (wknd || hol) ? Infinity : 5;
+        const count = Object.values(data).filter(v => v[ds]).length;
+        cell.onclick = () => openExtraDateModal(ds);
+      } else if (isExtra && confirmed) {
+        cell.style.cursor = 'default';
+        cell.title = '確定済みのため編集できません';
+      }
+      grid.appendChild(cell);
+    }
+
+    block.appendChild(grid);
+    wrap.appendChild(block);
   }
-  html += '</div>';
-  container.innerHTML = html;
 }
 
 function openExtraDateModal(ds) {
