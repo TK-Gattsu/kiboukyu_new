@@ -282,7 +282,12 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
   <div class="top-bar">
     <strong id="user-display" style="color:var(--blue);font-size:14px;"></strong>
     <span style="color:#666;">さんの申請フォーム</span>
-    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button id="confirm-btn" class="btn btn-primary btn-sm" onclick="confirmRequests()" style="background:#16a34a;">✅ 申請を確定する</button>
+      <div id="confirmed-badge" style="display:none;align-items:center;gap:6px;background:#dcfce7;border:1px solid #86efac;border-radius:4px;padding:4px 10px;font-size:12px;font-weight:bold;color:#15803d;">
+        🔒 確定済み
+        <button class="btn btn-gray btn-sm" onclick="unconfirmRequests()" style="font-size:10px;padding:2px 6px;">取り消す</button>
+      </div>
       <button class="btn btn-success btn-sm" onclick="exportExcel()">📥 Excelダウンロード</button>
       <button class="btn btn-orange btn-sm" onclick="openAdmin()">📊 管理者ビュー</button>
       <button class="btn btn-gray btn-sm" onclick="clearMyData()">クリア</button>
@@ -551,6 +556,38 @@ function loadData() {
 }
 function saveData(d) { localStorage.setItem('kiboushu_requests', JSON.stringify(d)); }
 
+function loadConfirmed() {
+  try { return JSON.parse(localStorage.getItem('kiboushu_confirmed') || '{}'); } catch { return {}; }
+}
+function saveConfirmed(obj) { localStorage.setItem('kiboushu_confirmed', JSON.stringify(obj)); }
+function isConfirmed(name) { return !!loadConfirmed()[name]; }
+
+function confirmRequests() {
+  if (!currentUser) return;
+  if (!confirm(`${currentUser}さんの申請内容を確定しますか？\n確定後は編集できなくなります。`)) return;
+  const obj = loadConfirmed();
+  obj[currentUser] = true;
+  saveConfirmed(obj);
+  updateConfirmUI();
+  renderAllCalendars();
+  toast('申請を確定しました');
+}
+function unconfirmRequests() {
+  if (!currentUser) return;
+  if (!confirm('確定を取り消しますか？')) return;
+  const obj = loadConfirmed();
+  delete obj[currentUser];
+  saveConfirmed(obj);
+  updateConfirmUI();
+  renderAllCalendars();
+  toast('確定を取り消しました');
+}
+function updateConfirmUI() {
+  const confirmed = currentUser && isConfirmed(currentUser);
+  document.getElementById('confirm-btn').style.display    = confirmed ? 'none'        : '';
+  document.getElementById('confirmed-badge').style.display = confirmed ? 'flex'       : 'none';
+}
+
 function setRequest(name, ds, type) {
   const d = loadData();
   if (!d[name]) d[name] = {};
@@ -707,6 +744,7 @@ function login() {
   document.getElementById('user-display').textContent = name;
   document.getElementById('current-user-label').textContent = name + ' さん';
   document.getElementById('logout-btn').style.display = '';
+  updateConfirmUI();
   renderAllCalendars();
 }
 
@@ -829,7 +867,12 @@ function renderCalendar(m) {
     }
     cell.innerHTML = html;
 
-    if (currentUser) cell.onclick = () => openModal(m, d, ds, myReq, limit, count);
+    if (currentUser && !isConfirmed(currentUser)) {
+      cell.onclick = () => openModal(m, d, ds, myReq, limit, count);
+    } else if (currentUser && isConfirmed(currentUser)) {
+      cell.style.cursor = 'default';
+      cell.title = '確定済みのため編集できません';
+    }
     grid.appendChild(cell);
   }
 
@@ -1078,9 +1121,15 @@ function renderAdminTable(m, containerId) {
       thead += `<th colspan="${members.length}" style="background:#2060A0;font-size:10px;">${team}</th>`;
   }
   thead += '</tr><tr>';
+  const confirmedMap = loadConfirmed();
   for (const [, members] of Object.entries(teams)) {
-    for (const name of members)
-      thead += `<th style="font-size:10px;min-width:36px;">${name}</th>`;
+    for (const name of members) {
+      const ok = confirmedMap[name];
+      const badge = ok
+        ? '<br><span style="color:#16a34a;font-size:9px;">✓確定</span>'
+        : '<br><span style="color:#aaa;font-size:9px;">－</span>';
+      thead += `<th style="font-size:10px;min-width:36px;">${name}${badge}</th>`;
+    }
   }
   thead += '</tr></thead>';
 
