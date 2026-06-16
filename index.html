@@ -617,15 +617,24 @@ function loadExtraDates() {
 function saveExtraDates(arr) { localStorage.setItem('kiboushu_extra_dates', JSON.stringify(arr)); }
 
 function addExtraDate() {
-  const val = document.getElementById('extra-date-input').value;
-  if (!val) { alert('日付を選択してください'); return; }
+  const from = document.getElementById('extra-date-from').value;
+  const to   = document.getElementById('extra-date-to').value;
+  if (!from || !to) { alert('開始日と終了日を選択してください'); return; }
+  if (from > to) { alert('開始日は終了日以前にしてください'); return; }
   const arr = loadExtraDates();
-  if (arr.includes(val)) { alert('既に追加されています'); return; }
-  arr.push(val);
+  const added = [];
+  const cur = new Date(from);
+  const end = new Date(to);
+  while (cur <= end) {
+    const ds = cur.toISOString().slice(0, 10);
+    if (!arr.includes(ds)) { arr.push(ds); added.push(ds); }
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (!added.length) { alert('選択した期間はすでにすべて追加済みです'); return; }
   arr.sort();
   saveExtraDates(arr);
   _refreshExtraDatePanel();
-  toast(`${val} を追加しました`);
+  toast(`${added.length}日間を追加しました（${from} 〜 ${to}）`);
 }
 function removeExtraDate(ds) {
   saveExtraDates(loadExtraDates().filter(d => d !== ds));
@@ -1472,8 +1481,10 @@ function renderStaffMgmt() {
     <div style="font-size:11px;color:#888;margin-top:6px;">※ 申請データは保持されます</div>
     <hr style="margin:14px 0;border-color:#eee;">
     <div style="font-weight:bold;font-size:12px;color:var(--blue);margin-bottom:8px;">📅 追加日程（任意延長）</div>
-    <div class="form-row" style="align-items:center;">
-      <input type="date" id="extra-date-input" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+    <div class="form-row" style="align-items:center;flex-wrap:wrap;">
+      <input type="date" id="extra-date-from" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+      <span style="font-size:12px;color:#666;">〜</span>
+      <input type="date" id="extra-date-to" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
       <button class="btn btn-primary btn-sm" onclick="addExtraDate()">＋ 追加</button>
     </div>
     ${(()=>{
