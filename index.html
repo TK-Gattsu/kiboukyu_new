@@ -293,6 +293,7 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
       <button class="btn btn-gray btn-sm" onclick="clearMyData()">クリア</button>
     </div>
   </div>
+  <div id="deadline-banner" style="display:none;padding:7px 20px;font-size:13px;font-weight:bold;border-bottom:2px solid;text-align:center;"></div>
   <div class="tab-bar" id="staff-tabs"></div>
   <div class="content">
     <div class="legend">
@@ -562,8 +563,25 @@ function loadConfirmed() {
 function saveConfirmed(obj) { localStorage.setItem('kiboushu_confirmed', JSON.stringify(obj)); }
 function isConfirmed(name) { return !!loadConfirmed()[name]; }
 
+// ---- 申請締切 ----
+function loadDeadline() { return localStorage.getItem('kiboushu_deadline') || ''; }
+function saveDeadline(v) { if (v) localStorage.setItem('kiboushu_deadline', v); else localStorage.removeItem('kiboushu_deadline'); }
+function isPastDeadline() {
+  const dl = loadDeadline();
+  if (!dl) return false;
+  return new Date() > new Date(dl);
+}
+function deadlineLabel() {
+  const dl = loadDeadline();
+  if (!dl) return '';
+  const d = new Date(dl);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function confirmRequests() {
   if (!currentUser) return;
+  if (isPastDeadline()) { alert('申請期限を過ぎているため、確定できません。'); return; }
   if (!confirm(`${currentUser}さんの申請内容を確定しますか？\n確定後は編集できなくなります。`)) return;
   const obj = loadConfirmed();
   obj[currentUser] = true;
@@ -584,8 +602,29 @@ function unconfirmRequests() {
 }
 function updateConfirmUI() {
   const confirmed = currentUser && isConfirmed(currentUser);
-  document.getElementById('confirm-btn').style.display    = confirmed ? 'none'        : '';
-  document.getElementById('confirmed-badge').style.display = confirmed ? 'flex'       : 'none';
+  const past = isPastDeadline();
+  // 確定ボタン：締切後 or 確定済みなら非表示
+  document.getElementById('confirm-btn').style.display    = (confirmed || past) ? 'none' : '';
+  document.getElementById('confirmed-badge').style.display = confirmed ? 'flex' : 'none';
+  // 締切バナー更新
+  const banner = document.getElementById('deadline-banner');
+  if (banner) {
+    const dl = loadDeadline();
+    if (!dl) { banner.style.display = 'none'; return; }
+    banner.style.display = '';
+    const label = deadlineLabel();
+    if (past) {
+      banner.style.background = '#fee2e2';
+      banner.style.borderColor = '#fca5a5';
+      banner.style.color = '#b91c1c';
+      banner.innerHTML = `🔒 申請期限終了（${label}）　<span style="font-size:11px;">申請・編集はできません</span>`;
+    } else {
+      banner.style.background = '#fef9c3';
+      banner.style.borderColor = '#fde047';
+      banner.style.color = '#854d0e';
+      banner.innerHTML = `⏰ 申請締切：<strong>${label}</strong>`;
+    }
+  }
 }
 
 function setRequest(name, ds, type) {
@@ -930,6 +969,7 @@ function renderCalendar(m) {
 // 種別選択モーダル
 // ============================================================
 function openModal(m, d, ds, curReq, limit, count) {
+  if (isPastDeadline()) { alert('申請期限を過ぎているため、申請を変更できません。'); return; }
   const rest = limit === Infinity;
   const limitText = rest ? '上限なし' : `上限:${limit}人 / 現在:${count}人`;
   document.getElementById('modal-title').textContent =
@@ -1154,6 +1194,7 @@ function renderExtraDatesView(containerId) {
 }
 
 function openExtraDateModal(ds) {
+  if (isPastDeadline()) { alert('申請期限を過ぎているため、申請を変更できません。'); return; }
   const [y, m, d] = ds.split('-').map(Number);
   const dow = new Date(y, m-1, d).getDay();
   const sat = dow === 6, sun = dow === 0, hol = HOLIDAYS_BUILTIN[ds] || '';
@@ -1561,6 +1602,22 @@ function renderStaffMgmt() {
     <div style="font-size:11px;color:#888;margin-top:6px;">追加した日付は「追加日程」タブで申請・確認できます</div>
   </div>`;
 
+  // ---- 申請締切設定 ----
+  const dlVal = loadDeadline();
+  html += `<div class="panel-card" style="margin-top:14px;">
+    <h3>⏰ 申請締切設定</h3>
+    <div class="form-row" style="align-items:center;flex-wrap:wrap;">
+      <label style="white-space:nowrap;">締切日時</label>
+      <input type="datetime-local" id="deadline-input" value="${dlVal}" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+      <button class="btn btn-primary btn-sm" onclick="applyDeadline()">設定</button>
+      ${dlVal ? `<button class="btn btn-danger btn-sm" onclick="clearDeadline()">解除</button>` : ''}
+    </div>
+    <div style="font-size:11px;color:${dlVal?(isPastDeadline()?'var(--red)':'var(--green)'):'#888'};margin-top:6px;">
+      ${dlVal ? (isPastDeadline() ? `🔒 締切済み（${deadlineLabel()}）　スタッフは申請変更・確定不可` : `⏰ 締切：${deadlineLabel()}`) : '未設定（締切なし）'}
+    </div>
+    <div style="font-size:11px;color:#888;margin-top:4px;">締切後はスタッフの申請変更・確定ができなくなります</div>
+  </div>`;
+
   // ---- 管理者パスワード ----
   const hasPw = !!loadAdminPassword();
   html += `<div class="panel-card" style="margin-top:14px;">
@@ -1655,6 +1712,21 @@ function applyPeriod() {
   document.querySelectorAll('#admin-tabs .tab').forEach((t,i) => t.classList.toggle('active', i===0));
   toast(`期間を ${year}年${m1}・${m2}・${m3}月 に変更しました`);
   renderStaffMgmt();
+}
+
+// ---- 申請締切 ----
+function applyDeadline() {
+  const v = document.getElementById('deadline-input').value;
+  if (!v) { alert('日時を選択してください'); return; }
+  saveDeadline(v);
+  toast(`申請締切を ${deadlineLabel()} に設定しました`);
+  rebuildAdminPanel();
+}
+function clearDeadline() {
+  if (!confirm('申請締切を解除しますか？')) return;
+  saveDeadline('');
+  toast('申請締切を解除しました');
+  rebuildAdminPanel();
 }
 
 // ---- パスワード管理 ----
