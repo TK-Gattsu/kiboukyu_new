@@ -123,8 +123,10 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
 .admin-table .row-count td  { background: #FEFCE8; font-weight: bold; }
 .admin-table .row-team  td  { background: #EEF2F8; color: var(--blue); font-weight: bold; text-align: left; padding: 3px 6px; }
 .admin-table .row-team  td.col-name { background: #DDE5F0; }
-.admin-table td.weekend { background: #EBF5FD; }
-.admin-table td.holiday { background: #FFF0E0; }
+.admin-table tr.row-weekend td { background: #B8D9F7; }
+.admin-table tr.row-weekend td.col-name { background: #8BBFE8; border-left: 4px solid #1565C0; }
+.admin-table tr.row-holiday td { background: #FDCF8A; }
+.admin-table tr.row-holiday td.col-name { background: #F9A825; border-left: 4px solid #E65100; }
 .admin-table td.over    { background: #FADBD8 !important; color: var(--red); font-weight: bold; }
 .admin-table td.near    { background: #FFF3CD !important; color: #856404; font-weight: bold; }
 
@@ -306,7 +308,9 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FADBD8;border:1px solid #f0a0a0;"></div>×</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#EBF3FB;border:1px solid #c0d8f0;"></div>土日</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FFF0E0;border:1px solid #f0c080;"></div>祝日</div>
-      <span style="color:#888;margin-left:4px;">平日: 数字=申請数/上限　<span style="color:var(--red);">赤=超過</span>　<span style="color:var(--orange);">橙=残1</span>　／　土日祝: ×のみ選択可・上限なし</span>
+      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#DBEAFE;border:1px solid #93C5FD;"></div>業</div>
+      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#CFFAFE;border:1px solid #67E8F9;"></div>出</div>
+      <span style="color:#888;margin-left:4px;">平日: 数字=申請数/上限　<span style="color:var(--red);">赤=超過</span>　<span style="color:var(--orange);">橙=残1</span>　／　土日祝: 業・出・× 選択可・上限なし</span>
     </div>
     <div id="cal-contents"></div>
   </div>
@@ -800,6 +804,7 @@ function rebuildAdminPanel() {
 // ログイン
 // ============================================================
 let currentUser = '';
+let _modalTarget = ''; // モーダルで申請を操作する対象スタッフ名（管理者編集時は別人になる）
 
 function populateLoginSelect() {
   const sel = document.getElementById('login-select');
@@ -968,41 +973,76 @@ function renderCalendar(m) {
 // ============================================================
 // 種別選択モーダル
 // ============================================================
+// 土日祝でも選択可能な種別
+const REST_DAY_TYPES = ['業', '出', '×'];
+
 function openModal(m, d, ds, curReq, limit, count) {
   if (isPastDeadline()) { alert('申請期限を過ぎているため、申請を変更できません。'); return; }
-  const rest = limit === Infinity;
-  const limitText = rest ? '上限なし' : `上限:${limit}人 / 現在:${count}人`;
+  _modalTarget = currentUser;
+  _showTypeModal(m, d, ds, curReq, limit, count);
+}
+
+// 管理者が任意スタッフの申請を編集するモーダル
+function openAdminModal(staffName, ds, m, d) {
+  const dow = new Date(+ds.slice(0,4), +ds.slice(5,7)-1, d).getDay();
+  const wknd = dow === 0 || dow === 6 || !!HOLIDAYS_BUILTIN[ds];
+  const limit = wknd ? Infinity : 5;
+  const data  = loadData();
+  const count = Object.values(data).filter(v => v[ds]).length;
+  const curReq = (data[staffName] || {})[ds] || '';
+  _modalTarget = staffName;
+  document.getElementById('modal-title').textContent =
+    `【管理者編集】${staffName}　${m}月${d}日（${getDow(m,d)}）`;
+  _buildTypeGrid(ds, curReq, limit, count, () => {
+    invalidateAdminCache();
+    // 管理者テーブルを再描画
+    document.querySelectorAll('[id^="adm"], [id^="allreq-"], [id="adm-extra-tbl"]').forEach(el => {
+      el.innerHTML = '';
+    });
+    Object.keys(_admRendered).forEach(k => delete _admRendered[k]);
+    const months = getMonths();
+    months.forEach(mm => {
+      const el = document.getElementById(`adm${mm}`);
+      if (el) { renderAdminTable(mm, `adm${mm}`); _admRendered[`adm${mm}`] = true; }
+      const el2 = document.getElementById(`allreq-${mm}`);
+      if (el2) { el2.innerHTML = ''; renderAdminTable(mm, `allreq-${mm}`); }
+    });
+    const el3 = document.getElementById('adm-extra-tbl');
+    if (el3) renderAdminExtraDates();
+  });
+  document.getElementById('type-modal').classList.add('open');
+}
+
+function _showTypeModal(m, d, ds, curReq, limit, count) {
+  const limitText = limit === Infinity ? '上限なし' : `上限:${limit}人 / 現在:${count}人`;
   document.getElementById('modal-title').textContent =
     `${m}月${d}日（${getDow(m,d)}）　${limitText}`;
+  _buildTypeGrid(ds, curReq, limit, count, () => { renderAllCalendars(); });
+  document.getElementById('type-modal').classList.add('open');
+}
 
+function _buildTypeGrid(ds, curReq, limit, count, afterSet) {
+  const rest = limit === Infinity;
   const grid = document.getElementById('type-grid');
   grid.innerHTML = '';
-  if (rest) {
-    const [bg, fg] = TYPE_STYLE['×'];
+  const types = rest ? REST_DAY_TYPES : REQUEST_TYPES.filter(t => t !== '×');
+  for (const type of types) {
+    const [bg, fg] = TYPE_STYLE[type] || ['#eee','#333'];
     const btn = document.createElement('div');
-    btn.className = 'type-btn' + (curReq === '×' ? ' selected' : '');
-    btn.style.cssText = `background:${bg};color:${fg};border-color:${fg};grid-column:1/-1;font-size:18px;`;
-    btn.textContent = '×（欠勤希望）';
-    btn.onclick = () => { setRequest(currentUser, ds, '×'); closeModal(); renderAllCalendars(); };
+    btn.className = 'type-btn' + (curReq === type ? ' selected' : '');
+    btn.style.cssText = `background:${bg};color:${fg};border-color:${fg};`;
+    if (rest && type === '×') btn.style.cssText += 'grid-column:1/-1;font-size:18px;';
+    btn.textContent = type === '×' ? '×（欠勤希望）' : type;
+    btn.onclick = () => { setRequest(_modalTarget, ds, type); closeModal(); afterSet(); };
     grid.appendChild(btn);
-  } else {
-    for (const type of REQUEST_TYPES.filter(t => t !== '×')) {
-      const [bg, fg] = TYPE_STYLE[type] || ['#eee','#333'];
-      const btn = document.createElement('div');
-      btn.className = 'type-btn' + (curReq === type ? ' selected' : '');
-      btn.style.cssText = `background:${bg};color:${fg};border-color:${fg};`;
-      btn.textContent = type;
-      btn.onclick = () => { setRequest(currentUser, ds, type); closeModal(); renderAllCalendars(); };
-      grid.appendChild(btn);
-    }
   }
   const clr = document.createElement('div');
   clr.className = 'type-btn clear';
   clr.textContent = '申請を取り消す';
-  clr.onclick = () => { setRequest(currentUser, ds, ''); closeModal(); renderAllCalendars(); };
+  clr.onclick = () => { setRequest(_modalTarget, ds, ''); closeModal(); afterSet(); };
   grid.appendChild(clr);
-  document.getElementById('type-modal').classList.add('open');
 }
+
 function closeModal() { document.getElementById('type-modal').classList.remove('open'); }
 
 // ============================================================
@@ -1249,7 +1289,8 @@ function renderAdminExtraDates() {
     const numColor = hol ? 'var(--orange)' : sun ? 'var(--red)' : sat ? '#1565C0' : '';
     const dowStr = dows[dow];
 
-    tbody += `<tr><td class="col-name" style="${dayBg?`background:${dayBg};`:''}white-space:nowrap;">`;
+    const rowCls2 = hol ? ' class="row-holiday"' : wknd ? ' class="row-weekend"' : '';
+    tbody += `<tr${rowCls2}><td class="col-name" style="white-space:nowrap;">`;
     tbody += `<strong style="${numColor?`color:${numColor};`:''}">${m}/${d}</strong> <small>${dowStr}</small>`;
     if (hol) tbody += `<br><span style="font-size:9px;color:var(--orange);">${hol}</span>`;
     tbody += `</td><td>${lim === Infinity ? '∞' : lim}</td>`;
@@ -1258,10 +1299,9 @@ function renderAdminExtraDates() {
     for (const [, members] of Object.entries(teams)) {
       for (const name of members) {
         const type = (data[name] || {})[ds] || '';
-        const cellCls = hol ? ' class="holiday"' : wknd ? ' class="weekend"' : '';
         const cell = type ? `<span style="background:${(TYPE_STYLE[type]||['#eee','#333'])[0]};color:${(TYPE_STYLE[type]||['#eee','#333'])[1]};padding:1px 4px;border-radius:2px;font-size:10px;font-weight:bold;">${type}</span>` : '';
         if (type) staffCounts[name]++;
-        tbody += `<td${cellCls}>${cell}</td>`;
+        tbody += `<td style="cursor:pointer;" title="${name} ${m}/${d} をクリックして編集" onclick="openAdminModal('${name}','${ds}',${m},${d})">${cell}</td>`;
       }
     }
     tbody += '</tr>';
@@ -1402,8 +1442,9 @@ function renderAdminTable(m, containerId) {
     const numColor = hol ? 'var(--orange)' : sun ? 'var(--red)' : sat ? '#1565C0' : '';
     const holName  = HOLIDAYS_BUILTIN[dateStr(m,d)] || '';
 
-    tbody += `<tr>`;
-    tbody += `<td class="col-name" style="${dayBg ? `background:${dayBg};` : ''}white-space:nowrap;">`;
+    const rowCls = hol ? ' class="row-holiday"' : wknd ? ' class="row-weekend"' : '';
+    tbody += `<tr${rowCls}>`;
+    tbody += `<td class="col-name" style="white-space:nowrap;">`;
     tbody += `<strong style="${numColor ? `color:${numColor};` : ''}">${d}</strong> <small>${getDow(m,d)}</small>`;
     if (holName) tbody += `<br><span style="font-size:9px;color:var(--orange);">${holName}</span>`;
     tbody += `</td>`;
@@ -1413,15 +1454,15 @@ function renderAdminTable(m, containerId) {
 
     for (const [, members] of Object.entries(teams)) {
       for (const name of members) {
-        const type = (data[name] || {})[dateStr(m, d)] || '';
-        const cellCls = hol ? ' class="holiday"' : wknd ? ' class="weekend"' : '';
+        const ds2 = dateStr(m, d);
+        const type = (data[name] || {})[ds2] || '';
         let cell = '';
         if (type) {
           const [bg, fg] = TYPE_STYLE[type] || ['#eee','#333'];
           cell = `<span style="background:${bg};color:${fg};padding:1px 4px;border-radius:2px;font-size:10px;font-weight:bold;">${type}</span>`;
           staffCounts[name]++;
         }
-        tbody += `<td${cellCls}>${cell}</td>`;
+        tbody += `<td style="cursor:pointer;" title="${name} ${m}/${d} をクリックして編集" onclick="openAdminModal('${name}','${ds2}',${m},${d})">${cell}</td>`;
       }
     }
     tbody += '</tr>';
@@ -1974,42 +2015,65 @@ function exportExcel() {
   const teams = loadTeams();
   const months = getMonths();
   const wb = XLSX.utils.book_new();
+  const allStaff = Object.values(teams).flat();
 
   for (const m of months) {
     const days = daysInMonth(m);
-    const allStaff = Object.values(teams).flat();
     const dayCounts = computeDayCounts(m, data, allStaff);
 
-    const headers = ['氏名', 'チーム'];
-    for (let d = 1; d <= days; d++) headers.push(`${d}(${getDow(m,d)})`);
-    headers.push('計');
-
-    const rows = [headers];
-    rows.push(['上限', '', ...Array.from({length:days},(_,i)=>{const l=getLimit(m,i+1);return l===Infinity?'∞':l;}), '']);
-    rows.push(['申請数', '', ...Array.from({length:days},(_,i)=>dayCounts[i+1]||''), dayCounts.slice(1).reduce((a,b)=>a+b,0)||'']);
-
+    // ヘッダー行1: 日付・上限・申請数 + チーム名（メンバー数分）
+    const hdr1 = ['日付', '曜日', '祝日', '上限', '申請数'];
     for (const [team, members] of Object.entries(teams)) {
-      rows.push([`【${team}】`, ...Array(days+1).fill('')]);
-      for (const name of members) {
-        const myData = data[name] || {};
-        let cnt = 0;
-        const row = [name, team];
-        for (let d = 1; d <= days; d++) {
-          const t = myData[dateStr(m,d)] || '';
-          row.push(t);
-          if (t) cnt++;
-        }
-        row.push(cnt || '');
-        rows.push(row);
+      if (members.length) {
+        hdr1.push(team);
+        for (let i = 1; i < members.length; i++) hdr1.push('');
       }
+    }
+    // ヘッダー行2: 名前行
+    const hdr2 = ['', '', '', '', ''];
+    for (const [, members] of Object.entries(teams)) {
+      for (const name of members) hdr2.push(name);
+    }
+    // 合計行（名前ごとの申請合計）
+    const totalRow = ['合計', '', '', '-', '-'];
+    const staffTotals = {};
+    allStaff.forEach(n => { staffTotals[n] = Object.keys(data[n]||{}).filter(ds => ds.startsWith(`${getYear()}-${String(m).padStart(2,'0')}`)).length; });
+    for (const [, members] of Object.entries(teams)) {
+      for (const name of members) totalRow.push(staffTotals[name] || '');
+    }
+
+    const rows = [hdr1, hdr2, totalRow];
+
+    for (let d = 1; d <= days; d++) {
+      const ds = dateStr(m, d);
+      const dow = getDow(m, d);
+      const holName = HOLIDAYS_BUILTIN[ds] || '';
+      const lim = getLimit(m, d);
+      const limStr = lim === Infinity ? '∞' : lim;
+      const cnt = dayCounts[d] || '';
+      const wknd = isSat(m,d) || isSun(m,d) || !!holName;
+      const row = [
+        `${m}/${d}`,
+        dow,
+        holName,
+        limStr,
+        cnt,
+      ];
+      for (const [, members] of Object.entries(teams)) {
+        for (const name of members) {
+          row.push((data[name] || {})[ds] || '');
+        }
+      }
+      rows.push(row);
     }
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:8},{wch:8},...Array(days).fill({wch:4}),{wch:4}];
+    const nameColCount = allStaff.length;
+    ws['!cols'] = [{wch:6},{wch:4},{wch:8},{wch:4},{wch:5},...Array(nameColCount).fill({wch:5})];
     XLSX.utils.book_append_sheet(wb, ws, `${m}月`);
   }
 
-  // 集計シート
+  // 集計シート（名前×月・種別）
   const cols = ['氏名','チーム',...months.map(m=>m+'月'),'合計',...REQUEST_TYPES];
   const srows = [cols];
   for (const [team, members] of Object.entries(teams)) {
