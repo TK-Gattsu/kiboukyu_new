@@ -1146,28 +1146,55 @@ function delReq(ds) {
 function renderAllRequests() {
   const container = document.getElementById('all-requests');
   const months = getMonths();
+  const hasExtra = loadExtraDates().length > 0;
   let html = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">`;
   months.forEach((m, i) => {
     html += `<button id="allreq-btn-${m}" class="btn btn-sm ${i===0?'btn-primary':'btn-gray'}" onclick="showAllReqMonth(this,${m})">${m}月</button>`;
   });
+  if (hasExtra) {
+    html += `<button id="allreq-btn-extra" class="btn btn-sm btn-gray" onclick="showAllReqExtra(this)">📅 追加日程</button>`;
+  }
   html += `</div>`;
   months.forEach((m, i) => {
     html += `<div id="allreq-${m}"${i>0?' style="display:none;"':''}></div>`;
   });
+  if (hasExtra) {
+    html += `<div id="allreq-extra" style="display:none;"></div>`;
+  }
   container.innerHTML = html;
   renderAdminTable(months[0], `allreq-${months[0]}`);
 }
 
-function showAllReqMonth(btn, m) {
+function _allReqHideAll() {
   const months = getMonths();
   months.forEach(mo => {
     const div = document.getElementById(`allreq-${mo}`);
-    const b = document.getElementById(`allreq-btn-${mo}`);
-    if (div) div.style.display = mo === m ? 'block' : 'none';
-    if (b) b.className = `btn btn-sm ${mo === m ? 'btn-primary' : 'btn-gray'}`;
+    const b   = document.getElementById(`allreq-btn-${mo}`);
+    if (div) div.style.display = 'none';
+    if (b)   b.className = 'btn btn-sm btn-gray';
   });
+  const extraDiv = document.getElementById('allreq-extra');
+  const extraBtn = document.getElementById('allreq-btn-extra');
+  if (extraDiv) extraDiv.style.display = 'none';
+  if (extraBtn) extraBtn.className = 'btn btn-sm btn-gray';
+}
+
+function showAllReqMonth(btn, m) {
+  _allReqHideAll();
   const div = document.getElementById(`allreq-${m}`);
+  if (div) div.style.display = 'block';
+  btn.className = 'btn btn-sm btn-primary';
   if (div && !div.innerHTML) renderAdminTable(m, `allreq-${m}`);
+}
+
+function showAllReqExtra(btn) {
+  _allReqHideAll();
+  const div = document.getElementById('allreq-extra');
+  if (div) {
+    div.style.display = 'block';
+    if (!div.innerHTML) renderAdminExtraDates('allreq-extra', true);
+  }
+  btn.className = 'btn btn-sm btn-primary';
 }
 
 // ============================================================
