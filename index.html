@@ -1053,8 +1053,10 @@ function openAdminModal(staffName, ds, m, d) {
 
 function _showTypeModal(m, d, ds, curReq, limit, count) {
   const limitText = limit === Infinity ? '上限なし' : `上限:${limit}人 / 現在:${count}人`;
+  const y = ds ? parseInt(ds.slice(0, 4)) : getYear();
+  const dow = ['日','月','火','水','木','金','土'][new Date(y, m-1, d).getDay()];
   document.getElementById('modal-title').textContent =
-    `${m}月${d}日（${getDow(m,d)}）　${limitText}`;
+    `${m}月${d}日（${dow}）　${limitText}`;
   _buildTypeGrid(ds, curReq, limit, count, () => { renderAllCalendars(); });
   document.getElementById('type-modal').classList.add('open');
 }
