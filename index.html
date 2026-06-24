@@ -155,10 +155,36 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
 .modal { background: white; border-radius: 10px; padding: 20px; min-width: 280px; max-width: 95vw; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
 .modal h3 { margin-bottom: 12px; color: var(--blue); font-size: 14px; }
 .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
-.type-btn { padding: 10px; border: 2px solid var(--border); border-radius: 6px; cursor: pointer; text-align: center; font-size: 16px; font-weight: bold; transition: transform 0.1s; }
+.type-btn {
+  padding: 10px; border: 2px solid var(--border); border-radius: 6px;
+  cursor: pointer; text-align: center; font-size: 16px; font-weight: bold;
+  transition: transform 0.1s; position: relative;
+}
 .type-btn:hover { transform: scale(1.05); }
 .type-btn.clear { background: #f0f0f0; color: #888; font-size: 13px; grid-column: 1/-1; padding: 8px; }
 .type-btn.selected { outline: 3px solid var(--blue); outline-offset: 1px; }
+/* 吹き出し説明 */
+.type-btn .type-desc {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%; transform: translateX(-50%);
+  background: rgba(30,30,30,0.92);
+  color: #fff; font-size: 11px; font-weight: normal;
+  padding: 5px 9px; border-radius: 6px;
+  white-space: nowrap; pointer-events: none; z-index: 999;
+  line-height: 1.5;
+}
+.type-btn .type-desc::after {
+  content: '';
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(30,30,30,0.92);
+}
+.type-btn:hover .type-desc { display: block; }
+/* タッチデバイスでは active 時に表示 */
+.type-btn:active .type-desc,
+.type-btn.tip-open .type-desc { display: block; }
 
 /* パスワードモーダル */
 #pw-modal .modal { min-width: 320px; }
@@ -303,14 +329,14 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FCE4C0;border:1px solid #f0c080;"></div>夏</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#E2EFDA;border:1px solid #aad4a0;"></div>有</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#EEEEEE;border:1px solid #ccc;"></div>特</div>
+      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#EAD8F5;border:1px solid #c4a8e0;"></div>振◆</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#DBEAFE;border:1px solid #93C5FD;"></div>業</div>
+      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FEF3C7;border:1px solid #fcd34d;"></div>研</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#CFFAFE;border:1px solid #67E8F9;"></div>出</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FADBD8;border:1px solid #f0a0a0;"></div>×</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#EBF3FB;border:1px solid #c0d8f0;"></div>土日</div>
       <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#FFF0E0;border:1px solid #f0c080;"></div>祝日</div>
-      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#DBEAFE;border:1px solid #93C5FD;"></div>業</div>
-      <div style="display:flex;align-items:center;gap:4px;"><div class="legend-dot" style="background:#CFFAFE;border:1px solid #67E8F9;"></div>出</div>
-      <span style="color:#888;margin-left:4px;">平日: 数字=申請数/上限　<span style="color:var(--red);">赤=超過</span>　<span style="color:var(--orange);">橙=残1</span>　／　土日祝: 業・出・× 選択可・上限なし</span>
+      <span style="color:#888;margin-left:4px;">平日: 数字=申請数/上限　<span style="color:var(--red);">赤=超過</span>　<span style="color:var(--orange);">橙=残1</span>　／　土日祝: 業・研・出・× 選択可・上限なし</span>
     </div>
     <div id="cal-contents"></div>
   </div>
@@ -401,7 +427,7 @@ const DEFAULT_TEAMS = {
   '事務':    ['鎌田','高澤','大井'],
 };
 
-const REQUEST_TYPES = ['特', '夏', '有', '振◆', '業', '出', '×'];
+const REQUEST_TYPES = ['特', '夏', '有', '振◆', '業', '研', '出', '×'];
 
 const TYPE_STYLE = {
   '特':  ['#EEEEEE','#555555'],
@@ -410,8 +436,20 @@ const TYPE_STYLE = {
   '振':  ['#EAD8F5','#7B5EA7'],
   '振◆': ['#EAD8F5','#7B5EA7'],
   '業':  ['#DBEAFE','#1D4ED8'],
+  '研':  ['#FEF3C7','#92400E'],
   '出':  ['#CFFAFE','#0E7490'],
   '×':  ['#FADBD8','#CC0000'],
+};
+
+const TYPE_DESC = {
+  '特':  '特別有給休暇',
+  '夏':  '夏休み',
+  '有':  '有給',
+  '振◆': '振休希望',
+  '業':  '業務命令（振休対象）',
+  '研':  '自己研鑽研修（振休非対象）',
+  '出':  '出張',
+  '×':  '原則、夏休みで挟まれた休日のみ選択可',
 };
 
 // ============================================================
@@ -974,7 +1012,7 @@ function renderCalendar(m) {
 // 種別選択モーダル
 // ============================================================
 // 土日祝でも選択可能な種別
-const REST_DAY_TYPES = ['業', '出', '×'];
+const REST_DAY_TYPES = ['業', '研', '出', '×'];
 
 function openModal(m, d, ds, curReq, limit, count) {
   if (isPastDeadline()) { alert('申請期限を過ぎているため、申請を変更できません。'); return; }
@@ -1032,8 +1070,13 @@ function _buildTypeGrid(ds, curReq, limit, count, afterSet) {
     btn.className = 'type-btn' + (curReq === type ? ' selected' : '');
     btn.style.cssText = `background:${bg};color:${fg};border-color:${fg};`;
     if (rest && type === '×') btn.style.cssText += 'grid-column:1/-1;font-size:18px;';
-    btn.textContent = type === '×' ? '×（欠勤希望）' : type;
+    const label = type === '×' ? '×（欠勤希望）' : type;
+    const desc = TYPE_DESC[type] || '';
+    btn.innerHTML = `${label}${desc ? `<span class="type-desc">${desc}</span>` : ''}`;
     btn.onclick = () => { setRequest(_modalTarget, ds, type); closeModal(); afterSet(); };
+    // タッチデバイス：長押し or 2回タップで吹き出し
+    btn.addEventListener('touchstart', () => btn.classList.add('tip-open'), {passive:true});
+    btn.addEventListener('touchend',   () => setTimeout(() => btn.classList.remove('tip-open'), 800), {passive:true});
     grid.appendChild(btn);
   }
   const clr = document.createElement('div');
