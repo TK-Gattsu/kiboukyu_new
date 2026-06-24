@@ -1190,20 +1190,50 @@ function buildPdfListHtml(pdfs) {
   return html;
 }
 
-// ---- 追加日程（スタッフ用） ----
+// ---- 追加日程（スタッフ用）サブタブ付き ----
 function renderExtraDatesView(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  const extraSet = new Set(loadExtraDates());
-  if (!extraSet.size) { container.innerHTML = '<div style="padding:24px;color:#888;text-align:center;">追加日程はありません</div>'; return; }
+  const dates = loadExtraDates();
+  if (!dates.length) { container.innerHTML = '<div style="padding:24px;color:#888;text-align:center;">追加日程はありません</div>'; return; }
+
+  // サブタブUI
+  container.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:12px;border-bottom:2px solid var(--border);padding-bottom:8px;">
+      <button id="extra-sub-mine"  class="btn btn-primary btn-sm" onclick="switchExtraSubTab('mine')">自分の申請</button>
+      <button id="extra-sub-all"   class="btn btn-gray   btn-sm" onclick="switchExtraSubTab('all')">👥 全員の申請</button>
+    </div>
+    <div id="extra-sub-mine-body"></div>
+    <div id="extra-sub-all-body"  style="display:none;"></div>`;
+
+  _renderExtraCalendar('extra-sub-mine-body', new Set(dates));
+}
+
+function switchExtraSubTab(tab) {
+  const mine = tab === 'mine';
+  document.getElementById('extra-sub-mine').className = `btn btn-sm ${mine ? 'btn-primary' : 'btn-gray'}`;
+  document.getElementById('extra-sub-all').className  = `btn btn-sm ${mine ? 'btn-gray' : 'btn-primary'}`;
+  document.getElementById('extra-sub-mine-body').style.display = mine ? '' : 'none';
+  document.getElementById('extra-sub-all-body').style.display  = mine ? 'none' : '';
+  if (!mine) {
+    const body = document.getElementById('extra-sub-all-body');
+    if (!body.innerHTML) {
+      // extra-sub-all-tbl を作って renderAdminExtraDates を呼ぶ
+      body.innerHTML = '<div id="extra-sub-all-tbl"></div>';
+      renderAdminExtraDates('extra-sub-all-tbl', true);
+    }
+  }
+}
+
+// カレンダーグリッド描画（自分の申請用）
+function _renderExtraCalendar(containerId, extraSet) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
   const data = loadData();
   const confirmed = currentUser && isConfirmed(currentUser);
-
-  // 月ごとにグループ化
   const monthSet = new Set();
   for (const ds of extraSet) { const [y, m] = ds.split('-'); monthSet.add(`${y}-${m}`); }
 
-  container.innerHTML = '';
   const wrap = document.createElement('div');
   wrap.className = 'months-grid';
   container.appendChild(wrap);
@@ -1223,7 +1253,6 @@ function renderExtraDatesView(containerId) {
       grid.appendChild(cell);
     });
 
-    // 月初の空白
     const fd = new Date(y, m-1, 1).getDay();
     for (let i = 0; i < fd; i++) {
       const c = document.createElement('div'); c.className = 'cal-cell empty'; grid.appendChild(c);
@@ -1261,12 +1290,10 @@ function renderExtraDatesView(containerId) {
       cell.innerHTML = html;
 
       if (isExtra && currentUser && !confirmed) {
-        const lim = (wknd || hol) ? Infinity : 5;
-        const count = Object.values(data).filter(v => v[ds]).length;
         cell.onclick = () => openExtraDateModal(ds);
-      } else if (isExtra && confirmed) {
+      } else if (isExtra && (confirmed || isPastDeadline())) {
         cell.style.cursor = 'default';
-        cell.title = '確定済みのため編集できません';
+        cell.title = confirmed ? '確定済みのため編集できません' : '申請期限終了';
       }
       grid.appendChild(cell);
     }
@@ -1288,9 +1315,10 @@ function openExtraDateModal(ds) {
   openModal(m, d, ds, curReq, limit, count);
 }
 
-// ---- 追加日程（管理者用） ----
-function renderAdminExtraDates() {
-  const container = document.getElementById('adm-extra');
+// ---- 追加日程テーブル（管理者用 & スタッフ全員閲覧用） ----
+// readonly=true のときセルをクリック不可にして再利用
+function renderAdminExtraDates(containerId = 'adm-extra', readonly = false) {
+  const container = document.getElementById(containerId);
   if (!container) return;
   const dates = loadExtraDates();
   if (!dates.length) { container.innerHTML = '<div style="padding:24px;color:#888;">追加日程はありません</div>'; return; }
@@ -1344,7 +1372,10 @@ function renderAdminExtraDates() {
         const type = (data[name] || {})[ds] || '';
         const cell = type ? `<span style="background:${(TYPE_STYLE[type]||['#eee','#333'])[0]};color:${(TYPE_STYLE[type]||['#eee','#333'])[1]};padding:1px 4px;border-radius:2px;font-size:10px;font-weight:bold;">${type}</span>` : '';
         if (type) staffCounts[name]++;
-        tbody += `<td style="cursor:pointer;" title="${name} ${m}/${d} をクリックして編集" onclick="openAdminModal('${name}','${ds}',${m},${d})">${cell}</td>`;
+        const tdAttr = readonly
+          ? ''
+          : ` style="cursor:pointer;" title="${name} ${m}/${d} をクリックして編集" onclick="openAdminModal('${name}','${ds}',${m},${d})"`;
+        tbody += `<td${tdAttr}>${cell}</td>`;
       }
     }
     tbody += '</tr>';
