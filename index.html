@@ -843,6 +843,7 @@ function rebuildAdminPanel() {
 // ============================================================
 let currentUser = '';
 let _modalTarget = ''; // モーダルで申請を操作する対象スタッフ名（管理者編集時は別人になる）
+let _adminEdit   = false; // true = 管理者が openAdminModal で開いた場合
 
 function populateLoginSelect() {
   const sel = document.getElementById('login-select');
@@ -1017,6 +1018,7 @@ const REST_DAY_TYPES = ['業', '研', '出', '×'];
 function openModal(m, d, ds, curReq, limit, count) {
   if (isPastDeadline()) { alert('申請期限を過ぎているため、申請を変更できません。'); return; }
   _modalTarget = currentUser;
+  _adminEdit   = false;
   _showTypeModal(m, d, ds, curReq, limit, count);
 }
 
@@ -1029,6 +1031,7 @@ function openAdminModal(staffName, ds, m, d) {
   const count = Object.values(data).filter(v => v[ds]).length;
   const curReq = (data[staffName] || {})[ds] || '';
   _modalTarget = staffName;
+  _adminEdit   = true;
   document.getElementById('modal-title').textContent =
     `【管理者編集】${staffName}　${m}月${d}日（${getDow(m,d)}）`;
   _buildTypeGrid(ds, curReq, limit, count, () => {
@@ -1061,6 +1064,8 @@ function _showTypeModal(m, d, ds, curReq, limit, count) {
   document.getElementById('type-modal').classList.add('open');
 }
 
+const ADMIN_ONLY_TYPES = new Set(['業', '研', '出']);
+
 function _buildTypeGrid(ds, curReq, limit, count, afterSet) {
   const rest = limit === Infinity;
   const grid = document.getElementById('type-grid');
@@ -1069,14 +1074,19 @@ function _buildTypeGrid(ds, curReq, limit, count, afterSet) {
   for (const type of types) {
     const [bg, fg] = TYPE_STYLE[type] || ['#eee','#333'];
     const btn = document.createElement('div');
+    const restricted = !_adminEdit && ADMIN_ONLY_TYPES.has(type);
     btn.className = 'type-btn' + (curReq === type ? ' selected' : '');
     btn.style.cssText = `background:${bg};color:${fg};border-color:${fg};`;
     if (rest && type === '×') btn.style.cssText += 'grid-column:1/-1;font-size:18px;';
+    if (restricted) btn.style.cssText += 'opacity:0.45;';
     const label = type === '×' ? '×（欠勤希望）' : type;
     const desc = TYPE_DESC[type] || '';
     btn.innerHTML = `${label}${desc ? `<span class="type-desc">${desc}</span>` : ''}`;
-    btn.onclick = () => { setRequest(_modalTarget, ds, type); closeModal(); afterSet(); };
-    // タッチデバイス：長押し or 2回タップで吹き出し
+    if (restricted) {
+      btn.onclick = () => alert('個人での申請はできません。\n管理者に依頼してください。');
+    } else {
+      btn.onclick = () => { setRequest(_modalTarget, ds, type); closeModal(); afterSet(); };
+    }
     btn.addEventListener('touchstart', () => btn.classList.add('tip-open'), {passive:true});
     btn.addEventListener('touchend',   () => setTimeout(() => btn.classList.remove('tip-open'), 800), {passive:true});
     grid.appendChild(btn);
