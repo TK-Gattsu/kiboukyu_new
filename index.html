@@ -317,6 +317,7 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
         <button class="btn btn-gray btn-sm" onclick="unconfirmRequests()" style="font-size:10px;padding:2px 6px;">取り消す</button>
       </div>
       <button class="btn btn-success btn-sm" onclick="exportExcel()">📥 Excelダウンロード</button>
+      <button class="btn btn-primary btn-sm" onclick="openPdfExportModal()">📄 PDF出力</button>
       <button class="btn btn-orange btn-sm" onclick="openAdmin()">📊 管理者ビュー</button>
       <button class="btn btn-gray btn-sm" onclick="clearMyData()">クリア</button>
     </div>
@@ -348,6 +349,7 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
     <strong style="color:var(--blue);">管理者ビュー</strong>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-success btn-sm" onclick="exportExcel()">📥 Excelダウンロード</button>
+      <button class="btn btn-primary btn-sm" onclick="openPdfExportModal()">📄 PDF出力</button>
       <button class="btn btn-gray btn-sm" onclick="closeAdmin()">← 戻る</button>
     </div>
   </div>
@@ -380,6 +382,24 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
       <button class="btn btn-primary" style="flex:1;" onclick="saveEditStaff()">保存</button>
       <button class="btn btn-gray"    style="flex:1;" onclick="closeEditModal()">キャンセル</button>
     </div>
+  </div>
+</div>
+
+<!-- PDF出力モーダル -->
+<div class="modal-overlay" id="pdf-export-modal">
+  <div class="modal" style="min-width:300px;">
+    <h3>📄 PDF出力</h3>
+    <div style="font-size:12px;color:#666;margin-bottom:10px;">出力する内容を選択してください（複数選択可）</div>
+    <div id="pdf-export-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn btn-gray btn-sm" onclick="pdfSelectAll(true)">全選択</button>
+      <button class="btn btn-gray btn-sm" onclick="pdfSelectAll(false)">全解除</button>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="exportPdf()">PDF出力</button>
+      <button class="btn btn-gray" style="flex:1;" onclick="closePdfExportModal()">キャンセル</button>
+    </div>
+    <div style="font-size:11px;color:#888;margin-top:10px;">印刷ダイアログで「PDFとして保存」を選択してください</div>
   </div>
 </div>
 
@@ -1828,6 +1848,7 @@ function renderStaffMgmt() {
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button class="btn btn-danger btn-sm" onclick="confirmClearAll()">🗑 全申請データを削除</button>
       <button class="btn btn-success btn-sm" onclick="exportExcel()">📥 Excelダウンロード</button>
+      <button class="btn btn-primary btn-sm" onclick="openPdfExportModal()">📄 PDF出力</button>
       <span id="data-summary" style="font-size:11px;color:#666;"></span>
     </div>
     <div style="font-size:11px;color:#888;margin-top:8px;">データはこのブラウザのlocalStorageに保存されています。</div>
@@ -2121,6 +2142,101 @@ function confirmClearAll() {
 }
 
 // ============================================================
+// PDFエクスポート（印刷ダイアログ経由で「PDFとして保存」）
+// ============================================================
+function openPdfExportModal() {
+  const months = getMonths();
+  const list = document.getElementById('pdf-export-list');
+  const lblStyle = 'display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:5px 8px;border:1px solid var(--border);border-radius:4px;';
+  let html = months.map(m =>
+    `<label style="${lblStyle}"><input type="checkbox" class="pdf-export-target" value="${m}" checked> ${getYear()}年${m}月</label>`
+  ).join('');
+  if (loadExtraDates().length) {
+    html += `<label style="${lblStyle}"><input type="checkbox" class="pdf-export-target" value="extra" checked> 📅 追加日程</label>`;
+  }
+  list.innerHTML = html;
+  document.getElementById('pdf-export-modal').classList.add('open');
+}
+function closePdfExportModal() { document.getElementById('pdf-export-modal').classList.remove('open'); }
+function pdfSelectAll(on) {
+  document.querySelectorAll('.pdf-export-target').forEach(c => c.checked = on);
+}
+
+// レンダリング済みテーブルから編集用の属性を除去して静的化する
+function _stripInteractive(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('[onclick]').forEach(el => {
+    el.removeAttribute('onclick'); el.removeAttribute('title'); el.style.cursor = 'default';
+  });
+  return div.innerHTML;
+}
+
+function exportPdf() {
+  const sel = [...document.querySelectorAll('.pdf-export-target:checked')].map(c => c.value);
+  if (!sel.length) { toast('出力する内容を選択してください'); return; }
+  const months = sel.filter(v => v !== 'extra').map(Number);
+  const withExtra = sel.includes('extra');
+  const y = getYear();
+  const now = new Date();
+  const stamp = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()}`;
+  const section = (title, tableHtml) =>
+    `<section class="pdf-section"><h2>${title}</h2><div class="pdf-meta">出力日: ${stamp}</div>${tableHtml}</section>`;
+
+  // 既存レンダラーを一時コンテナで実行してテーブルHTMLを取得
+  const tmp = document.createElement('div');
+  tmp.id = '_pdf-tmp';
+  tmp.style.display = 'none';
+  document.body.appendChild(tmp);
+  let sections = '';
+  for (const m of months) {
+    renderAdminTable(m, '_pdf-tmp');
+    sections += section(`希望休申請一覧　${y}年${m}月`, _stripInteractive(tmp.innerHTML));
+  }
+  if (withExtra) {
+    renderAdminExtraDates('_pdf-tmp', true);
+    sections += section('希望休申請一覧　追加日程', _stripInteractive(tmp.innerHTML));
+  }
+  tmp.remove();
+
+  const label = [...months.map(m => `${m}月`), ...(withExtra ? ['追加日程'] : [])].join('・');
+  const appStyles = [...document.querySelectorAll('style')].map(s => s.textContent).join('\n');
+  const printCss = `
+    body { background: #fff !important; margin: 0; padding: 0; }
+    .pdf-section { page-break-after: always; }
+    .pdf-section:last-child { page-break-after: auto; }
+    .pdf-section h2 { font-size: 15px; color: #1F4E79; margin: 0 0 2px; }
+    .pdf-meta { font-size: 10px; color: #666; margin: 0 0 6px; }
+    .admin-table-wrap { max-height: none !important; overflow: visible !important; border: none !important; }
+    .admin-table th, .admin-table thead th, .admin-table td { position: static !important; }
+    .admin-table { font-size: 10px; }
+    .admin-table thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    @page { size: A4 landscape; margin: 8mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  `;
+  const docTitle = `希望休申請_${y}年_${label}`;
+  const printHtml = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${docTitle}</title>` +
+    `<style>${appStyles}</style><style>${printCss}</style></head><body>${sections}</body></html>`;
+
+  // 隠しiframeで印刷（ポップアップブロック回避）
+  const old = document.getElementById('_pdf-print-frame');
+  if (old) old.remove();
+  const iframe = document.createElement('iframe');
+  iframe.id = '_pdf-print-frame';
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const idoc = iframe.contentDocument;
+  idoc.open(); idoc.write(printHtml); idoc.close();
+  closePdfExportModal();
+  toast('印刷ダイアログで「PDFとして保存」を選んでください');
+  setTimeout(() => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+  }, 300);
+}
+
+// ============================================================
 // Excelエクスポート
 // ============================================================
 function exportExcel() {
@@ -2226,6 +2342,9 @@ document.getElementById('pw-modal').addEventListener('click', e => {
 });
 document.getElementById('rules-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('rules-modal')) closeRulesModal();
+});
+document.getElementById('pdf-export-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('pdf-export-modal')) closePdfExportModal();
 });
 document.getElementById('edit-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') saveEditStaff();
