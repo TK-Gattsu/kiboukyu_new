@@ -403,6 +403,18 @@ body.mobile-view .pdf-list .pdf-meta { width: 100%; }
   </div>
 </div>
 
+<!-- 細則PDFビューアモーダル -->
+<div class="modal-overlay" id="pdf-viewer-modal">
+  <div class="modal">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <h3 id="pdf-viewer-title" style="margin:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></h3>
+      <button class="btn btn-success btn-sm" onclick="downloadPdf(_pdfViewerIndex)">⬇ ダウンロード</button>
+      <button class="btn btn-gray btn-sm" onclick="closePdfViewer()">✕ 閉じる</button>
+    </div>
+    <div id="pdf-viewer-body" style="flex:1;overflow:auto;background:#555;border-radius:4px;padding:8px;"></div>
+  </div>
+</div>
+
 <!-- トースト通知 -->
 <div class="toast" id="toast"></div>
 
@@ -1958,16 +1970,67 @@ function deletePdf(i) {
   renderStaffMgmt();
 }
 
-function viewPdf(i) {
+// PDF.js を初回表示時のみCDNから読み込む
+let _pdfjsLoading = null;
+let _pdfViewerIndex = -1;
+
+function _loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (_pdfjsLoading) return _pdfjsLoading;
+  _pdfjsLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = () => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve();
+    };
+    s.onerror = () => { _pdfjsLoading = null; reject(new Error('PDF.jsの読み込みに失敗しました')); };
+    document.head.appendChild(s);
+  });
+  return _pdfjsLoading;
+}
+
+async function viewPdf(i) {
   const pdf = loadRulePdfs()[i];
   if (!pdf) return;
-  const base64 = pdf.data.split(',')[1];
-  const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  // タブが開いた後にURLを解放（少し遅延）
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  _pdfViewerIndex = i;
+  const modal = document.getElementById('pdf-viewer-modal');
+  const body  = document.getElementById('pdf-viewer-body');
+  document.getElementById('pdf-viewer-title').textContent = pdf.name;
+  body.innerHTML = '<div style="color:#fff;padding:24px;text-align:center;">読み込み中...</div>';
+  modal.classList.add('open');
+  try {
+    await _loadPdfJs();
+    const base64 = pdf.data.split(',')[1];
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+    body.innerHTML = '';
+    const availWidth = Math.max(body.clientWidth - 16, 200);
+    const ratio = window.devicePixelRatio || 1;
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const scale = availWidth / page.getViewport({ scale: 1 }).width;
+      const vp = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.floor(vp.width * ratio);
+      canvas.height = Math.floor(vp.height * ratio);
+      canvas.style.cssText = `width:${vp.width}px;height:${vp.height}px;display:block;margin:0 auto 10px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);`;
+      body.appendChild(canvas);
+      await page.render({
+        canvasContext: canvas.getContext('2d'),
+        viewport: vp,
+        transform: ratio !== 1 ? [ratio, 0, 0, ratio, 0, 0] : null,
+      }).promise;
+    }
+  } catch (err) {
+    body.innerHTML = `<div style="color:#fff;padding:24px;text-align:center;">表示に失敗しました（${escapeHtml(err.message)}）<br>「⬇ ダウンロード」からファイルを開いてご確認ください。</div>`;
+  }
+}
+
+function closePdfViewer() {
+  document.getElementById('pdf-viewer-modal').classList.remove('open');
+  document.getElementById('pdf-viewer-body').innerHTML = '';
 }
 
 function downloadPdf(i) {
@@ -2345,6 +2408,9 @@ document.getElementById('rules-modal').addEventListener('click', e => {
 });
 document.getElementById('pdf-export-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('pdf-export-modal')) closePdfExportModal();
+});
+document.getElementById('pdf-viewer-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('pdf-viewer-modal')) closePdfViewer();
 });
 document.getElementById('edit-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') saveEditStaff();
