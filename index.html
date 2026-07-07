@@ -1064,7 +1064,7 @@ function openAdminModal(staffName, ds, m, d) {
   _modalTarget = staffName;
   _adminEdit   = true;
   document.getElementById('modal-title').textContent =
-    `【管理者編集】${staffName}　${m}月${d}日（${getDow(m,d)}）`;
+    `【管理者編集】${staffName}　${m}月${d}日（${['日','月','火','水','木','金','土'][dow]}）`;
   _buildTypeGrid(ds, curReq, limit, count, () => {
     invalidateAdminCache();
     // 管理者テーブルを再描画
@@ -1136,7 +1136,8 @@ function closeModal() { document.getElementById('type-modal').classList.remove('
 // ============================================================
 function renderMySummary() {
   const container = document.getElementById('my-summary');
-  const myData = loadData()[currentUser] || {};
+  const allData = loadData();
+  const myData = allData[currentUser] || {};
   const entries = Object.entries(myData).sort((a,b) => a[0].localeCompare(b[0]));
   const counts  = {};
   entries.forEach(([,t]) => counts[t] = (counts[t]||0) + 1);
@@ -1158,17 +1159,21 @@ function renderMySummary() {
   html += '<table style="border-collapse:collapse;width:100%;max-width:520px;">';
   html += '<thead><tr style="background:var(--blue);color:white;"><th style="padding:6px 10px;text-align:left;">日付</th><th style="padding:6px 10px;">曜</th><th style="padding:6px 10px;">種別</th><th style="padding:6px 10px;">申請/上限</th><th style="padding:6px 10px;">操作</th></tr></thead><tbody>';
 
+  const staffAll = getAllStaff();
   for (const [ds, type] of entries) {
-    const [,mm,dd] = ds.split('-').map(Number);
-    const rest = isRestDay(mm, dd);
-    const count = getDayCount(mm, dd);
-    const limit = getLimit(mm, dd);
+    // 年をまたぐ追加日程があるため、日付文字列の年で曜日・祝日・上限を判定する
+    const [yy,mm,dd] = ds.split('-').map(Number);
+    const dowN = new Date(yy, mm-1, dd).getDay();
+    const rest = dowN === 0 || dowN === 6 || !!getHolidays()[ds];
+    const count = staffAll.filter(n => (allData[n]||{})[ds]).length;
+    const limit = rest ? Infinity : 5;
     const [bg,fg] = TYPE_STYLE[type] || ['#eee','#333'];
     const over = !rest && count > limit;
     const limitTxt = rest ? '上限なし' : (over ? `${count}/${limit} ⚠` : `${count}/${limit}`);
+    const dateTxt = (yy === getYear() ? '' : `${yy}年`) + `${mm}月${dd}日`;
     html += `<tr style="border-bottom:1px solid #eee;${over?'background:#fff5f5':''}">
-      <td style="padding:5px 10px;font-weight:bold;">${mm}月${dd}日</td>
-      <td style="padding:5px 10px;text-align:center;">${getDow(mm,dd)}</td>
+      <td style="padding:5px 10px;font-weight:bold;">${dateTxt}</td>
+      <td style="padding:5px 10px;text-align:center;">${['日','月','火','水','木','金','土'][dowN]}</td>
       <td style="padding:5px 10px;text-align:center;"><span style="background:${bg};color:${fg};padding:2px 8px;border-radius:4px;font-weight:bold;">${type}</span></td>
       <td style="padding:5px 10px;text-align:center;${over?'color:var(--red);font-weight:bold;':''}">${limitTxt}</td>
       <td style="padding:5px 10px;text-align:center;"><button class="btn btn-danger btn-sm" onclick="delReq('${ds}')">削除</button></td>
