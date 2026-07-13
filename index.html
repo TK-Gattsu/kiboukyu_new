@@ -2277,7 +2277,15 @@ function exportPdf() {
     .pdf-meta { font-size: 10px; color: #666; margin: 0 0 6px; }
     .admin-table-wrap { max-height: none !important; overflow: visible !important; border: none !important; }
     .admin-table th, .admin-table thead th, .admin-table td { position: static !important; }
-    .admin-table { font-size: 10px; }
+    /* 全スタッフ列をページ幅に収める（右端切れ防止）。
+       width:100%指定でtable-layout:fixedを有効化し、min-width類は!importantで無効化する */
+    .admin-table { width: 100% !important; min-width: 0 !important; table-layout: fixed !important; font-size: 8px; }
+    .admin-table th, .admin-table td { min-width: 0 !important; padding: 1px !important; overflow: hidden; }
+    .admin-table thead th.col-name { width: 44px !important; }
+    .admin-table thead th { font-size: 7px !important; white-space: normal !important; word-break: break-all; }
+    .admin-table thead th span { font-size: 6px !important; }
+    .admin-table td.col-name { white-space: normal !important; }
+    .admin-table td span { font-size: 7.5px !important; padding: 0 1px !important; }
     .admin-table thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
     @page { size: A4 landscape; margin: 8mm; }
