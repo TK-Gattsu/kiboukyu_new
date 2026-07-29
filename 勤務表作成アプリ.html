@@ -168,7 +168,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
 <header>
   <h1>勤務表作成アプリ</h1>
-  <div class="subtitle">2026年10月～12月＋追加日程（2027/1/1～1/11）｜日直・夜勤・振休・残り当番｜v8.4</div>
+  <div class="subtitle">2026年10月～12月＋追加日程（2027/1/1～1/11）｜日直・夜勤・振休・残り当番｜v8.6</div>
 </header>
 
 <div class="top-bar">
@@ -2905,8 +2905,10 @@ function delLeave(i) {
    Excel / 印刷（PDF）出力
    ============================================================ */
 const NOTE_LINES = [
-  "【注 意】①振休の変更は、原則交振です（薬剤部 有給休暇等の取得に関する規程より）　②有休および時間休を取得する場合は、必ず薬剤部長の許可を得てから記載してください",
-  "③時間休を追記する場合は、取得時間の数字を記載してください 例）始業から12時まで：～12、12時から終業まで：12～、10時から15時まで：10～15　④調剤・注射・外ケモ・周術期・緩和・DIは必ず1人以上勤務、各病棟は担当者が必ず2人以上勤務となるよう割り振られております。休みの追加・変更は必ず各部門内で問題無いこと確認した上で行ってください",
+  "①振休の変更は、原則交換です（薬剤部 有給休暇等の取得に関する規程より）",
+  "②有休および時間休を取得する場合は、必ず薬剤部長の許可を得てから記載してください",
+  "③時間休を追記する場合は、取得時間の数字を記載してください 例）始業から12時まで：～12、12時から終業まで：12～、10時から15時まで：10～15",
+  "④調剤・注射・外ケモ・周術期・緩和・DIは必ず1人以上勤務、各病棟は担当者が必ず2人以上勤務となるよう割り振られております。休みの追加・変更は必ず各部門内で問題無いこと確認した上で行ってください",
 ];
 function blockDefs() {
   return [
@@ -2944,9 +2946,11 @@ function teamStartCols(base) {  // base = スタッフ先頭の列番号
 }
 /* 7-9月最終確定PDFと同じマーク別の塗り色 */
 const EXPORT_MARK_BG = { "入": "D9E1F2", "明": "8EA9DB", "残": "D9D9D9", "出": "9999FF",
-                         "夏": "FFFF99", "有": "FF9933", "業": "99CCFF" };
+                         "夏": "FFFF99", "有": "FF9933", "業": "99CCFF",
+                         "特": "FAC090", "研": "93CDDD" };
+const LEAVE_BG = "E8E8E8";   // 産休・育休等は薄いグレー
 function exportBgOf(name, iso) {
-  if (onLeave(name, iso)) return "808080";
+  if (onLeave(name, iso)) return LEAVE_BG;
   const raw = (DATA[name] || {})[iso] || "";
   if (!raw) return null;
   if (raw.includes("振")) return "FFC000";
@@ -2976,8 +2980,8 @@ async function exportExcel() {
     });
     ws.getColumn(1).width = 7.5; ws.getColumn(2).width = 3.2;
     ws.getColumn(3).width = 11; ws.getColumn(4).width = 6.5;
-    for (let i = 0; i < STAFF.length; i++) ws.getColumn(SBASE + i).width = 3.4;
-    ws.getColumn(NCOL - 1).width = 4.6; ws.getColumn(NCOL).width = 4.6;
+    for (let i = 0; i < STAFF.length; i++) ws.getColumn(SBASE + i).width = 3.5;
+    ws.getColumn(NCOL - 1).width = 5; ws.getColumn(NCOL).width = 5;
 
     // ヘッダー2行（氏名行は濃紺002060＋白文字 = 最終確定PDFと同じ）
     const NAVY_FONT = { ...FONT(8), bold: true, color: { argb: "FFFFFFFF" } };
@@ -3026,7 +3030,7 @@ async function exportExcel() {
         const bg = exportBgOf(n, iso);
         if (bg) cell.fill = fill("FF" + bg);
         if (onLeave(n, iso)) {
-          cell.font = { ...FONT(7), color: { argb: "FFFFFFFF" }, italic: true };
+          cell.font = { ...FONT(7), color: { argb: "FF888888" }, italic: true };
         }
       });
       put(NCOL - 1, nikichokuCountOf(iso), FONT(8));
@@ -3043,14 +3047,14 @@ async function exportExcel() {
     }
     ws.getRow(r).height = 30;
     r += 2;
-    // 注意書き
-    for (const line of NOTE_LINES) {
-      ws.mergeCells(r, 1, r, NCOL);
-      const cell = ws.getCell(r, 1);
-      cell.value = line; cell.font = { ...FONT(8), bold: true };
-      cell.alignment = { horizontal: "left", vertical: "middle" };
+    // 注意書き（1行目のA列に「【注 意】」、各行のB列に本文）
+    NOTE_LINES.forEach((line, i) => {
+      const c1 = ws.getCell(r, 1); c1.value = i === 0 ? "【注 意】" : "";
+      c1.font = FONT(10); c1.alignment = { horizontal: "left", vertical: "middle" };
+      const c2 = ws.getCell(r, 2); c2.value = line;
+      c2.font = FONT(10); c2.alignment = { horizontal: "left", vertical: "middle" };
       r++;
-    }
+    });
     // 最終ブロックの下に「次回へ繰り越し」グリッド（7-9月版の様式）
     if (blk.title === "追加日程") {
       r += 1;
@@ -3172,13 +3176,14 @@ th.nm { background: #002060; color: #FFFFFF; }
           if (i === 0) cls.push("tl");
           if (t.includes("\n") || t.length >= 3) cls.push("small");
           const bg = exportBgOf(n, iso);
-          const sty = bg ? ` style="background:#${bg};${bg === "808080" ? "color:#fff;font-style:italic;" : ""}"` : "";
+          const lv2 = onLeave(n, iso);
+          const sty = lv2 ? ` style="background:#${LEAVE_BG};color:#888;font-style:italic;"` : (bg ? ` style="background:#${bg};"` : "");
           html += `<td${cls.length ? ` class="${cls.join(" ")}"` : ""}${sty}>${esc(t).replace("\n", "<br>")}</td>`;
         }
       }
       html += `<td class="tl">${nikichokuCountOf(iso)}</td><td>${furikyuCountOf(iso)}</td></tr>`;
     }
-    html += `</tbody></table><div class="notes">${NOTE_LINES.map(esc).join("<br>")}</div>`;
+    html += `</tbody></table><div class="notes"><b>【注 意】</b><br>${NOTE_LINES.map(esc).join("<br>")}</div>`;
     if (blk.title === "追加日程") {
       const carryAll = [..._FSTATE.carried, ..._FSTATE.pending];
       const byName = {};
