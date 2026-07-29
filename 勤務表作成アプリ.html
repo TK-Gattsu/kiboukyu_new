@@ -1,0 +1,3389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>勤務表作成アプリ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+:root {
+  --blue: #1F4E79;
+  --blue-light: #D6EAF8;
+  --green: #276221;
+  --green-light: #E2EFDA;
+  --orange: #BF5B00;
+  --orange-light: #FCE4C0;
+  --red: #CC0000;
+  --red-light: #FADBD8;
+  --purple: #7B5EA7;
+  --purple-light: #EAD8F5;
+  --gray: #F5F5F5;
+  --border: #CCCCCC;
+  --weekend: #EBF3FB;
+  --holiday: #FFF0E0;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Meiryo', 'MS Gothic', sans-serif; background: #f0f2f5; color: #333; font-size: 13px; }
+
+header {
+  background: var(--blue); color: white;
+  padding: 12px 20px; display: flex; align-items: center; gap: 16px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+header h1 { font-size: 17px; font-weight: bold; }
+header .subtitle { font-size: 11px; opacity: 0.8; }
+
+.top-bar {
+  background: white; padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.btn {
+  padding: 6px 14px; border: none; border-radius: 4px;
+  cursor: pointer; font-size: 12px; font-weight: bold; white-space: nowrap;
+}
+.btn-primary  { background: var(--blue);   color: white; }
+.btn-primary:hover  { background: #163a5c; }
+.btn-success  { background: var(--green);  color: white; }
+.btn-success:hover  { background: #1a4016; }
+.btn-danger   { background: var(--red);    color: white; }
+.btn-danger:hover   { background: #990000; }
+.btn-gray     { background: #888;          color: white; }
+.btn-gray:hover     { background: #666; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.tab-bar {
+  background: white; padding: 0 20px;
+  border-bottom: 2px solid var(--blue);
+  display: flex; gap: 4px;
+}
+.tab {
+  padding: 8px 22px; cursor: pointer; border: 1px solid var(--border);
+  border-bottom: none; border-radius: 6px 6px 0 0; background: #eee;
+  font-weight: bold; font-size: 13px;
+}
+.tab.active { background: var(--blue); color: white; border-color: var(--blue); }
+
+.notice {
+  margin: 10px 20px 0; padding: 8px 12px; border-radius: 6px;
+  background: #FFF6DE; border: 1px solid #E8C96A; font-size: 12px;
+}
+.legend { margin: 10px 20px 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; }
+.legend .mark-chip { padding: 2px 8px; border-radius: 3px; font-weight: bold; }
+
+.table-wrap {
+  margin: 10px 20px 20px; background: white; border: 1px solid var(--border);
+  border-radius: 6px; overflow: auto; max-height: calc(100vh - 250px);
+}
+table { border-collapse: separate; border-spacing: 0; }
+th, td {
+  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  text-align: center; vertical-align: middle; font-size: 12px; background: white;
+}
+th { position: sticky; z-index: 3; background: var(--gray); }
+tr.team-row th { top: 0; height: 22px; font-size: 11px; }
+tr.name-row th { top: 22px; height: 34px; min-width: 38px; font-size: 11px; padding: 2px; }
+td { height: 26px; min-width: 38px; cursor: pointer; }
+td.noedit { cursor: default; }
+th.sticky-l, td.sticky-l { position: sticky; left: 0; z-index: 2; }
+th.sticky-l2, td.sticky-l2 { position: sticky; left: 62px; z-index: 2; }
+tr.team-row th.sticky-l, tr.name-row th.sticky-l,
+tr.team-row th.sticky-l2, tr.name-row th.sticky-l2,
+tr.team-row th.sticky-l3, tr.name-row th.sticky-l3 { z-index: 4; }
+td.datecell { min-width: 62px; font-weight: bold; cursor: default; font-size: 11px; }
+td.yobicell { min-width: 28px; cursor: default; }
+td.countcell { min-width: 44px; cursor: default; font-size: 11px; color: #666; }
+td.countcell.over { background: var(--red-light); color: var(--red); font-weight: bold; }
+.team-border { border-left: 2px solid #888 !important; }
+tr.wknd td { background: var(--weekend); }
+tr.hol td { background: var(--holiday); }
+tr.total-row td { background: #F0F0F0; font-size: 11px; color: #555; cursor: default; font-weight: bold; }
+.holname { font-size: 9px; color: var(--red); display: block; }
+
+.mark { display: block; width: 100%; height: 26px; line-height: 26px; font-weight: bold; border-radius: 2px; overflow: hidden; }
+.clamp { display: block; height: 26px; overflow: hidden; }
+.mk-特 { color: #555555; background: #EEEEEE; }
+.mk-夏 { color: #BF5B00; background: #FCE4C0; }
+.mk-有 { color: #276221; background: #E2EFDA; }
+.mk-振 { color: #7B5EA7; background: #EAD8F5; font-size: 10px; }
+.mk-x  { color: #CC0000; background: #FADBD8; }
+.mk-出 { color: #883300; background: #FADBD8; }
+.mk-業 { color: #AA0044; background: #F8D7DA; }
+.mk-研 { color: #1F4E79; background: #D6EAF8; }
+.mk-nichoku { color: #1F4E79; background: #BDD7EE; }
+.mk-入 { color: #FFFFFF; background: #1F4E79; }
+.mk-明 { color: #333333; background: #D9E8F5; }
+.furi2 { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 26px; overflow: hidden; }
+.furi2 .fdate { font-size: 12px; line-height: 12px; white-space: nowrap; transform: scale(0.62); transform-origin: center; }
+.furi2 span:last-child { font-size: 12px; line-height: 13px; white-space: nowrap; transform: scale(0.85); transform-origin: center; }
+.lvin { display: block; white-space: nowrap; line-height: 12px; transform: scale(0.62); transform-origin: center; }
+.mkin { display: block; white-space: nowrap; line-height: 26px; transform: scale(0.62); transform-origin: center; }
+td.sc { overflow: hidden; }
+td.sc .mark { font-size: 12px; overflow: hidden; }
+#main-table { table-layout: fixed; }
+#main-table td { height: 26px; }
+.mk-残 { color: #1F4E79; background: #D6EAF8; font-weight: bold; }
+th.sticky-l4, td.sticky-l4 { position: sticky; left: 114px; z-index: 2; }
+th.sticky-l5, td.sticky-l5 { position: sticky; left: 180px; z-index: 2; }
+tr.team-row th.sticky-l4, tr.name-row th.sticky-l4,
+tr.team-row th.sticky-l5, tr.name-row th.sticky-l5 { z-index: 4; }
+td.jimucell { min-width: 66px; max-width: 66px; font-size: 9px; color: #555; cursor: pointer; overflow: hidden; white-space: normal; line-height: 11px; }
+td.yakincell { min-width: 46px; cursor: default; font-size: 10px; color: #1F4E79; font-weight: bold; }
+.leave-mark { display: flex; align-items: center; justify-content: center; width: 100%; height: 26px; font-size: 9px; color: #999; background: #E8E8E8; font-style: italic; white-space: nowrap; overflow: hidden; }
+.leave-mark.long { font-size: 12px; }
+#leave-modal {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200;
+}
+.leave-box {
+  background: white; border-radius: 8px; max-width: 560px; margin: 60px auto;
+  padding: 18px; box-shadow: 0 8px 30px rgba(0,0,0,0.4); max-height: 75vh; overflow: auto;
+}
+.leave-box h3 { font-size: 15px; color: var(--blue); margin-bottom: 4px; }
+.leave-box .hint { font-size: 11px; color: #888; margin-bottom: 10px; }
+.leave-box table { width: 100%; margin-bottom: 12px; }
+.leave-box th, .leave-box td { padding: 4px 6px; font-size: 12px; border-bottom: 1px solid var(--border); }
+.leave-box select, .leave-box input { padding: 4px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; }
+.leave-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+th.sticky-l3, td.sticky-l3 { position: sticky; left: 90px; z-index: 2; }
+td.hancell { min-width: 24px; cursor: default; font-size: 11px; color: #555; font-weight: bold; }
+
+#popup {
+  position: absolute; z-index: 100; background: white; border: 1px solid #999;
+  border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); padding: 8px;
+  display: none; width: 190px;
+}
+#popup .pop-title { font-size: 11px; color: #666; margin-bottom: 6px; font-weight: bold; }
+#popup .marks { display: flex; flex-wrap: wrap; gap: 4px; }
+#popup button {
+  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+  padding: 5px 0; width: 40px; font-weight: bold; font-size: 12px;
+}
+#popup .wide { width: 100%; margin-top: 6px; }
+
+.warn-list { margin: 6px 20px 0; font-size: 12px; color: var(--red); }
+footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>勤務表作成アプリ</h1>
+  <div class="subtitle">2026年10月～12月＋追加日程（2027/1/1～1/11）｜日直・夜勤・振休・残り当番｜v8.4</div>
+</header>
+
+<div class="top-bar">
+  <b style="font-size:11px;color:#888;">準備:</b>
+  <button class="btn btn-success" onclick="fillWeekendX()">希望休の連休に×</button>
+  <b style="font-size:11px;color:#888;margin-left:8px;">割り当て:</b>
+  <button class="btn btn-primary" onclick="assignNikichoku()">1. 日直</button>
+  <button class="btn btn-primary" onclick="assignYakin()">2. 夜勤</button>
+  <button class="btn btn-primary" onclick="assignFurikyu()">3. 振休</button>
+  <button class="btn btn-primary" onclick="assignZan()">4. 残り当番</button>
+  <b style="font-size:11px;color:#888;margin-left:8px;">クリア:</b>
+  <button class="btn btn-gray btn-sm" onclick="clearNikichoku()">日直</button>
+  <button class="btn btn-gray btn-sm" onclick="clearYakin()">夜勤</button>
+  <button class="btn btn-gray btn-sm" onclick="clearFurikyu()">振休</button>
+  <button class="btn btn-gray btn-sm" onclick="clearZan()">残り当番</button>
+  <button class="btn btn-gray btn-sm" onclick="clearBatsu()">×のみ</button>
+  <button class="btn btn-orange" onclick="openCarryModal()" style="margin-left:8px;">振休繰越管理</button>
+  <button class="btn btn-gray" id="undo-btn" onclick="undoLast()" disabled style="margin-left:8px;">↩ 元に戻す</button>
+  <button class="btn btn-gray" id="history-btn" onclick="openHistoryModal()" disabled>⏮ 履歴から戻る</button>
+  <span id="save-status" style="font-size:11px;color:#888;"></span>
+</div>
+<div class="top-bar" style="border-top:none;">
+  <b style="font-size:11px;color:#888;">設定:</b>
+  <button class="btn btn-primary btn-sm" onclick="openPeriodModal()">期間・次期作成</button>
+  <button class="btn btn-gray btn-sm" onclick="openHolidayModal()">祝日扱い</button>
+  <button class="btn btn-gray btn-sm" onclick="openNightModal()">夜勤条件</button>
+  <button class="btn btn-gray btn-sm" onclick="openZanModal()">残当・NG組み合わせ</button>
+  <button class="btn btn-gray btn-sm" onclick="openEventModal()">行事設定</button>
+  <button class="btn btn-gray btn-sm" onclick="openWorkModal()">勤務条件（グループ・曜日）</button>
+  <button class="btn btn-gray btn-sm" onclick="openLeaveModal()">長期休暇</button>
+  <button class="btn btn-gray btn-sm" onclick="openPartModal()">割り当て参加</button>
+  <b style="font-size:11px;color:#888;margin-left:8px;">出力:</b>
+  <button class="btn btn-success btn-sm" onclick="exportExcel()">Excel出力</button>
+  <button class="btn btn-success btn-sm" onclick="exportPrint()">印刷（PDF）</button>
+  <b style="font-size:11px;color:#888;margin-left:8px;">履歴:</b>
+  <button class="btn btn-primary btn-sm" onclick="saveCurrentSchedule()">この勤務表を保存</button>
+  <button class="btn btn-gray btn-sm" onclick="openArchiveModal()">過去の勤務表・年間集計</button>
+  <b style="font-size:11px;color:#888;margin-left:8px;">データ:</b>
+  <button class="btn btn-gray btn-sm" onclick="importFromKiboushu()">希望休取込</button>
+  <button class="btn btn-success btn-sm" onclick="exportJson()">JSON書出</button>
+  <label class="btn btn-gray btn-sm" style="display:inline-block;">JSON読込<input type="file" accept=".json" style="display:none" onchange="importJson(this)"></label>
+  <button class="btn btn-danger btn-sm" onclick="resetToSeed()">初期データに戻す</button>
+</div>
+
+<div class="tab-bar" id="tab-bar"></div>
+
+<div class="notice" id="missing-notice">ℹ 申請データは全42名分・全期間を反映済み（212件・2026/7/14時点）。</div>
+
+<div id="memo-box" style="margin:10px 20px 0;">
+  <div style="display:flex; align-items:center; gap:8px;">
+    <button class="btn btn-gray btn-sm" id="memo-toggle" onclick="toggleMemo()">▶ メモを開く</button>
+    <span style="font-size:11px; color:#888;">設定内容・条件・申し送りなどを自由にメモできます（このブラウザに保存されます）</span>
+    <span id="memo-saved" style="font-size:11px; color:#888;"></span>
+  </div>
+  <textarea id="memo-area" style="display:none; width:calc(100% - 0px); max-width:900px; height:140px; margin-top:6px; padding:8px; font-size:12px; font-family:'Meiryo','MS Gothic',sans-serif; line-height:1.6; border:1px solid var(--border); border-radius:6px; resize:vertical;" placeholder="例）&#10;・○○さんは12月から夜勤復帰（割り当て参加設定済み）&#10;・△△会議は今回だけ11/26に変更&#10;・□□さんの振◆は10/24の出勤分&#10;・年末年始の繰越を優先して調整すること" oninput="onMemoInput()"></textarea>
+</div>
+
+<div class="legend" id="legend"></div>
+<div class="warn-list" id="warn-list"></div>
+<div class="table-wrap" id="table-wrap"></div>
+
+<footer>
+  データはこのブラウザのlocalStorage（kinmu_schedule）に保存されています。セルをクリックすると編集できます。<br>
+  平日の休み上限は5人（特・夏・有・業・出・振・振◆をカウント）。超過した日は申請数が赤く表示されます。<br>
+  日直（○）: 土日・祝日とも1本のサイクルでA→B→…→Eの班輪番（「班」列に表示）。土日4人・祝日5人（最大5人）、課長・係長・主任を最低1人、他・事務は対象外。
+  前回シフトの最終休日（9/27=E班）の次なのでA班スタート。<br>
+  日付セルをクリックすると任意の日を「祝日扱い」にできます（12/29～31は設定済み）。国民の祝日は解除不可。<br>
+  「長期休暇設定」で育休・産休・病欠などの期間を登録すると、その間は割り当て対象外（セルはグレー表示・休み人数カウント除外）になります。<br>
+  「希望休の連休に×」: 有・夏・特・振◆の隣にある連続した休日（土日祝）に「×」を置き連休化します（1〜4の割り当て前に実行）。取り消しは「クリア: ×のみ」。<br>
+  夜勤（入・明）: 1日1人・入と明は連続・間隔は1週間以上・明け翌日は必ず休み（土日祝・特・夏・有・振・振◆）。振休権利があれば日付付き「M/D振」、無ければ日付なし「振」（警告表示）。
+  前回シフトの9/30入り=町田さんの「明」を10/1に自動配置。「班」列の右に各日の夜勤者（入）を表示。条件は「夜勤条件設定」で変更できます。<br>
+  振休: 日直（○）と土日祝の「業」「入」「明」で1日付与（前回からの繰越19件も含む）。原則直後の週・最長2週間以内に「M/D振」（M/D=出勤日）として配置。
+  無理なら1週間以内の前付与、5連休以上の出勤分は期間内配置でOK。夜勤明けの「振」があれば振休として充当。2件たまった場合は連続配置を優先。
+  振◆は動かさず対応する出勤（前14日/後7日以内）とマッチングし、枠内に出勤日を表示します。順番は 日直 → 夜勤 → 振休 の順に実行してください。<br>
+  「振休繰越管理」で権利の一覧（配置状況）を確認でき、任意の分を次回の勤務表へ繰越指定できます。<br>
+  残り当番（残）: 平日に1日2人・間隔1週間以上・期間内で均等。対象外とNG組み合わせ（日直/残り当番）は「残当・NG組み合わせ」で設定。実行順は 日直 → 夜勤 → 振休 → 残り当番。<br>
+  連続勤務は6日まで（超えると警告。自動割り当ても6日を超えないよう選出）。
+  事務連絡列: 固定行事（第n曜日・「行事設定」で管理、必須出勤者の指定可）＋セルクリックで日別の追記。
+  「勤務条件」でグループ最低出勤（調剤1人以上・病棟2人以上など初期設定済み）と必須勤務曜日を設定できます。
+</footer>
+
+<div id="popup"></div>
+
+<div id="history-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeHistoryModal()">
+  <div class="leave-box" style="max-width:520px;">
+    <h3>操作履歴から戻る</h3>
+    <div class="hint">選んだ操作とそれ以降の操作をまとめて取り消し、その直前の状態に戻します（新しい順に表示）。</div>
+    <table><thead><tr><th></th><th>操作</th><th></th></tr></thead><tbody id="history-list"></tbody></table>
+    <button class="btn btn-gray" onclick="closeHistoryModal()" style="margin-top:8px;">閉じる</button>
+  </div>
+</div>
+
+<div id="holiday-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeHolidayModal()">
+  <div class="leave-box" style="max-width:560px;">
+    <h3>祝日扱い設定</h3>
+    <div class="hint">「祝日扱い」の日は日直5人・平日の休み上限の対象外になり、班の輪番にも祝日として組み込まれます。<b>日直を割り当てる前に設定してください</b>（変更後は日直→夜勤→振休→残り当番の再実行を）。表の日付セルをクリックしても切り替えられます。</div>
+    <b style="font-size:12px;">国民の祝日（固定）</b>
+    <div style="font-size:12px; color:#555; margin:4px 0 12px;" id="nat-holiday-list"></div>
+    <b style="font-size:12px;">祝日扱いにする日（追加分）</b>
+    <table style="margin:4px 0 8px;"><thead><tr><th>日付</th><th>曜日</th><th></th></tr></thead><tbody id="custom-holiday-list"></tbody></table>
+    <div class="leave-form">
+      <input type="date" id="hol-date" min="2026-10-01" max="2027-01-11">
+      <button class="btn btn-success btn-sm" onclick="addHolidayFromModal()">追加</button>
+    </div>
+    <button class="btn btn-gray" onclick="closeHolidayModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="zan-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeZanModal()">
+  <div class="leave-box" style="max-width:640px;">
+    <h3>残り当番条件・NG組み合わせ設定</h3>
+    <div class="hint">チェックした人は残り当番に入りません。NG組み合わせは同じ日の日直または残り当番に一緒に入らないペアです。</div>
+    <b style="font-size:12px;">残り当番の対象外</b>
+    <div id="zan-ng-boxes" style="display:flex; flex-wrap:wrap; gap:4px 10px; margin:6px 0 14px; font-size:12px;"></div>
+    <b style="font-size:12px;">NG組み合わせ</b>
+    <table style="margin-top:4px;"><thead><tr><th>種別</th><th>組み合わせ</th><th></th></tr></thead><tbody id="ng-pair-list"></tbody></table>
+    <div class="leave-form">
+      <select id="ngp-type"><option value="日直">日直</option><option value="残">残り当番</option></select>
+      <select id="ngp-a"></select><span>×</span><select id="ngp-b"></select>
+      <button class="btn btn-success btn-sm" onclick="addNgPair()">追加</button>
+    </div>
+    <button class="btn btn-success" onclick="saveZanModal()">保存</button>
+    <button class="btn btn-gray" onclick="closeZanModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="event-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeEventModal()">
+  <div class="leave-box" style="max-width:680px;">
+    <h3>行事設定（毎月固定）</h3>
+    <div class="hint">毎月「第n・曜日」の固定行事を登録すると事務連絡欄に自動表示されます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。日ごとの追記は表の事務連絡セルをクリック。</div>
+    <table><thead><tr><th>行事名</th><th>第n</th><th>曜日</th><th>必須出勤者（、区切り）</th><th></th></tr></thead><tbody id="event-list"></tbody></table>
+    <div class="leave-form">
+      <input type="text" id="ev-name" placeholder="行事名" style="width:130px;">
+      <select id="ev-nth"><option value="1">第1</option><option value="2">第2</option><option value="3">第3</option><option value="4">第4</option><option value="5">第5</option></select>
+      <select id="ev-dow"><option value="1">月</option><option value="2">火</option><option value="3">水</option><option value="4">木</option><option value="5">金</option><option value="6">土</option><option value="0">日</option></select>
+      <input type="text" id="ev-members" placeholder="必須出勤者（任意）" style="width:150px;">
+      <button class="btn btn-success btn-sm" onclick="addEvent()">追加</button>
+    </div>
+    <b style="font-size:12px;">開催日の個別変更（祝日と重なった回・人が集まらない回など）</b>
+    <div class="hint" style="margin-top:2px;">日付を変えるとその回だけ移動します（事務連絡の表示・必須出勤の扱いも一緒に移動）。</div>
+    <table style="margin:4px 0 10px;"><thead><tr><th>行事名</th><th>本来の日</th><th>実施日</th><th></th></tr></thead><tbody id="event-move-list"></tbody></table>
+    <button class="btn btn-gray" onclick="closeEventModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="work-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeWorkModal()">
+  <div class="leave-box" style="max-width:680px;">
+    <h3>勤務条件設定（グループ最低出勤・必須勤務曜日）</h3>
+    <div class="hint">グループ: 平日にメンバーのうち最低n人が勤務になるようチェック（自動割り当ても休みを置きません）。必須勤務曜日: その人はその曜日（平日）必ず勤務。変更は即保存されます。</div>
+    <b style="font-size:12px;">グループ最低出勤（平日）</b>
+    <table style="margin:4px 0 8px;"><thead><tr><th>グループ名</th><th>メンバー（、区切り）</th><th>最低</th><th></th></tr></thead><tbody id="group-list"></tbody></table>
+    <div class="leave-form">
+      <input type="text" id="gr-name" placeholder="グループ名" style="width:110px;">
+      <input type="text" id="gr-members" placeholder="メンバー（、区切り）" style="width:220px;">
+      <input type="number" id="gr-min" min="1" max="9" value="1" style="width:44px;">
+      <button class="btn btn-success btn-sm" onclick="addGroup()">追加</button>
+    </div>
+    <b style="font-size:12px;">必須勤務曜日</b>
+    <table style="margin:4px 0 8px;"><thead><tr><th>氏名</th><th>曜日</th><th></th></tr></thead><tbody id="mustday-list"></tbody></table>
+    <div class="leave-form">
+      <select id="md-name"></select>
+      <button class="btn btn-success btn-sm" onclick="addMustDay()">追加</button>
+    </div>
+    <button class="btn btn-gray" onclick="closeWorkModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="carry-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeCarryModal()">
+  <div class="leave-box" style="max-width:620px;">
+    <h3>振休繰越管理</h3>
+    <div class="hint">振休の権利（日直○・土日祝の業/入/明・前回繰越）の一覧です。「繰越」にチェックした分は今回の勤務表に配置せず、次回の勤務表へ繰り越します（配置済みの場合は取り消されます）。振◆に充当済みの分は繰越にできません。</div>
+    <b style="font-size:12px;">前回からの繰越（編集可）</b>
+    <div class="hint" style="margin-top:2px;">前回勤務表から引き継ぐ振休です。人や出勤日が変わった場合はここで削除・追加してください（変更後は「3. 振休」の再実行を）。</div>
+    <table style="margin:4px 0 6px;"><thead><tr><th>氏名</th><th>出勤日（前回分）</th><th></th></tr></thead><tbody id="prev-carry-list"></tbody></table>
+    <div class="leave-form" style="margin-bottom:14px;">
+      <select id="pc-name"></select>
+      <input type="date" id="pc-date" min="2026-07-01" max="2026-09-30">
+      <button class="btn btn-success btn-sm" onclick="addPrevCarry()">追加</button>
+    </div>
+    <b style="font-size:12px;">権利の一覧と繰越指定</b>
+    <div style="max-height:45vh; overflow:auto; margin-bottom:10px;">
+      <table>
+        <thead><tr><th>氏名</th><th>出勤日</th><th>状態</th><th>繰越</th></tr></thead>
+        <tbody id="carry-list"></tbody>
+      </table>
+    </div>
+    <div id="carry-summary" style="font-size:12px; color:#555; background:#FFF6DE; border:1px solid #E8C96A; border-radius:4px; padding:6px 8px; margin-bottom:10px;"></div>
+    <button class="btn btn-success" onclick="saveCarryModal()">保存</button>
+    <button class="btn btn-gray" onclick="closeCarryModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="night-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeNightModal()">
+  <div class="leave-box" style="max-width:640px;">
+    <h3>夜勤条件設定</h3>
+    <div class="hint">対象外にチェックすると夜勤に入りません。曜日のチェックを外すとその曜日には割り当てません。月上限は1か月あたりの夜勤回数の上限です（空欄=制限なし）。他・事務はもともと対象外です。</div>
+    <table>
+      <thead><tr><th>氏名</th><th>対象外</th><th>割り当て可能な曜日</th><th>月上限</th></tr></thead>
+      <tbody id="night-list"></tbody>
+    </table>
+    <button class="btn btn-success" onclick="saveNightModal()">保存</button>
+    <button class="btn btn-gray" onclick="closeNightModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="archive-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeArchiveModal()">
+  <div class="leave-box" style="max-width:820px;">
+    <h3>過去の勤務表・年間集計</h3>
+    <div class="hint">「この勤務表を保存」で保存した勤務表がここに一覧表示されます。読み込むと過去の内容を見返せます。下部で複数期間を横断した集計・Excel出力ができます。</div>
+    <b style="font-size:12px;">保存済みの勤務表</b>
+    <div style="max-height:30vh; overflow:auto; margin:4px 0 12px;">
+      <table><thead><tr><th>期間</th><th>保存日時</th><th>集計対象</th><th></th><th></th></tr></thead><tbody id="archive-list"></tbody></table>
+    </div>
+    <hr style="border:none; border-top:1px solid #ddd; margin:12px 0;">
+    <b style="font-size:12px;">年間集計</b>
+    <div class="hint" style="margin-top:2px;">年度（4月〜翌3月）を選ぶと該当期間を自動でチェックします。または上の一覧で手動チェックしても集計できます。</div>
+    <div class="leave-form" style="margin:6px 0;">
+      <label>年度 <select id="fy-select" onchange="selectFiscalYear()"><option value="">（手動選択）</option></select></label>
+      <span style="font-size:11px;color:#888;">4月〜翌3月</span>
+      <button class="btn btn-primary btn-sm" onclick="renderSummary()">集計を表示</button>
+      <button class="btn btn-success btn-sm" onclick="exportSummaryExcel()">集計をExcel出力</button>
+    </div>
+    <div id="summary-area" style="max-height:36vh; overflow:auto; font-size:11px;"></div>
+    <div style="margin-top:12px;"><button class="btn btn-gray" onclick="closeArchiveModal()">閉じる</button></div>
+  </div>
+</div>
+
+<div id="period-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closePeriodModal()">
+  <div class="leave-box" style="max-width:640px;">
+    <h3>期間設定・次期作成</h3>
+    <div class="hint">対象の年・月・追加日程を設定します。3か月に限らず任意の月数＋任意の追加日程が指定できます。祝日は内蔵カレンダー（2025〜2027）から自動反映されます。</div>
+
+    <div style="background:#EAF3DE; border:1px solid #C0DD97; border-radius:6px; padding:8px; margin-bottom:12px;">
+      <b style="font-size:12px;">① 希望休アプリと同期</b>
+      <div class="hint" style="margin-top:2px;">同じブラウザで使っている希望休申請アプリから、対象期間・追加日程・チーム・申請をまとめて取り込みます。</div>
+      <button class="btn btn-success btn-sm" onclick="syncFromKiboushu()" style="margin-top:4px;">希望休アプリから取り込む</button>
+    </div>
+
+    <b style="font-size:12px;">② 手動で期間を設定</b>
+    <div class="leave-form" style="margin:6px 0;">
+      <label>年 <input type="number" id="pd-year" min="2025" max="2028" style="width:70px;"></label>
+      <label>対象月（カンマ区切り） <input type="text" id="pd-months" placeholder="例: 10,11,12" style="width:120px;"></label>
+    </div>
+    <div class="leave-form" style="margin:6px 0;">
+      <label>追加日程の見出し <input type="text" id="pd-extralabel" placeholder="追加日程" style="width:100px;"></label>
+      <label>追加日程 <input type="text" id="pd-from" type="date"></label>
+      <span style="font-size:11px;color:#888;">追加日程は「開始〜終了」で範囲指定 → </span>
+      <input type="date" id="pd-extra-from"><span>～</span><input type="date" id="pd-extra-to">
+      <button class="btn btn-gray btn-sm" onclick="setExtraRange()">この範囲を追加日程に</button>
+    </div>
+    <div id="pd-extra-preview" style="font-size:11px; color:#555; margin:4px 0;"></div>
+    <button class="btn btn-primary btn-sm" onclick="applyPeriod()">この期間を適用</button>
+
+    <hr style="margin:14px 0; border:none; border-top:1px solid #ddd;">
+    <b style="font-size:12px;">③ 前回からの引き継ぎ（起点）</b>
+    <div class="leave-form" style="margin:6px 0;">
+      <label>日直の開始班
+        <select id="pd-cycle"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option><option value="4">E</option></select>
+      </label>
+      <label>前回最終の夜勤入り: 氏名 <input type="text" id="pd-pn-name" style="width:70px;"></label>
+      <label>日 <input type="date" id="pd-pn-date"></label>
+      <button class="btn btn-gray btn-sm" onclick="applyStart()">起点を保存</button>
+    </div>
+    <div class="hint">日直の開始班＝前回シフト最終休日の次の班（A→B→…→E→A）。前回繰越の振休は「振休繰越管理」で編集できます。</div>
+
+    <hr style="margin:14px 0; border:none; border-top:1px solid #ddd;">
+    <b style="font-size:12px;">④ 今期の繰越を次期へ引き継ぐ</b>
+    <div class="hint" style="margin-top:2px;">今期の「次回へ繰越」振休（振休繰越管理で確認できる分）を、次期の前回繰越として書き出します。次期を作る直前に押してください。</div>
+    <button class="btn btn-gray btn-sm" onclick="exportCarryForNext()" style="margin-top:4px;">今期の繰越を書き出す（次期用）</button>
+
+    <div style="margin-top:14px;"><button class="btn btn-gray" onclick="closePeriodModal()">閉じる</button></div>
+  </div>
+</div>
+
+<div id="part-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closePartModal()">
+  <div class="leave-box" style="max-width:620px;">
+    <h3>割り当て参加設定（開始・中断）</h3>
+    <div class="hint">既定はA〜Eチーム＝参加、その他・事務＝不参加です。ここで期間を指定して切り替えます。<br>
+      例: 「その他」の長島さんを11/1から夜勤に参加させる → 氏名=長島・種別=夜勤・参加/中断=参加・期間=11/1〜1/11。<br>
+      逆にA〜Eの人を一時中断させることもできます。日直参加のその他は班に属さず補充要員として扱われます。</div>
+    <table>
+      <thead><tr><th>氏名</th><th>種別</th><th>参加/中断</th><th>開始</th><th>終了</th><th></th></tr></thead>
+      <tbody id="part-list"></tbody>
+    </table>
+    <div class="leave-form">
+      <select id="pt-name"></select>
+      <select id="pt-type"><option value="nikichoku">日直</option><option value="yakin">夜勤</option><option value="zan">残り当番</option></select>
+      <select id="pt-enable"><option value="1">参加(開始)</option><option value="0">中断</option></select>
+      <input type="date" id="pt-from" min="2026-10-01" max="2027-01-11">
+      <span>～</span>
+      <input type="date" id="pt-to" min="2026-10-01" max="2027-01-11">
+      <button class="btn btn-success btn-sm" onclick="addPart()">追加</button>
+    </div>
+    <button class="btn btn-gray" onclick="closePartModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="leave-modal" onclick="if(event.target===this)closeLeaveModal()">
+  <div class="leave-box">
+    <h3>長期休暇設定（シフト割り当て対象外期間）</h3>
+    <div class="hint">育休・産休・病欠などで長期に不在となる期間を登録します。期間中は日直などの割り当て対象外になり、セルはグレー表示、平日の休み人数カウントからも除外されます。</div>
+    <table>
+      <thead><tr><th>氏名</th><th>種別</th><th>開始日</th><th>終了日</th><th></th></tr></thead>
+      <tbody id="leave-list"></tbody>
+    </table>
+    <div class="leave-form">
+      <select id="leave-name"></select>
+      <select id="leave-type">
+        <option>産休・育休</option><option>病欠</option><option>休職</option><option>その他</option>
+      </select>
+      <input type="date" id="leave-from">
+      <span>～</span>
+      <input type="date" id="leave-to">
+      <button class="btn btn-success btn-sm" onclick="addLeave()">追加</button>
+    </div>
+    <button class="btn btn-gray" onclick="closeLeaveModal()">閉じる</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   マスターデータ（既存アプリと同じ構造・将来は共通化予定）
+   ============================================================ */
+const TEAMS = [
+  ["Aチーム", ["大澤","品川","木暮","佐藤","堀内","春日"]],
+  ["Bチーム", ["髙麗","我妻","友松","廣田","関口","石井"]],
+  ["Cチーム", ["齊藤江","上田","伊藤","増田","髙橋","岡田","狩野"]],
+  ["Dチーム", ["町田","丸岡","山田","前原","片原","皆川","齋藤将"]],
+  ["Eチーム", ["三世川","小見","千吉良","小池","北原","中"]],
+  ["その他",  ["矢島","並木","長島","江田","岩崎","星野","塚田"]],
+  ["事務",    ["鎌田","高澤","大井"]],
+];
+const STAFF = TEAMS.flatMap(t => t[1]);
+
+const DEFAULT_PERIOD = {
+  year: 2026,
+  months: [10, 11, 12],
+  extraDates: ["2027-01-01","2027-01-02","2027-01-03","2027-01-04","2027-01-05","2027-01-06",
+               "2027-01-07","2027-01-08","2027-01-09","2027-01-10","2027-01-11"],
+  extraLabel: "追加日程",
+};
+let PERIOD = loadPeriod();
+function loadPeriod() {
+  try { const s = localStorage.getItem("kinmu_period_v2"); if (s) return JSON.parse(s); } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_PERIOD));
+}
+function savePeriod() { localStorage.setItem("kinmu_period_v2", JSON.stringify(PERIOD)); }
+
+const HOLIDAYS = {
+  "2025-01-01":"元日","2025-01-13":"成人の日","2025-02-11":"建国記念の日","2025-02-23":"天皇誕生日","2025-02-24":"振替休日",
+  "2025-03-20":"春分の日","2025-04-29":"昭和の日","2025-05-03":"憲法記念日","2025-05-04":"みどりの日","2025-05-05":"こどもの日","2025-05-06":"振替休日",
+  "2025-07-21":"海の日","2025-08-11":"山の日","2025-09-15":"敬老の日","2025-09-22":"振替休日","2025-09-23":"秋分の日",
+  "2025-10-13":"スポーツの日","2025-11-03":"文化の日","2025-11-23":"勤労感謝の日","2025-11-24":"振替休日",
+  "2026-01-01":"元日","2026-01-12":"成人の日","2026-02-11":"建国記念の日","2026-02-23":"天皇誕生日","2026-03-20":"春分の日","2026-04-29":"昭和の日",
+  "2026-05-03":"憲法記念日","2026-05-04":"みどりの日","2026-05-05":"こどもの日","2026-05-06":"振替休日","2026-07-20":"海の日","2026-08-11":"山の日",
+  "2026-09-21":"敬老の日","2026-09-22":"国民の休日","2026-09-23":"秋分の日","2026-10-12":"スポーツの日","2026-11-03":"文化の日","2026-11-23":"勤労感謝の日",
+  "2027-01-01":"元日","2027-01-11":"成人の日","2027-02-11":"建国記念の日","2027-02-23":"天皇誕生日","2027-03-21":"春分の日","2027-04-29":"昭和の日",
+  "2027-05-03":"憲法記念日","2027-05-04":"みどりの日","2027-05-05":"こどもの日","2027-07-19":"海の日","2027-08-11":"山の日","2027-09-20":"敬老の日",
+  "2027-09-23":"秋分の日","2027-10-11":"スポーツの日","2027-11-03":"文化の日","2027-11-23":"勤労感謝の日",
+};
+
+/* 任意の祝日扱い（日付セルのクリックで切り替え・localStorageに保存） */
+const DEFAULT_CUSTOM_HOLIDAYS = ["2026-12-29", "2026-12-30", "2026-12-31"];  // 年末
+let CUSTOM_HOLIDAYS = loadCustomHolidays();
+function loadCustomHolidays() {
+  try {
+    const s = localStorage.getItem("kinmu_custom_holidays");
+    if (s) return new Set(JSON.parse(s));
+  } catch (e) {}
+  return new Set(DEFAULT_CUSTOM_HOLIDAYS);
+}
+function saveCustomHolidays() {
+  localStorage.setItem("kinmu_custom_holidays", JSON.stringify([...CUSTOM_HOLIDAYS]));
+}
+
+const MARKS = ["特","夏","有","振◆","振","×","出","業","研","入","明","残"];
+const COUNT_MARKS = new Set(["特","夏","有","業","出"]); // ＋「振」で始まるもの（×は休みとしてカウントしない）
+const MAX_YASUMI_PER_DAY = 5;
+
+/* ---- 日直（ステップ2） ---- */
+const MANAGERS = new Set(["髙麗","齊藤江","三世川","大澤","我妻","町田","丸岡","品川","上田","小見"]); // 課長・係長・主任
+const DUTY_TEAMS = ["Aチーム","Bチーム","Cチーム","Dチーム","Eチーム"]; // 他・事務は日直に入らない
+// 土日・祝日とも1本のサイクルで輪番。前回シフトの最終休日（9/27）＝Eチーム → Aチームから開始
+let CYCLE_START_IDX = loadJson("kinmu_cycle_start", 0);  // 日直輪番の開始班(0=A)
+const DUTY_COUNT_WEEKEND = 4; // 土日は原則4人
+const DUTY_COUNT_HOLIDAY = 5; // 祝日は原則5人（最大5人）
+const DUTY_MAX = 5;
+const DUTY_STAFF = TEAMS.slice(0, 5).flatMap(t => t[1]);
+
+/* 割り当て参加設定: 期間を指定して日直/夜勤/残当の参加(開始)・中断ができる。
+   既定はA〜Eチーム=参加、その他・事務=不参加。オーバーライドで切り替える。 */
+let PARTICIPATION = loadJson("kinmu_participation", []);  // [{name, type:"nikichoku"|"yakin"|"zan", from, to, enable}]
+function eligibleFor(type, n, iso) {
+  let base = DUTY_STAFF.includes(n);   // A〜E=true / その他・事務=false
+  for (const r of PARTICIPATION) {
+    if (r.name === n && r.type === type && r.from <= iso && iso <= r.to) base = r.enable;
+  }
+  return base;
+}
+const canNikichoku = (n, iso) => eligibleFor("nikichoku", n, iso);
+const canYakin     = (n, iso) => eligibleFor("yakin", n, iso);
+const canZan       = (n, iso) => eligibleFor("zan", n, iso);
+
+function membersOfTeam(tname) {
+  const t = TEAMS.find(t => t[0] === tname);
+  return t ? t[1] : [];
+}
+function allPeriodDates() {
+  const out = [];
+  for (const m of PERIOD.months) out.push(...datesOfTab(String(m)));
+  out.push(...PERIOD.extraDates);
+  return out;
+}
+function buildDutyTeamMap() {
+  const map = {};
+  let i = CYCLE_START_IDX;
+  for (const iso of allPeriodDates()) {
+    if (!isRestDay(iso)) continue;
+    map[iso] = DUTY_TEAMS[i % 5];
+    i++;
+  }
+  return map;
+}
+let DUTY_TEAM_MAP = buildDutyTeamMap();
+
+/* 祝日扱いの切り替え（日付セルクリック） */
+function toggleHoliday(iso) {
+  const [y,m,d] = iso.split("-").map(Number);
+  if (iso in HOLIDAYS) { alert(`${m}/${d} は国民の祝日（${HOLIDAYS[iso]}）のため変更できません`); return; }
+  if (CUSTOM_HOLIDAYS.has(iso)) {
+    if (!confirm(`${m}/${d}（${YOBI[dowOf(iso)]}）の「祝日扱い」を解除しますか？\n※班の輪番が変わるため、日直の再割り当てをおすすめします`)) return;
+    pushUndo("祝日扱い解除");
+    CUSTOM_HOLIDAYS.delete(iso);
+  } else {
+    if (!confirm(`${m}/${d}（${YOBI[dowOf(iso)]}）を「祝日扱い」にしますか？（日直5人・平日の休み上限は対象外に）\n※班の輪番が変わるため、日直の再割り当てをおすすめします`)) return;
+    pushUndo("祝日扱い設定");
+    CUSTOM_HOLIDAYS.add(iso);
+  }
+  saveCustomHolidays();
+  DUTY_TEAM_MAP = buildDutyTeamMap();
+  render();
+}
+
+/* 初期データ: 希望休申請Excel（2026/7/14出力・全42名）212件（10-12月207件＋追加日程5件） */
+const SEED_REQUESTS = {"三世川":{"2026-10-02":"有","2026-11-12":"出","2026-11-13":"出","2026-11-14":"出","2026-11-15":"出","2026-12-18":"有"},"上田":{"2026-10-30":"有","2026-11-18":"有","2026-12-01":"研","2026-12-18":"有"},"中":{"2026-10-27":"有","2026-12-23":"有"},"丸岡":{"2026-10-03":"出","2026-11-27":"出","2026-11-28":"出"},"伊藤":{"2026-10-13":"有","2026-11-10":"有","2026-11-13":"夏","2026-11-14":"×","2026-11-15":"×","2026-11-16":"夏","2026-11-17":"夏","2026-11-18":"夏","2026-11-19":"夏","2026-12-01":"研","2026-12-04":"有","2026-12-08":"有","2026-12-12":"研","2026-12-13":"研"},"佐藤":{"2026-10-16":"有","2026-10-23":"夏","2026-11-12":"夏","2026-11-13":"夏","2026-11-16":"夏","2026-12-11":"有"},"前原":{"2026-10-09":"振◆","2026-10-19":"有","2026-10-28":"振◆","2026-12-25":"振◆","2027-01-04":"振◆"},"北原":{"2026-10-21":"夏","2026-10-22":"振◆","2026-10-28":"出","2026-10-29":"出","2026-10-30":"出","2026-12-17":"有"},"千吉良":{"2026-10-26":"夏","2026-10-27":"有","2026-11-30":"有","2026-12-14":"有"},"友松":{"2026-10-26":"有","2026-11-04":"有"},"品川":{"2026-10-16":"振◆","2026-10-19":"有","2026-10-29":"振◆","2026-11-11":"有","2026-11-24":"振◆","2026-11-27":"出","2026-11-28":"出","2026-12-24":"振◆","2026-12-25":"有"},"堀内":{"2026-10-05":"有"},"増田":{"2026-10-19":"有","2026-10-28":"振◆","2026-11-19":"有","2026-11-27":"振◆","2026-12-25":"有","2027-01-04":"振◆","2027-01-05":"夏"},"大澤":{"2026-12-12":"研","2026-12-13":"研"},"小池":{"2026-10-09":"振◆","2026-11-12":"振◆"},"小見":{"2026-12-11":"夏","2027-01-06":"夏"},"山田":{"2026-10-13":"有","2026-10-14":"夏","2026-10-15":"夏","2026-10-16":"夏","2026-11-19":"夏","2026-11-20":"夏","2026-12-25":"有"},"岡田":{"2026-10-02":"有","2026-11-26":"夏","2026-11-27":"夏"},"岩崎":{"2026-10-10":"×","2026-10-11":"×"},"廣田":{"2026-10-23":"有","2026-11-21":"出","2026-11-22":"出","2026-11-23":"出","2026-12-12":"研","2026-12-13":"研","2026-12-16":"夏","2026-12-17":"夏","2026-12-18":"夏"},"我妻":{"2026-10-05":"有","2026-10-13":"振◆","2026-10-14":"特","2026-10-15":"特","2026-10-16":"特","2026-10-19":"特","2026-10-20":"特","2026-11-19":"有","2026-12-10":"有","2026-12-24":"夏","2026-12-25":"夏","2026-12-28":"夏","2027-01-04":"有"},"星野":{"2026-11-11":"夏","2026-11-12":"夏","2026-11-13":"夏"},"春日":{"2026-10-22":"振◆","2026-10-26":"夏","2026-10-27":"夏","2026-10-28":"夏","2026-10-29":"夏","2026-10-30":"夏","2026-10-31":"出","2026-11-01":"出","2026-11-02":"振◆","2026-11-27":"有","2026-12-10":"振◆"},"木暮":{"2026-10-30":"有","2026-10-31":"出","2026-11-01":"出","2026-11-11":"夏","2026-11-12":"夏"},"江田":{"2026-10-20":"夏","2026-10-21":"夏","2026-10-22":"夏","2026-10-23":"夏","2026-11-13":"有","2026-12-16":"有"},"片原":{"2026-10-20":"夏","2026-11-02":"夏","2026-11-04":"夏","2026-11-05":"夏","2026-11-06":"夏"},"狩野":{"2026-10-02":"有","2026-11-26":"有","2026-12-13":"研","2026-12-18":"有"},"町田":{"2026-11-04":"特","2026-11-05":"特","2026-11-06":"特","2026-11-09":"特","2026-11-10":"特","2026-12-12":"研","2026-12-13":"研"},"皆川":{"2026-10-19":"有"},"矢島":{"2026-10-08":"有","2026-10-21":"夏","2026-10-22":"出","2026-10-23":"出","2026-11-05":"夏","2026-11-06":"夏","2026-11-21":"出","2026-11-22":"出","2026-11-23":"出","2026-12-12":"研","2026-12-13":"研","2026-12-16":"有"},"石井":{"2026-10-13":"有","2026-11-24":"夏","2026-11-25":"夏"},"長島":{"2026-10-21":"有","2026-11-16":"夏","2026-11-17":"夏","2026-11-18":"夏","2026-11-19":"夏","2026-11-20":"夏"},"関口":{"2026-10-05":"夏","2026-10-06":"夏","2026-10-07":"夏","2026-10-08":"夏","2026-10-09":"有","2026-11-21":"出","2026-11-22":"出","2026-11-23":"出","2026-11-24":"有","2026-12-04":"有"},"髙橋":{"2026-10-26":"有","2026-10-30":"振◆","2026-10-31":"出","2026-11-01":"出","2026-11-02":"有","2026-12-10":"夏","2026-12-11":"夏","2026-12-12":"研","2026-12-13":"研","2026-12-14":"有"},"髙麗":{"2026-11-20":"有","2026-11-21":"出","2026-11-22":"出","2026-11-23":"出","2026-12-12":"研","2026-12-13":"研","2026-12-28":"夏"},"齊藤江":{"2026-10-28":"夏","2026-10-29":"夏","2026-11-06":"有","2026-11-07":"出","2026-11-08":"出","2026-11-20":"振◆"},"齋藤将":{"2026-10-02":"夏","2026-10-05":"夏","2026-10-06":"夏","2026-10-16":"振◆","2026-11-17":"有","2026-11-18":"振◆","2026-12-18":"有"}};
+
+/* ============================================================
+   永続化
+   ============================================================ */
+const LS_KEY = "kinmu_schedule";
+const SEED_VERSION = 3;  // シード更新時に上げる（既存データに不足分だけ自動マージされる）
+function loadSchedule() {
+  let data = null;
+  try {
+    const s = localStorage.getItem(LS_KEY);
+    if (s) data = JSON.parse(s);
+  } catch (e) {}
+  if (!data) data = JSON.parse(JSON.stringify(SEED_REQUESTS));
+  const ver = Number(localStorage.getItem("kinmu_seed_version") || 0);
+  if (ver < SEED_VERSION) {
+    let added = 0;
+    for (const name in SEED_REQUESTS) {
+      for (const iso in SEED_REQUESTS[name]) {
+        if (!data[name]) data[name] = {};
+        if (!data[name][iso]) { data[name][iso] = SEED_REQUESTS[name][iso]; added++; }
+      }
+    }
+    localStorage.setItem("kinmu_seed_version", String(SEED_VERSION));
+    if (added) console.log(`シード更新: ${added} 件を追加`);
+  }
+  return data;
+}
+function saveSchedule() {
+  localStorage.setItem(LS_KEY, JSON.stringify(DATA));
+  const el = document.getElementById("save-status");
+  el.textContent = "保存済み " + new Date().toLocaleTimeString("ja-JP");
+}
+let DATA = loadSchedule();
+
+/* ---- 長期休暇（育休・産休・病欠など / 割り当て対象外期間） ---- */
+const LEAVE_KEY = "kinmu_leaves";
+let LEAVES = loadLeaves();
+function loadLeaves() {
+  try {
+    const s = localStorage.getItem(LEAVE_KEY);
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return [];
+}
+function saveLeaves() { localStorage.setItem(LEAVE_KEY, JSON.stringify(LEAVES)); }
+function onLeave(name, iso) {
+  return LEAVES.find(l => l.name === name && l.from <= iso && iso <= l.to) || null;
+}
+
+/* ---- 夜勤条件（ステップ3） ---- */
+const NIGHT_CONDS_KEY = "kinmu_night_conds";
+const NIGHT_AUTO_KEY  = "kinmu_night_autorest";  // 明け翌日に自動配置した「振」の記録
+let PREV_NIGHT = loadJson("kinmu_prev_night", { name: "町田", date: "2026-09-30" });  // 前回シフト最終日の夜勤入り
+const NIGHT_REST_MARKS = new Set(["振◆","有","夏","特"]);  // ＋「振」で始まるもの＋休日
+// 初期条件: 7-9月実績より（品川・増田・友松・前原=夜勤なし、北原=金曜のみ月1、皆川=土曜のみ月1）
+const DEFAULT_NIGHT_CONDS = {
+  "品川": { ng: true }, "増田": { ng: true }, "友松": { ng: true }, "前原": { ng: true },
+  "北原": { days: [5], maxPerMonth: 1 },   // 金曜のみ（dowOf: 5=金）
+  "皆川": { days: [6], maxPerMonth: 1 },   // 土曜のみ（6=土）
+};
+let NIGHT_CONDS = loadNightConds();
+let NIGHT_AUTO = loadNightAuto();
+function loadNightConds() {
+  try {
+    const s = localStorage.getItem(NIGHT_CONDS_KEY);
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_NIGHT_CONDS));
+}
+function saveNightConds() { localStorage.setItem(NIGHT_CONDS_KEY, JSON.stringify(NIGHT_CONDS)); }
+function loadNightAuto() {
+  try {
+    const s = localStorage.getItem(NIGHT_AUTO_KEY);
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return [];
+}
+function saveNightAuto() { localStorage.setItem(NIGHT_AUTO_KEY, JSON.stringify(NIGHT_AUTO)); }
+function nightPersonOf(iso) {
+  return STAFF.find(n => (DATA[n] || {})[iso] === "入") || "";
+}
+
+/* ---- 残り当番条件・NG組み合わせ（ステップ5） ---- */
+const ZAN_PER_DAY = 2;         // 平日1日2人まで
+const ZAN_INTERVAL = 7;        // 間隔1週間以上
+// 初期値: 7-9月実績で残当ゼロのメンバー
+const DEFAULT_ZAN_CONDS = { "品川":{ng:true},"友松":{ng:true},"皆川":{ng:true},"齊藤江":{ng:true},
+                            "増田":{ng:true},"前原":{ng:true},"北原":{ng:true},"春日":{ng:true} };
+const DEFAULT_NG_PAIRS = [ {type:"日直", a:"丸岡", b:"伊藤"}, {type:"日直", a:"品川", b:"廣田"} ];
+let ZAN_CONDS = loadJson("kinmu_zan_conds", DEFAULT_ZAN_CONDS);
+let NG_PAIRS  = loadJson("kinmu_ng_pairs", DEFAULT_NG_PAIRS);
+function loadJson(key, def) {
+  try {
+    const s = localStorage.getItem(key);
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(def));
+}
+function saveJson(key, v) { localStorage.setItem(key, JSON.stringify(v)); }
+function ngPairConflict(type, n, others) {
+  return NG_PAIRS.some(p => p.type === type &&
+    ((p.a === n && others.includes(p.b)) || (p.b === n && others.includes(p.a))));
+}
+
+/* ---- 行事（事務連絡）・勤務条件（ステップ6） ---- */
+// 固定行事の初期値: 7-9月勤務表の事務連絡欄より
+const DEFAULT_EVENTS_FIXED = [
+  { name: "病棟会議", nth: 2, dow: 4, members: [] },
+  { name: "ユヤマサーバー更新", nth: 3, dow: 3, members: [] },
+  { name: "過誤・セントラル会議", nth: 3, dow: 4, members: [] },
+  { name: "ユヤマ定例会", nth: 4, dow: 1, members: [] },
+];
+// グループ最低出勤の初期値: 細則④（調剤・注射・外ケモ・周術期・緩和・DIは1人以上、各病棟2人以上）
+const DEFAULT_GROUPS = [
+  { name: "調剤室", members: ["髙麗","丸岡","上田","並木"], min: 1 },
+  { name: "注射室・ミキシング", members: ["髙麗","大澤","小見","皆川"], min: 1 },
+  { name: "3階・7階病棟", members: ["町田","友松","伊藤","木暮"], min: 2 },
+  { name: "4階病棟", members: ["千吉良","山田","増田","廣田"], min: 2 },
+  { name: "5階病棟", members: ["髙橋","関口","佐藤","小池","前原"], min: 2 },
+  { name: "6階病棟", members: ["北原","岡田","堀内","石井","片原"], min: 2 },
+  { name: "外来化療", members: ["品川","小見","片原","岡田"], min: 1 },
+  { name: "DI", members: ["三世川","我妻"], min: 1 },
+  { name: "周術期", members: ["齊藤江","皆川"], min: 1 },
+  { name: "緩和", members: ["廣田","小見"], min: 1 },
+];
+let EVENTS_FIXED = loadJson("kinmu_events_fixed", DEFAULT_EVENTS_FIXED);
+let EVENTS_TEXT  = loadJson("kinmu_events_text", {});
+let EVENT_MOVES  = loadJson("kinmu_event_moves", {});   // {"行事名|本来の日": "変更後の日"}
+let GROUPS       = loadJson("kinmu_groups", DEFAULT_GROUPS);
+let MUST_DAYS    = loadJson("kinmu_must_days", {});   // {氏名: [曜日番号(dowOf基準 0=日)]}
+let EVENT_DATES  = {};
+
+function eventOccurrences() {
+  // 固定行事の各開催回（第n曜日から計算した本来の日と、個別変更後の実施日）
+  const out = [];
+  for (const ev of EVENTS_FIXED) {
+    for (const iso of allPeriodDates()) {
+      const d = Number(iso.slice(8, 10));
+      if (dowOf(iso) === ev.dow && Math.ceil(d / 7) === ev.nth) {
+        const key = ev.name + "|" + iso;
+        const mv = EVENT_MOVES[key];
+        const eff = (mv && allPeriodDates().includes(mv)) ? mv : iso;
+        out.push({ ev, key, orig: iso, eff, moved: eff !== iso });
+      }
+    }
+  }
+  return out;
+}
+function buildEventDates() {
+  const map = {};
+  for (const oc of eventOccurrences()) (map[oc.eff] = map[oc.eff] || []).push(oc.ev);
+  return map;
+}
+function eventsTextOf(iso) {
+  const parts = (EVENT_DATES[iso] || []).map(e => e.name);
+  if (EVENTS_TEXT[iso]) parts.push(EVENTS_TEXT[iso]);
+  return parts.join("・");
+}
+function editEventText(iso) {
+  const [y,m,d] = iso.split("-").map(Number);
+  const v = prompt(`${m}/${d} の事務連絡（固定行事は「行事設定」で管理。ここは追記分）:`, EVENTS_TEXT[iso] || "");
+  if (v === null) return;
+  if (v.trim()) EVENTS_TEXT[iso] = v.trim();
+  else delete EVENTS_TEXT[iso];
+  saveJson("kinmu_events_text", EVENTS_TEXT);
+  render();
+}
+
+/* ---- 勤務判定・連続勤務・必須勤務 ---- */
+function isWorkingDay(n, iso) {
+  // 連続勤務・グループ出勤の判定。出・業・研は勤務としてカウントしない（連続を切る）
+  if (onLeave(n, iso)) return false;
+  const mk = (DATA[n] || {})[iso] || "";
+  if (isRestDay(iso)) return ["○","入","明","残","日"].includes(mk);
+  if (!mk) return true;
+  if (mk.includes("振") || ["有","夏","特","×","出","業","研"].includes(mk)) return false;
+  return true;
+}
+function inPeriodIso(iso) { return allPeriodDates().includes(iso); }
+function backStreak(n, iso) {  // isoの前日までの連続勤務日数
+  let c = 0, d = addDaysIso(iso, -1);
+  while (inPeriodIso(d) && isWorkingDay(n, d)) { c++; d = addDaysIso(d, -1); }
+  return c;
+}
+function streakIfWorked(n, iso) {  // isoを勤務にした場合の連続勤務日数
+  let c = 1 + backStreak(n, iso);
+  let d = addDaysIso(iso, 1);
+  while (inPeriodIso(d) && isWorkingDay(n, d)) { c++; d = addDaysIso(d, 1); }
+  return c;
+}
+const MAX_STREAK = 6;  // 連続勤務は6日まで（絶対）
+
+function mustWork(n, iso) {
+  for (const ev of (EVENT_DATES[iso] || [])) if (ev.members.includes(n)) return "行事:" + ev.name;
+  if ((MUST_DAYS[n] || []).includes(dowOf(iso)) && !isRestDay(iso)) return "必須勤務曜日";
+  return null;
+}
+function isBusinessAttend(n, iso) {
+  // 病棟等の通常業務に日中出勤しているか。夜勤（入・明）は日中不在、休み・産休・育休も不在。
+  if (!isWorkingDay(n, iso)) return false;
+  const mk = (DATA[n] || {})[iso] || "";
+  return mk !== "入" && mk !== "明";
+}
+function groupBlocked(n, iso) {
+  // nをisoに休みにするとグループ最低出勤を割るか（平日のみ判定）
+  if (isRestDay(iso)) return null;
+  for (const g of GROUPS) {
+    if (!g.members.includes(n)) continue;
+    const others = g.members.filter(m => m !== n && isBusinessAttend(m, iso)).length;
+    if (isBusinessAttend(n, iso) && others < g.min) return g.name;
+  }
+  return null;
+}
+function groupShortIfAbsent(n, iso) {
+  // nをisoに不在（休み or 夜勤）にするとグループ最低出勤を割るか
+  if (isRestDay(iso)) return null;
+  for (const g of GROUPS) {
+    if (!g.members.includes(n)) continue;
+    const others = g.members.filter(m => m !== n && isBusinessAttend(m, iso)).length;
+    if (others < g.min) return g.name;
+  }
+  return null;
+}
+function restBlocked(n, iso) { return mustWork(n, iso) || groupBlocked(n, iso); }
+
+/* ---- 残り当番の自動割り当て ---- */
+function doAssignZan() {
+  for (const n of STAFF) for (const iso in (DATA[n] || {})) if (DATA[n][iso] === "残") delete DATA[n][iso];
+  const counts = {}, last = {};
+  const shortDays = [];
+  for (const iso of allPeriodDates()) {
+    if (isRestDay(iso)) continue;
+    const picked = [];
+    let cands = STAFF.filter(n =>
+      canZan(n, iso) &&      // A〜E＝可、その他は参加設定期間のみ
+      !(ZAN_CONDS[n] || {}).ng &&
+      !mustWork(n, iso) &&   // 行事の必須出勤者・必須勤務曜日は残り当番に置かない（通常業務のため）
+      !(DATA[n] || {})[iso] && !onLeave(n, iso) &&
+      (!last[n] || diffDaysIso(last[n], iso) >= ZAN_INTERVAL));
+    cands.sort((a, b) => (counts[a] || 0) - (counts[b] || 0) || STAFF.indexOf(a) - STAFF.indexOf(b));
+    for (const n of cands) {
+      if (picked.length >= ZAN_PER_DAY) break;
+      if (ngPairConflict("残", n, picked)) continue;
+      picked.push(n);
+    }
+    for (const n of picked) {
+      if (!DATA[n]) DATA[n] = {};
+      DATA[n][iso] = "残";
+      counts[n] = (counts[n] || 0) + 1;
+      last[n] = iso;
+    }
+    if (picked.length < ZAN_PER_DAY) shortDays.push(iso);
+  }
+  saveSchedule(); render();
+  return shortDays;
+}
+function assignZan() {
+  if (!confirm("既存の残り当番（残）をクリアして自動割り当てを実行します。よろしいですか？")) return;
+  pushUndo("残り当番割り当て");
+  const s = doAssignZan();
+  if (s.length) alert("2人確保できなかった日:\n" + s.map(x => x.slice(5).replace("-","/")).join("、"));
+}
+function fillWeekendX() {
+  // 希望休（有・夏・特・振◆）に隣接する連続した休日（土日祝）の空きセルに「×」を置く。
+  const RESTREQ = new Set(["有", "夏", "特", "振◆"]);
+  const period = new Set(allPeriodDates());
+  // まず何件置くか試算
+  let plan = 0;
+  for (const n of STAFF) {
+    const days = DATA[n]; if (!days) continue;
+    for (const d in days) {
+      if (!RESTREQ.has(days[d]) || !period.has(d)) continue;
+      for (const dir of [-1, 1]) {
+        let cur = addDaysIso(d, dir);
+        while (period.has(cur) && isRestDay(cur)) {
+          if (!days[cur]) plan++;
+          cur = addDaysIso(cur, dir);
+        }
+      }
+    }
+  }
+  if (!plan) { alert("希望休（有・夏・特・振◆）に隣接する、空いている連続休日はありません。"); return; }
+  if (!confirm(`希望休（有・夏・特・振◆）に隣接する連続した休日（土日祝）の空きセルに「×」を ${plan} 件置きます。\n（1〜4の割り当ての前に実行してください）よろしいですか？`)) return;
+  pushUndo("希望休の連休に×");
+  let added = 0;
+  for (const n of STAFF) {
+    const days = DATA[n]; if (!days) continue;
+    const reqDays = Object.keys(days).filter(d => RESTREQ.has(days[d]) && period.has(d));
+    for (const d of reqDays) {
+      for (const dir of [-1, 1]) {
+        let cur = addDaysIso(d, dir);
+        while (period.has(cur) && isRestDay(cur)) {
+          if (!days[cur]) { days[cur] = "×"; added++; }
+          cur = addDaysIso(cur, dir);
+        }
+      }
+    }
+  }
+  saveSchedule(); render();
+  alert(`${added} 件の「×」を置きました。`);
+}
+function clearBatsu() {
+  let cnt = 0;
+  for (const n of STAFF) for (const iso in (DATA[n] || {})) if (DATA[n][iso] === "×") cnt++;
+  if (!cnt) { alert("「×」はありません"); return; }
+  if (!confirm(`すべての「×」（${cnt}件）を削除します。よろしいですか？\n（他のマークは変更されません）`)) return;
+  pushUndo("×の一括削除");
+  for (const n of STAFF) for (const iso in (DATA[n] || {})) if (DATA[n][iso] === "×") delete DATA[n][iso];
+  saveSchedule(); render();
+}
+function clearZan() {
+  if (!confirm("すべての残り当番（残）を削除します。よろしいですか？")) return;
+  pushUndo("残り当番クリア");
+  for (const n of STAFF) for (const iso in (DATA[n] || {})) if (DATA[n][iso] === "残") delete DATA[n][iso];
+  saveSchedule(); render();
+}
+
+/* ============================================================
+   日付ユーティリティ
+   ============================================================ */
+const YOBI = ["日","月","火","水","木","金","土"];
+function isoOf(y, m, d) {
+  return `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+}
+function dowOf(iso) {
+  const [y,m,d] = iso.split("-").map(Number);
+  return new Date(y, m-1, d).getDay();
+}
+function isHoliday(iso) { return (iso in HOLIDAYS) || CUSTOM_HOLIDAYS.has(iso); }
+function holidayName(iso) { return HOLIDAYS[iso] || (CUSTOM_HOLIDAYS.has(iso) ? "祝日扱い" : ""); }
+function isRestDay(iso) { const w = dowOf(iso); return w === 0 || w === 6 || isHoliday(iso); }
+function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+function addDaysIso(iso, n) {
+  const [y,m,d] = iso.split("-").map(Number);
+  const dt = new Date(y, m-1, d + n);
+  return isoOf(dt.getFullYear(), dt.getMonth()+1, dt.getDate());
+}
+function diffDaysIso(a, b) {
+  return Math.round((new Date(b) - new Date(a)) / 86400000);
+}
+
+function datesOfTab(tab) {
+  if (tab === "extra") return PERIOD.extraDates.slice();
+  const m = Number(tab);
+  const out = [];
+  for (let d = 1; d <= daysInMonth(PERIOD.year, m); d++) out.push(isoOf(PERIOD.year, m, d));
+  return out;
+}
+
+/* ============================================================
+   休み人数カウント・ルールチェック（ステップ1）
+   ============================================================ */
+function isCountMark(mk) {
+  if (!mk) return false;
+  return COUNT_MARKS.has(mk) || mk.includes("振");
+}
+function countYasumi(iso) {
+  let n = 0;
+  for (const name of STAFF) {
+    if (onLeave(name, iso)) continue;  // 長期休暇中はカウント対象外
+    if (isCountMark((DATA[name] || {})[iso])) n++;
+  }
+  return n;
+}
+function dutyMembersOf(iso) {
+  return STAFF.filter(n => (DATA[n] || {})[iso] === "○" && !onLeave(n, iso));
+}
+function checkWarnings(dates) {
+  const warns = [];
+  for (const iso of dates) {
+    const [y,m,d] = iso.split("-").map(Number);
+    const lbl = `${m}/${d}（${YOBI[dowOf(iso)]}）`;
+    if (!isRestDay(iso)) {
+      const n = countYasumi(iso);
+      if (n > MAX_YASUMI_PER_DAY) warns.push(`⚠ ${lbl}の休みが ${n} 人（上限 ${MAX_YASUMI_PER_DAY} 人）`);
+      continue;
+    }
+    const duty = dutyMembersOf(iso);
+    if (duty.length === 0) continue;  // 未割り当ての日は警告しない
+    const target = isHoliday(iso) ? DUTY_COUNT_HOLIDAY : DUTY_COUNT_WEEKEND;
+    if (duty.length < target) warns.push(`⚠ ${lbl}の日直が ${duty.length} 人（原則 ${target} 人）`);
+    if (duty.length > DUTY_MAX) warns.push(`⚠ ${lbl}の日直が ${duty.length} 人（最大 ${DUTY_MAX} 人）`);
+    if (!duty.some(n => MANAGERS.has(n))) warns.push(`⚠ ${lbl}の日直に課長・係長・主任がいません`);
+    const team = DUTY_TEAM_MAP[iso];
+    const outside = duty.filter(n => !membersOfTeam(team).includes(n));
+    if (outside.length) warns.push(`ℹ ${lbl}は${team}の当番に班外から補充: ${outside.join("、")}`);
+  }
+  warns.push(...nightWarnings(dates));
+  warns.push(...furikyuWarnings(dates));
+  warns.push(...extraWarnings(dates));
+  return warns;
+}
+
+/* 連続勤務・NGペア・残り当番・グループ・必須勤務のチェック */
+function extraWarnings(dates) {
+  const warns = [];
+  const inTab = new Set(dates);
+  const fmt = iso => iso.slice(5).replace("-","/");
+  // 連続勤務6日超
+  for (const n of STAFF) {
+    let run = [];
+    const flush = () => {
+      if (run.length > MAX_STREAK && run.some(x => inTab.has(x)))
+        warns.push(`⚠ ${n} が ${fmt(run[0])}～${fmt(run[run.length-1])} に ${run.length}日連続勤務（上限${MAX_STREAK}日）`);
+      run = [];
+    };
+    for (const iso of allPeriodDates()) {
+      if (isWorkingDay(n, iso)) run.push(iso); else flush();
+    }
+    flush();
+  }
+  const anyZan = allPeriodDates().some(iso => STAFF.some(n => (DATA[n] || {})[iso] === "残"));
+  const lastZ = {};
+  for (const iso of allPeriodDates()) {
+    const lbl = `${Number(iso.slice(5,7))}/${Number(iso.slice(8,10))}（${YOBI[dowOf(iso)]}）`;
+    const duty = STAFF.filter(n => (DATA[n] || {})[iso] === "○");
+    const zan = STAFF.filter(n => (DATA[n] || {})[iso] === "残");
+    if (inTab.has(iso)) {
+      // NGペア
+      for (const p of NG_PAIRS) {
+        const set = p.type === "日直" ? duty : zan;
+        if (set.includes(p.a) && set.includes(p.b))
+          warns.push(`⚠ ${lbl}の${p.type === "日直" ? "日直" : "残り当番"}にNG組み合わせ: ${p.a}・${p.b}`);
+      }
+      if (!isRestDay(iso)) {
+        if (zan.length > ZAN_PER_DAY) warns.push(`⚠ ${lbl}の残り当番が ${zan.length} 人（上限${ZAN_PER_DAY}人）`);
+        if (anyZan && zan.length < ZAN_PER_DAY) warns.push(`ℹ ${lbl}の残り当番が ${zan.length} 人（原則${ZAN_PER_DAY}人）`);
+        for (const n of zan) if ((ZAN_CONDS[n] || {}).ng) warns.push(`⚠ ${lbl} ${n} は残り当番の対象外設定です`);
+        // グループ最低出勤
+        for (const g of GROUPS) {
+          const w = g.members.filter(m => STAFF.includes(m) && isBusinessAttend(m, iso)).length;
+          if (w < g.min) warns.push(`⚠ ${lbl} ${g.name}の出勤が ${w} 人（最低${g.min}人・夜勤/休み/産休育休を除く）`);
+        }
+        // 行事必須・必須勤務曜日
+        for (const n of STAFF) {
+          const req = mustWork(n, iso);
+          if (req) {
+            const cur = (DATA[n] || {})[iso] || "";
+            if (!isWorkingDay(n, iso))
+              warns.push(`⚠ ${lbl} ${n} が休みですが「${req}」のため通常勤務が必要です`);
+            else if (["入","明","残"].includes(cur))
+              warns.push(`⚠ ${lbl} ${n} は「${req}」のため通常勤務が必要ですが「${cur}」になっています`);
+          }
+        }
+      }
+    }
+    // 残り当番の間隔
+    for (const n of zan) {
+      if (lastZ[n] && inTab.has(iso)) {
+        const g = diffDaysIso(lastZ[n], iso);
+        if (g < ZAN_INTERVAL) warns.push(`⚠ ${lbl} ${n} の残り当番間隔が ${g} 日（1週間未満）`);
+      }
+      lastZ[n] = iso;
+    }
+  }
+  return warns;
+}
+
+/* 振休ルールのチェック（配置済みラベル付き振がある場合のみ詳細チェック） */
+function furikyuWarnings(dates) {
+  const warns = [];
+  const anyDuty = allPeriodDates().some(iso => STAFF.some(n => (DATA[n] || {})[iso] === "○"));
+  if (!anyDuty) return warns;
+  const inTab = new Set(dates);
+  // ラベル付き振の期日チェック（期限超過は1行に集約）
+  const lateList = [];
+  for (const n of STAFF) {
+    for (const iso in (DATA[n] || {})) {
+      if (!inTab.has(iso)) continue;
+      const duty = labelToDuty((DATA[n] || {})[iso]);
+      if (!duty) continue;
+      const diff = diffDaysIso(duty, iso);
+      const [y,m,d] = iso.split("-").map(Number);
+      if (diff > FURIKYU_AFTER_DAYS && !dutyStreakInfo(duty).long)
+        lateList.push(`${n} ${duty.slice(5).replace("-","/")}出勤→${m}/${d}付与`);
+      if (diff < 0 && diff < -FURIKYU_BEFORE_DAYS)
+        warns.push(`⚠ ${m}/${d} ${n} の振休（前付与）が出勤の${FURIKYU_BEFORE_DAYS}日より前です`);
+    }
+  }
+  if (lateList.length)
+    warns.push(`ℹ 期限（出勤後${FURIKYU_AFTER_DAYS}日）を超えて付与した振休 ${lateList.length}件: ${lateList.join("、")}`);
+  // ② 日付なしの「振」／③ 対応する休日出勤がない「M/D振」／重複振休（手入力でも常時チェック）
+  const md2 = iso2 => `${Number(iso2.slice(5,7))}/${Number(iso2.slice(8,10))}`;
+  const plainFuri = [], orphan = [], dutyCnt = {};
+  for (const n of STAFF) {
+    for (const iso2 in (DATA[n] || {})) {
+      const v = DATA[n][iso2];
+      const duty = labelToDuty(v);
+      if (duty) (dutyCnt[n + "|" + duty] = dutyCnt[n + "|" + duty] || []).push(iso2);
+      if (!inTab.has(iso2)) continue;
+      if (v === "振") { plainFuri.push(`${n}(${md2(iso2)})`); continue; }
+      if (!duty) continue;
+      let valid;
+      if (duty < allPeriodDates()[0]) {
+        valid = PREV_CARRY.some(c => c.name === n && c.duty === duty);  // 前回繰越は正常
+      } else {
+        const dmk = (DATA[n] || {})[duty] || "";
+        valid = isRestDay(duty) && ["○","業","入","明"].includes(dmk);
+      }
+      if (!valid) orphan.push(`${n}(${md2(iso2)}→出勤${md2(duty)})`);
+    }
+  }
+  if (plainFuri.length)
+    warns.push(`ℹ 日付なしの振 ${plainFuri.length}件（夜勤明けの休み・振休権利が期限内になく出勤日が付かないもの。休みとしては成立）: ${plainFuri.join("、")}`);
+  if (orphan.length)
+    warns.push(`⚠ 対応する休日出勤（日直・業・入・明）がない振休 ${orphan.length}件（手入力の振や出勤日のずれ。セルを修正してください）: ${orphan.join("、")}`);
+  const dup = [];
+  for (const key in dutyCnt) {
+    if (dutyCnt[key].length >= 2 && dutyCnt[key].some(x => inTab.has(x))) {
+      const [n, duty] = key.split("|");
+      dup.push(`${n}（出勤${md2(duty)}分が${dutyCnt[key].length}回: ${dutyCnt[key].map(md2).join("・")}）`);
+    }
+  }
+  if (dup.length)
+    warns.push(`⚠ 同じ振休が重複しています ${dup.length}件（1つの出勤につき振休は1回。余分なセルを削除してください）: ${dup.join("、")}`);
+  // 振◆の対応チェックと繰越の要約（配置実行後のみ）
+  if (FURIKYU_AUTO.length) {
+    const st = _FSTATE || computeFurikyuState();
+    for (const k of st.unmatchedKibou) {
+      if (!inTab.has(k.iso)) continue;
+      const [y,m,d] = k.iso.split("-").map(Number);
+      if (k.explicit) {
+        const em = Number(k.explicit.slice(5, 7)), ed = Number(k.explicit.slice(8, 10));
+        warns.push(`⚠ ${m}/${d} ${k.name} の振◆の指定出勤日（${em}/${ed}）に出勤（日直・業・入・明）がありません。「1. 日直」を再実行するか手動で割り当ててください`);
+      } else {
+        warns.push(`⚠ ${m}/${d} ${k.name} の振◆に対応する出勤（日直・業・入・明）がありません`);
+      }
+    }
+    const carryAll = [...st.carried, ...st.pending];
+    if (carryAll.length)
+      warns.push(`ℹ 次回へ繰越の振休 ${carryAll.length}件（詳細は「振休繰越管理」）: ` +
+        carryAll.map(p => `${p.name}(${p.duty.slice(5).replace("-","/")}${p.carry ? "・指定" : ""})`).join("、"));
+  }
+  return warns;
+}
+
+/* 夜勤ルールのチェック（入が1件以上ある場合のみ） */
+function isNightRestOk(name, iso) {
+  // iso = 明け翌日。土日祝、または 特・夏・有・振・振◆ のいずれかで休みにする
+  if (!allPeriodDates().includes(iso)) return true;  // 期間外は判定しない
+  const mk = (DATA[name] || {})[iso] || "";
+  if (isRestDay(iso)) return mk !== "○" && mk !== "入" && mk !== "明";
+  return ["特","夏","有"].includes(mk) || mk.includes("振");
+}
+function nightWarnings(dates) {
+  const warns = [];
+  const anyNight = allPeriodDates().some(iso => STAFF.some(n => (DATA[n] || {})[iso] === "入"));
+  if (!anyNight) return warns;
+  // 直近の入り日（前回シフト分を含む）
+  const lastIn = {};
+  lastIn[PREV_NIGHT.name] = PREV_NIGHT.date;
+  const inTab = new Set(dates);
+  for (const iso of allPeriodDates()) {
+    const persons = STAFF.filter(n => (DATA[n] || {})[iso] === "入");
+    const [y,m,d] = iso.split("-").map(Number);
+    const lbl = `${m}/${d}（${YOBI[dowOf(iso)]}）`;
+    if (inTab.has(iso)) {
+      if (persons.length === 0) warns.push(`⚠ ${lbl}の夜勤（入）が未割り当てです`);
+      if (persons.length > 1) warns.push(`⚠ ${lbl}の夜勤（入）が ${persons.length} 人います: ${persons.join("、")}`);
+    }
+    for (const n of persons) {
+      if (inTab.has(iso)) {
+        // 間隔チェック
+        if (lastIn[n]) {
+          const gap = diffDaysIso(lastIn[n], iso);
+          if (gap < 7) warns.push(`⚠ ${lbl} ${n} の夜勤間隔が ${gap} 日（1週間未満）`);
+        }
+        // 明けの連続チェック
+        const next = addDaysIso(iso, 1);
+        if (allPeriodDates().includes(next) && (DATA[n] || {})[next] !== "明")
+          warns.push(`⚠ ${lbl} ${n} の翌日に「明」がありません`);
+        // 明け翌日の休みチェック
+        const rest = addDaysIso(iso, 2);
+        if (!isNightRestOk(n, rest))
+          warns.push(`⚠ ${lbl} ${n} の明け翌日（${rest.slice(5).replace("-","/")}）が休みになっていません`);
+        // 個別条件チェック
+        const c = NIGHT_CONDS[n];
+        if (c) {
+          if (c.ng) warns.push(`⚠ ${lbl} ${n} は夜勤対象外の設定です`);
+          if (c.days && c.days.length && !c.days.includes(dowOf(iso)))
+            warns.push(`⚠ ${lbl} ${n} は曜日限定（${c.days.map(x=>YOBI[x]).join("・")}）の設定です`);
+        }
+      }
+      lastIn[n] = iso;
+    }
+  }
+  return warns;
+}
+
+/* ============================================================
+   描画
+   ============================================================ */
+function buildTabs() {
+  const t = PERIOD.months.map(m => [String(m), m + "月"]);
+  if (PERIOD.extraDates && PERIOD.extraDates.length) t.push(["extra", PERIOD.extraLabel || "追加日程"]);
+  return t;
+}
+let TABS = buildTabs();
+let currentTab = String(PERIOD.months[0]);
+
+function markClass(mk) {
+  if (!mk) return "";
+  if (mk === "×") return "mk-x";
+  if (mk === "○") return "mk-nichoku";
+  if (mk.includes("振")) return "mk-振";
+  return "mk-" + mk[0];
+}
+
+function renderTabs() {
+  const bar = document.getElementById("tab-bar");
+  bar.innerHTML = "";
+  for (const [key, label] of TABS) {
+    const el = document.createElement("div");
+    el.className = "tab" + (key === currentTab ? " active" : "");
+    el.textContent = label;
+    el.onclick = () => { currentTab = key; render(); };
+    bar.appendChild(el);
+  }
+}
+
+function renderLegend() {
+  const lg = document.getElementById("legend");
+  lg.innerHTML = "<b>凡例:</b>";
+  const desc = {特:"特別休暇", 夏:"夏期休暇", 有:"有給", "振◆":"振替希望", "振":"振替休日", "×":"休日休み希望", 出:"出張", 業:"業務命令", 研:"研修", 入:"夜勤入り", 明:"夜勤明け", 残:"残り当番", "○":"日直"};
+  for (const mk of [...MARKS, "○"]) {
+    const chip = document.createElement("span");
+    chip.className = "mark-chip " + markClass(mk);
+    chip.textContent = `${mk} ${desc[mk]}`;
+    lg.appendChild(chip);
+  }
+}
+
+function render() {
+  renderTabs();
+  _FSTATE = computeFurikyuState();
+  EVENT_DATES = buildEventDates();
+  const dates = datesOfTab(currentTab);
+  const wrap = document.getElementById("table-wrap");
+  const tbl = document.createElement("table");
+  tbl.id = "main-table";
+  {
+    // 列幅を明示指定（固定レイアウト: 中身がどうであれ列幅は不変）
+    const widths = [62, 28, 24, 66, 46, ...STAFF.map(() => 38), 44];
+    const cg = document.createElement("colgroup");
+    for (const w of widths) {
+      const col = document.createElement("col");
+      col.style.width = w + "px";
+      cg.appendChild(col);
+    }
+    tbl.appendChild(cg);
+    tbl.style.width = widths.reduce((a, b) => a + b, 0) + "px";
+  }
+
+  // チーム行
+  const trTeam = document.createElement("tr");
+  trTeam.className = "team-row";
+  trTeam.innerHTML = `<th class="sticky-l" rowspan="2">日付</th><th class="sticky-l2" rowspan="2">曜</th><th class="sticky-l3" rowspan="2">班</th><th class="sticky-l4" rowspan="2">事務連絡</th><th class="sticky-l5" rowspan="2">夜勤</th>`;
+  for (const [tname, members] of TEAMS) {
+    const th = document.createElement("th");
+    th.colSpan = members.length;
+    th.textContent = tname;
+    th.className = "team-border";
+    trTeam.appendChild(th);
+  }
+  trTeam.innerHTML += `<th rowspan="2" class="team-border">申請数</th>`;
+  tbl.appendChild(trTeam);
+
+  // 氏名行
+  const trName = document.createElement("tr");
+  trName.className = "name-row";
+  for (const [tname, members] of TEAMS) {
+    members.forEach((n, i) => {
+      const th = document.createElement("th");
+      th.textContent = n;
+      if (i === 0) th.className = "team-border";
+      trName.appendChild(th);
+    });
+  }
+  tbl.appendChild(trName);
+
+  // 日付行
+  for (const iso of dates) {
+    const [y,m,d] = iso.split("-").map(Number);
+    const w = dowOf(iso);
+    const tr = document.createElement("tr");
+    if (isHoliday(iso)) tr.className = "hol";
+    else if (w === 0 || w === 6) tr.className = "wknd";
+
+    const tdD = document.createElement("td");
+    tdD.className = "datecell sticky-l";
+    tdD.innerHTML = `<div class="clamp" style="line-height:${isHoliday(iso) ? 12 : 26}px;">${m}/${d}` +
+      (isHoliday(iso) ? `<span class="holname">${holidayName(iso)}</span>` : "") + `</div>`;
+    tdD.title = "クリックで祝日扱いを切り替え";
+    tdD.onclick = (ev) => { ev.stopPropagation(); toggleHoliday(iso); };
+    tr.appendChild(tdD);
+
+    const tdY = document.createElement("td");
+    tdY.className = "yobicell sticky-l2 noedit";
+    tdY.textContent = YOBI[w];
+    tdY.style.color = (w === 0 || isHoliday(iso)) ? "var(--red)" : (w === 6 ? "var(--blue)" : "");
+    tr.appendChild(tdY);
+
+    const tdB = document.createElement("td");
+    tdB.className = "hancell sticky-l3 noedit";
+    tdB.textContent = DUTY_TEAM_MAP[iso] ? DUTY_TEAM_MAP[iso][0] : "";
+    tdB.title = DUTY_TEAM_MAP[iso] ? "日直当番: " + DUTY_TEAM_MAP[iso] : "";
+    tr.appendChild(tdB);
+
+    const tdJ = document.createElement("td");
+    tdJ.className = "jimucell sticky-l4";
+    {
+      const dv = document.createElement("div");
+      dv.className = "clamp";
+      dv.style.lineHeight = "11px";
+      dv.textContent = eventsTextOf(iso);
+      tdJ.appendChild(dv);
+    }
+    tdJ.title = "クリックで事務連絡を編集";
+    tdJ.onclick = (ev) => { ev.stopPropagation(); editEventText(iso); };
+    tr.appendChild(tdJ);
+
+    const tdN = document.createElement("td");
+    tdN.className = "yakincell sticky-l5 noedit";
+    tdN.textContent = nightPersonOf(iso);
+    tr.appendChild(tdN);
+
+    for (const [tname, members] of TEAMS) {
+      members.forEach((name, i) => {
+        const td = document.createElement("td");
+        td.classList.add("sc");
+        if (i === 0) td.classList.add("team-border");
+        const lv = onLeave(name, iso);
+        if (lv) {
+          if (lv.type.length >= 4) {
+            const half = Math.ceil(lv.type.length / 2);
+            td.innerHTML = `<span class="leave-mark long"><span class="lvin">${lv.type.slice(0, half)}<br>${lv.type.slice(half)}</span></span>`;
+          } else if (lv.type.length >= 3) {
+            td.innerHTML = `<span class="leave-mark long"><span class="lvin">${lv.type}</span></span>`;
+          } else {
+            td.innerHTML = `<span class="leave-mark">${lv.type}</span>`;
+          }
+          td.classList.add("noedit");
+          td.title = `${name}: ${lv.type}（${lv.from}～${lv.to}）`;
+        } else {
+          const mk = (DATA[name] || {})[iso] || "";
+          if (mk) {
+            const fm = mk.match(/^(\d{1,2}\/\d{1,2})(振◆?)$/);
+            const kd = (mk === "振◆") ? _FSTATE.kibouMap[name + "|" + iso] : null;
+            if (fm) {
+              td.innerHTML = `<span class="mark mk-振 furi2"><span class="fdate">${fm[1]}</span><span>${fm[2]}</span></span>`;
+            } else if (kd) {
+              td.innerHTML = `<span class="mark mk-振 furi2"><span class="fdate">${Number(kd.slice(5,7))}/${Number(kd.slice(8,10))}</span><span>振◆</span></span>`;
+            } else if (mk.replace("\n","").length >= 3) {
+              td.innerHTML = `<span class="mark ${markClass(mk)}"><span class="mkin">${mk.replace("\n","")}</span></span>`;
+            } else {
+              td.innerHTML = `<span class="mark ${markClass(mk)}">${mk.replace("\n","")}</span>`;
+            }
+          }
+          td.onclick = (ev) => openPopup(ev, name, iso);
+        }
+        tr.appendChild(td);
+      });
+    }
+
+    const tdC = document.createElement("td");
+    tdC.className = "countcell team-border noedit";
+    if (isRestDay(iso)) {
+      const nd = dutyMembersOf(iso).length;
+      tdC.textContent = nd ? `○${nd}` : "";
+      const target = isHoliday(iso) ? DUTY_COUNT_HOLIDAY : DUTY_COUNT_WEEKEND;
+      if (nd && (nd < target || nd > DUTY_MAX)) tdC.classList.add("over");
+    } else {
+      const n = countYasumi(iso);
+      tdC.textContent = n || "";
+      if (n > MAX_YASUMI_PER_DAY) tdC.classList.add("over");
+    }
+    tr.appendChild(tdC);
+    tbl.appendChild(tr);
+  }
+
+  // 合計行（申請計=月内・日直計=全期間）
+  const dateSet = new Set(dates);
+  const totalRow = (label, calc) => {
+    const tr = document.createElement("tr");
+    tr.className = "total-row";
+    tr.innerHTML = `<td class="sticky-l">${label}</td><td class="sticky-l2"></td><td class="sticky-l3"></td><td class="sticky-l4"></td><td class="sticky-l5"></td>`;
+    for (const [tname, members] of TEAMS) {
+      members.forEach((name, i) => {
+        const td = document.createElement("td");
+        if (i === 0) td.classList.add("team-border");
+        td.textContent = calc(name) || "";
+        tr.appendChild(td);
+      });
+    }
+    tr.innerHTML += `<td class="team-border"></td>`;
+    tbl.appendChild(tr);
+  };
+  totalRow("申請計", name => {
+    let c = 0;
+    for (const iso in (DATA[name] || {})) {
+      const v = DATA[name][iso];
+      if (dateSet.has(iso) && v && v !== "○" && v !== "入" && v !== "明" && v !== "残") c++;
+    }
+    return c;
+  });
+  totalRow("日直計(期間)", name => {
+    let c = 0;
+    for (const iso in (DATA[name] || {})) if (DATA[name][iso] === "○") c++;
+    return c;
+  });
+  totalRow("夜勤計(期間)", name => {
+    let c = 0;
+    for (const iso in (DATA[name] || {})) if (DATA[name][iso] === "入") c++;
+    return c;
+  });
+  totalRow("残当計(期間)", name => {
+    let c = 0;
+    for (const iso in (DATA[name] || {})) if (DATA[name][iso] === "残") c++;
+    return c;
+  });
+
+  wrap.innerHTML = "";
+  wrap.appendChild(tbl);
+
+  const warns = checkWarnings(dates);
+  document.getElementById("warn-list").innerHTML = warns.join("<br>");
+}
+
+/* ============================================================
+   セル編集ポップアップ
+   ============================================================ */
+function openPopup(ev, name, iso) {
+  ev.stopPropagation();
+  const pop = document.getElementById("popup");
+  const [y,m,d] = iso.split("-").map(Number);
+  pop.innerHTML = `<div class="pop-title">${name}　${m}/${d}（${YOBI[dowOf(iso)]}）</div>`;
+  const box = document.createElement("div");
+  box.className = "marks";
+  for (const mk of (isRestDay(iso) ? ["○", ...MARKS] : MARKS)) {
+    const b = document.createElement("button");
+    b.textContent = mk;
+    b.className = markClass(mk);
+    b.onclick = () => { setMark(name, iso, mk); closePopup(); };
+    box.appendChild(b);
+  }
+  pop.appendChild(box);
+
+  const free = document.createElement("button");
+  free.className = "wide";
+  free.textContent = "自由入力（例: 9/23振）";
+  free.onclick = () => {
+    const v = prompt("入力する文字（空欄で削除）:", (DATA[name] || {})[iso] || "");
+    if (v !== null) setMark(name, iso, v.trim());
+    closePopup();
+  };
+  pop.appendChild(free);
+
+  const clr = document.createElement("button");
+  clr.className = "wide";
+  clr.textContent = "クリア";
+  clr.onclick = () => { setMark(name, iso, ""); closePopup(); };
+  pop.appendChild(clr);
+
+  pop.style.display = "block";
+  const px = Math.min(ev.pageX, window.innerWidth + window.scrollX - 210);
+  pop.style.left = px + "px";
+  pop.style.top = (ev.pageY + 8) + "px";
+}
+function closePopup() { document.getElementById("popup").style.display = "none"; }
+document.addEventListener("click", (e) => {
+  if (!document.getElementById("popup").contains(e.target)) closePopup();
+});
+
+function setMark(name, iso, mk) {
+  pushUndo("セル編集");
+  if (!DATA[name]) DATA[name] = {};
+  if (mk) DATA[name][iso] = mk;
+  else delete DATA[name][iso];
+  saveSchedule();
+  render();
+}
+
+/* ============================================================
+   取り込み / 書き出し
+   ============================================================ */
+function inPeriod(iso) {
+  const [y,m] = iso.split("-").map(Number);
+  return (y === PERIOD.year && PERIOD.months.includes(m)) || PERIOD.extraDates.includes(iso);
+}
+
+function importFromKiboushu() {
+  let src;
+  try { src = JSON.parse(localStorage.getItem("kiboushu_requests") || "{}"); }
+  catch (e) { alert("希望休アプリのデータが読めませんでした"); return; }
+  pushUndo("希望休取り込み");
+  let n = 0, unknown = new Set();
+  for (const name in src) {
+    if (!STAFF.includes(name)) { unknown.add(name); continue; }
+    for (const iso in src[name]) {
+      if (!inPeriod(iso)) continue;
+      if (!DATA[name]) DATA[name] = {};
+      DATA[name][iso] = src[name][iso];
+      n++;
+    }
+  }
+  saveSchedule(); render();
+  let msg = `希望休アプリ（このブラウザのlocalStorage）から ${n} 件を取り込みました。`;
+  if (n === 0) msg += "\n※同じブラウザ・同じ配置場所（同一オリジン）で希望休アプリを使用している必要があります。GAS版のデータはJSON書き出し→読み込みで移してください。";
+  if (unknown.size) msg += `\n未登録の名前をスキップ: ${[...unknown].join("、")}`;
+  alert(msg);
+}
+
+function exportJson() {
+  // 勤務データ＋メモ＋全設定を含む完全バックアップ
+  const backup = {
+    __kinmu_backup__: 1,
+    schedule: DATA,
+    memo: localStorage.getItem("kinmu_memo") || "",
+    archive: loadArchive(),   // 過去の勤務表（年間集計用）も含める
+    settings: {
+      participation: PARTICIPATION, night_conds: NIGHT_CONDS, zan_conds: ZAN_CONDS,
+      ng_pairs: NG_PAIRS, events_fixed: EVENTS_FIXED, events_text: EVENTS_TEXT,
+      event_moves: EVENT_MOVES, groups: GROUPS, must_days: MUST_DAYS,
+      custom_holidays: [...CUSTOM_HOLIDAYS], prev_carryover: PREV_CARRY,
+      leaves: LEAVES, carry: [...CARRY_SET],
+      period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT,
+    },
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 1)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "kinmu_backup.json";
+  a.click();
+}
+
+function importJson(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const obj = JSON.parse(rd.result);
+      pushUndo("JSON読み込み");
+      if (obj.__kinmu_backup__) {
+        // 完全バックアップ形式: 勤務データ・メモ・全設定を復元
+        DATA = obj.schedule || {};
+        if (typeof obj.memo === "string") {
+          localStorage.setItem("kinmu_memo", obj.memo);
+          const ta = document.getElementById("memo-area");
+          if (ta) { ta.value = obj.memo; if (obj.memo.trim()) openMemo(true); }
+        }
+        const s = obj.settings || {};
+        if (s.participation) { PARTICIPATION = s.participation; saveJson("kinmu_participation", PARTICIPATION); }
+        if (s.night_conds) { NIGHT_CONDS = s.night_conds; saveNightConds(); }
+        if (s.zan_conds) { ZAN_CONDS = s.zan_conds; saveJson("kinmu_zan_conds", ZAN_CONDS); }
+        if (s.ng_pairs) { NG_PAIRS = s.ng_pairs; saveJson("kinmu_ng_pairs", NG_PAIRS); }
+        if (s.events_fixed) { EVENTS_FIXED = s.events_fixed; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
+        if (s.events_text) { EVENTS_TEXT = s.events_text; saveJson("kinmu_events_text", EVENTS_TEXT); }
+        if (s.event_moves) { EVENT_MOVES = s.event_moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
+        if (s.groups) { GROUPS = s.groups; saveJson("kinmu_groups", GROUPS); }
+        if (s.must_days) { MUST_DAYS = s.must_days; saveJson("kinmu_must_days", MUST_DAYS); }
+        if (s.custom_holidays) { CUSTOM_HOLIDAYS = new Set(s.custom_holidays); saveCustomHolidays(); }
+        if (s.prev_carryover) { PREV_CARRY = s.prev_carryover; saveJson("kinmu_prev_carryover", PREV_CARRY); }
+        if (s.leaves) { LEAVES = s.leaves; saveLeaves(); }
+        if (s.carry) { CARRY_SET = new Set(s.carry); saveCarrySet(); }
+        if (s.period) { PERIOD = s.period; savePeriod(); TABS = buildTabs(); currentTab = String(PERIOD.months[0]); }
+        if (s.cycle_start !== undefined) { CYCLE_START_IDX = s.cycle_start; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
+        if (s.prev_night) { PREV_NIGHT = s.prev_night; saveJson("kinmu_prev_night", PREV_NIGHT); }
+        if (Array.isArray(obj.archive)) saveArchive(obj.archive);   // 過去の勤務表も復元
+        EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
+        saveSchedule(); render();
+        alert(`バックアップを読み込みました（勤務データ・メモ・全設定${Array.isArray(obj.archive)?"・過去の勤務表"+obj.archive.length+"件":""}）。`);
+      } else {
+        // 旧形式（勤務データのみ）
+        let n = 0;
+        for (const name in obj) {
+          if (!STAFF.includes(name)) continue;
+          for (const iso in obj[name]) {
+            if (!inPeriod(iso)) continue;
+            if (!DATA[name]) DATA[name] = {};
+            DATA[name][iso] = obj[name][iso];
+            n++;
+          }
+        }
+        saveSchedule(); render();
+        alert(`${n} 件を取り込みました`);
+      }
+    } catch (e) { alert("JSONの読み込みに失敗しました: " + e.message); }
+  };
+  rd.readAsText(file);
+  input.value = "";
+}
+
+function resetToSeed() {
+  if (!confirm("編集内容を破棄して、申請一覧の初期データ（212件）に戻します。よろしいですか？")) return;
+  pushUndo("初期データに戻す");
+  DATA = JSON.parse(JSON.stringify(SEED_REQUESTS));
+  saveSchedule(); render();
+}
+
+/* ============================================================
+   日直の自動割り当て（ステップ2）
+   ルール: 土日と祝日は別サイクルでA→B→C→D→Eの輪番。
+   土日4人・祝日5人（最大5）。チーム内は期間通算で均等に。
+   課長・係長・主任を最低1人。申請のある人はスキップ。
+   人数不足時は他チーム（A～E）から補充（警告表示）。
+   ============================================================ */
+function doAssignNikichoku() {
+  // 既存の○を全消去してから割り当て（再実行可能）
+  for (const name of STAFF) {
+    for (const iso in (DATA[name] || {})) {
+      if (DATA[name][iso] === "○") delete DATA[name][iso];
+    }
+  }
+  const counts = {};  // 期間通算の日直数
+  const free = (n, iso) => !(DATA[n] || {})[iso] && !onLeave(n, iso);
+  // 振◆を持つ人は、その振休の元になる日直（振◆の前14日以内 or 後7日以内）を優先的に担当
+  const KIBOU_LIST = [];
+  for (const n of STAFF) {
+    for (const iso in (DATA[n] || {})) {
+      const mkv = DATA[n][iso] || "";
+      if (mkv.endsWith("振◆")) KIBOU_LIST.push({ name: n, iso, explicit: kibouExplicitDuty(mkv) });
+    }
+  }
+  const kibouNeed = (n, dutyIso) => KIBOU_LIST.some(k => {
+    if (k.name !== n) return false;
+    if (k.explicit) return k.explicit === dutyIso;  // 出勤日明記型は指定日のみ
+    const diff = diffDaysIso(dutyIso, k.iso);  // 正: 日直→振◆（後付与）
+    return (diff >= 1 && diff <= FURIKYU_AFTER_DAYS) || (diff <= -1 && diff >= -FURIKYU_BEFORE_DAYS);
+  });
+  const byFair = (iso) => (a, b) =>
+    (kibouNeed(b, iso) ? 1 : 0) - (kibouNeed(a, iso) ? 1 : 0) ||
+    (counts[a] || 0) - (counts[b] || 0) || STAFF.indexOf(a) - STAFF.indexOf(b);
+
+  for (const iso of allPeriodDates()) {
+    if (!isRestDay(iso)) continue;
+    const team = DUTY_TEAM_MAP[iso];
+    const target = isHoliday(iso) ? DUTY_COUNT_HOLIDAY : DUTY_COUNT_WEEKEND;
+    // NGペア・連続勤務6日を守りながら選出
+    const okAdd = (n, others) => !ngPairConflict("日直", n, others) && streakIfWorked(n, iso) <= MAX_STREAK;
+    let cands = STAFF.filter(n => free(n, iso) && canNikichoku(n, iso) &&
+      (membersOfTeam(team).includes(n) || !DUTY_STAFF.includes(n)));  // 当番班＋日直参加中のその他
+    cands.sort(byFair(iso));
+    let picked = [];
+    // 出勤日を明記した振◆（例: 10/24振◆）の本人は、その日に班をまたいででも必ず日直に入れる
+    for (const k of KIBOU_LIST) {
+      if (k.explicit === iso && canNikichoku(k.name, iso) && free(k.name, iso) &&
+          !picked.includes(k.name) && okAdd(k.name, picked) && picked.length < target) picked.push(k.name);
+    }
+    for (const n of cands) {
+      if (picked.length >= target) break;
+      if (picked.includes(n)) continue;
+      if (!okAdd(n, picked)) continue;
+      picked.push(n);
+    }
+    // 責任者（課長・係長・主任）確保: チーム内で（振◆優先者はなるべく残す）
+    if (picked.length && !picked.some(n => MANAGERS.has(n))) {
+      const mgr = cands.find(n => MANAGERS.has(n) && !picked.includes(n) && streakIfWorked(n, iso) <= MAX_STREAK);
+      if (mgr) {
+        let idx = picked.length - 1;
+        for (let i = picked.length - 1; i >= 0; i--) if (!kibouNeed(picked[i], iso)) { idx = i; break; }
+        if (!ngPairConflict("日直", mgr, picked.filter((_, j) => j !== idx))) picked[idx] = mgr;
+      }
+    }
+    // 人数不足: 他チーム（A～E）から補充
+    if (picked.length < target) {
+      const others = STAFF.filter(n => canNikichoku(n, iso) && !membersOfTeam(team).includes(n) && free(n, iso) && !picked.includes(n));
+      others.sort(byFair(iso));
+      for (const n of others) {
+        if (picked.length >= target) break;
+        if (!okAdd(n, picked)) continue;
+        picked.push(n);
+      }
+    }
+    // それでも責任者がいなければ、全チームから責任者を1人入れ替え
+    if (picked.length && !picked.some(n => MANAGERS.has(n))) {
+      const mgrs = STAFF.filter(n => canNikichoku(n, iso) && MANAGERS.has(n) && free(n, iso) && !picked.includes(n) &&
+                                          streakIfWorked(n, iso) <= MAX_STREAK &&
+                                          !ngPairConflict("日直", n, picked.slice(0, -1)));
+      mgrs.sort(byFair(iso));
+      if (mgrs.length) picked[picked.length - 1] = mgrs[0];
+    }
+    for (const n of picked) {
+      if (!DATA[n]) DATA[n] = {};
+      DATA[n][iso] = "○";
+      counts[n] = (counts[n] || 0) + 1;
+    }
+  }
+  saveSchedule();
+  render();
+}
+function assignNikichoku() {
+  if (!confirm("既存の日直（○）をすべてクリアして自動割り当てを実行します。よろしいですか？\n（希望休などの申請は変更されません）")) return;
+  pushUndo("日直割り当て");
+  doAssignNikichoku();
+}
+function clearNikichoku() {
+  if (!confirm("すべての日直（○）を削除します。よろしいですか？")) return;
+  pushUndo("日直クリア");
+  for (const name of STAFF) {
+    for (const iso in (DATA[name] || {})) {
+      if (DATA[name][iso] === "○") delete DATA[name][iso];
+    }
+  }
+  saveSchedule();
+  render();
+}
+
+/* ============================================================
+   夜勤の自動割り当て（ステップ3）
+   ルール: 1日1人（入→翌日に明）。間隔は1週間以上。
+   明け翌日は休日・振系・有・夏・特で休み（無ければ「振」を自動配置、平日上限5人を考慮）。
+   他・事務は対象外。個別条件（対象外・曜日限定・月回数上限）に対応。
+   ============================================================ */
+function condOf(name) { return NIGHT_CONDS[name] || {}; }
+
+function doAssignYakin() {
+  // 既存の入・明・自動配置した振をクリア
+  doClearYakin();
+  const counts = {}, monthCnt = {};
+  const lastIn = {};
+  lastIn[PREV_NIGHT.name] = PREV_NIGHT.date;
+  const dates = allPeriodDates();
+  const inPeriodSet = new Set(dates);
+  const freeCell = (n, iso) => !(DATA[n] || {})[iso] && !onLeave(n, iso);
+  const setMk = (n, iso, mk) => { if (!DATA[n]) DATA[n] = {}; DATA[n][iso] = mk; };
+
+  // 前回シフト最終日（9/30 入=町田）の明けを10/1に配置
+  const firstIso = dates[0];
+  if (diffDaysIso(PREV_NIGHT.date, firstIso) === 1 && freeCell(PREV_NIGHT.name, firstIso)) {
+    setMk(PREV_NIGHT.name, firstIso, "明");
+  }
+  const needAutoRest = (n, iso2, relax) => {
+    // iso2=明け翌日を休みにするために「振」の自動配置が必要か: -1=不可 / 0=不要 / 1=必要
+    if (!inPeriodSet.has(iso2)) return 0;
+    if (isRestDay(iso2)) {
+      const mk = (DATA[n] || {})[iso2] || "";
+      return (mk === "○" || mk === "入" || mk === "明") ? -1 : 0;
+    }
+    const mk = (DATA[n] || {})[iso2] || "";
+    if (NIGHT_REST_MARKS.has(mk) || mk.includes("振")) return 0;
+    if (mk || onLeave(n, iso2)) return -1;              // 他のマークあり（出・業・×など）
+    if (restBlocked(n, iso2)) return -1;                // 行事必須・必須曜日・グループ最低出勤
+    if (countYasumi(iso2) < MAX_YASUMI_PER_DAY) return 1;  // 空きがあれば振を置ける
+    return relax ? 1 : -1;  // 最終手段: 上限超過を許容して振を置く（警告で表示される）
+  };
+  const placeRest = (n, iso2, need) => {
+    if (need === 1) {
+      setMk(n, iso2, "振");
+      NIGHT_AUTO.push(n + "|" + iso2);
+    }
+  };
+  // 前回分の明け翌日（10/2）も処理
+  {
+    const iso2 = addDaysIso(PREV_NIGHT.date, 2);
+    const need = needAutoRest(PREV_NIGHT.name, iso2, false);
+    placeRest(PREV_NIGHT.name, iso2, need);
+  }
+
+  const collectCands = (iso, next, rest, mkey, relax) => {
+    const cands = [];
+    for (const n of STAFF) {
+      if (!canYakin(n, iso)) continue;  // A〜E＝可、その他は夜勤参加設定期間のみ
+      const c = condOf(n);
+      if (c.ng) continue;
+      if (c.days && c.days.length && !c.days.includes(dowOf(iso))) continue;
+      if (c.maxPerMonth && ((monthCnt[n] || {})[mkey] || 0) >= c.maxPerMonth) continue;
+      if (lastIn[n] && diffDaysIso(lastIn[n], iso) < 7) continue;
+      if (!freeCell(n, iso)) continue;
+      if (inPeriodSet.has(next) && !freeCell(n, next)) continue;
+      // 行事の必須出勤者・必須勤務曜日は通常業務のため、入り/明けを置かない
+      if (mustWork(n, iso) || (inPeriodSet.has(next) && mustWork(n, next))) continue;
+      // 夜勤（日中不在）にするとグループ最低出勤を割る場合は避ける
+      if (groupShortIfAbsent(n, iso) || (inPeriodSet.has(next) && groupShortIfAbsent(n, next))) continue;
+      if (!relax && backStreak(n, iso) + 2 > MAX_STREAK) continue;  // 入＋明で連続勤務6日超
+      const need = needAutoRest(n, rest, relax);
+      if (need === -1) continue;
+      cands.push({ n, need });
+    }
+    return cands;
+  };
+
+  const unfilled = [], overflowed = [];
+  for (const iso of dates) {
+    const next = addDaysIso(iso, 1);
+    const rest = addDaysIso(iso, 2);
+    const [y, m] = iso.split("-").map(Number);
+    const mkey = `${y}-${m}`;
+    let cands = collectCands(iso, next, rest, mkey, false);
+    if (!cands.length) {
+      // 最終手段: 明け翌日の振で休み上限超過を許容
+      cands = collectCands(iso, next, rest, mkey, true);
+      if (cands.length) overflowed.push(rest);
+    }
+    if (!cands.length) { unfilled.push(iso); continue; }
+    cands.sort((a, b) =>
+      (counts[a.n] || 0) - (counts[b.n] || 0) ||
+      a.need - b.need ||                                   // 振の自動配置が不要な人を優先
+      STAFF.indexOf(a.n) - STAFF.indexOf(b.n));
+    const pick = cands[0];
+    setMk(pick.n, iso, "入");
+    if (inPeriodSet.has(next)) setMk(pick.n, next, "明");
+    placeRest(pick.n, rest, pick.need);
+    lastIn[pick.n] = iso;
+    counts[pick.n] = (counts[pick.n] || 0) + 1;
+    (monthCnt[pick.n] = monthCnt[pick.n] || {})[mkey] = ((monthCnt[pick.n] || {})[mkey] || 0) + 1;
+  }
+  saveNightAuto(); saveSchedule(); render();
+  return { unfilled, overflowed };
+}
+function assignYakin() {
+  if (!confirm("既存の夜勤（入・明）と自動配置した振をクリアして自動割り当てを実行します。よろしいですか？\n（申請・日直は変更されません）")) return;
+  pushUndo("夜勤割り当て");
+  const r = doAssignYakin();
+  let msg = "";
+  if (r.overflowed.length) msg += "明け翌日の振により休みが上限5人を超えた日があります:\n" + r.overflowed.join("\n") + "\n";
+  if (r.unfilled.length) msg += "割り当てできなかった日があります:\n" + r.unfilled.join("\n");
+  if (msg) alert(msg);
+}
+function doClearYakin() {
+  for (const name of STAFF) {
+    for (const iso in (DATA[name] || {})) {
+      if (DATA[name][iso] === "入" || DATA[name][iso] === "明") delete DATA[name][iso];
+    }
+  }
+  for (const key of NIGHT_AUTO) {
+    const [n, iso] = key.split("|");
+    if ((DATA[n] || {})[iso] === "振") delete DATA[n][iso];
+  }
+  NIGHT_AUTO = [];
+}
+function clearYakin() {
+  if (!confirm("すべての夜勤（入・明）と自動配置した振を削除します。よろしいですか？")) return;
+  pushUndo("夜勤クリア");
+  doClearYakin();
+  saveNightAuto(); saveSchedule(); render();
+}
+
+/* ---- 夜勤条件設定モーダル ---- */
+function openNightModal() {
+  const tb = document.getElementById("night-list");
+  tb.innerHTML = "";
+  const DOWS = [1,2,3,4,5,6,0];  // 月～日
+  for (const [tname, members] of TEAMS) {  // 全チーム（その他・事務含む）
+    for (const n of members) {
+      const c = condOf(n);
+      const tr = document.createElement("tr");
+      let dayboxes = "";
+      for (const dw of DOWS) {
+        const chk = (c.days && c.days.length) ? (c.days.includes(dw) ? "checked" : "") : "checked";
+        dayboxes += `<label style="margin-right:2px;"><input type="checkbox" data-name="${n}" data-dow="${dw}" ${chk}>${YOBI[dw]}</label>`;
+      }
+      tr.innerHTML = `<td><b>${n}</b><span style="color:#999;font-size:10px;"> ${tname[0]}</span></td>` +
+        `<td style="text-align:center;"><input type="checkbox" class="ng-box" data-name="${n}" ${c.ng ? "checked" : ""}></td>` +
+        `<td style="white-space:nowrap;">${dayboxes}</td>` +
+        `<td><input type="number" min="1" max="9" style="width:44px;" class="max-box" data-name="${n}" value="${c.maxPerMonth || ""}"></td>`;
+      tb.appendChild(tr);
+    }
+  }
+  document.getElementById("night-modal").style.display = "block";
+}
+function closeNightModal() { document.getElementById("night-modal").style.display = "none"; }
+function saveNightModal() {
+  const conds = {};
+  for (const box of document.querySelectorAll("#night-list .ng-box")) {
+    if (box.checked) (conds[box.dataset.name] = conds[box.dataset.name] || {}).ng = true;
+  }
+  const dayMap = {};
+  for (const box of document.querySelectorAll('#night-list input[data-dow]')) {
+    const n = box.dataset.name;
+    (dayMap[n] = dayMap[n] || []).push([Number(box.dataset.dow), box.checked]);
+  }
+  for (const n in dayMap) {
+    const on = dayMap[n].filter(x => x[1]).map(x => x[0]);
+    if (on.length < 7) (conds[n] = conds[n] || {}).days = on;
+  }
+  for (const box of document.querySelectorAll("#night-list .max-box")) {
+    const v = Number(box.value);
+    if (v >= 1) (conds[box.dataset.name] = conds[box.dataset.name] || {}).maxPerMonth = v;
+  }
+  NIGHT_CONDS = conds;
+  saveNightConds();
+  closeNightModal();
+  render();
+  alert("夜勤条件を保存しました。「夜勤を割り当て」の再実行で反映されます。");
+}
+
+/* ============================================================
+   振休の配置（ステップ4）
+   ルール: 日直（○）1回で振休1日。土日祝の「業」も1日。
+   原則、直後の週に付与（最長2週間以内）。無理なら1週間以内の前付与も可。
+   5日以上の長期連休中の日直分は期間内に付与できればよい。
+   2件たまっている場合は連続配置を優先。振◆は振と同じ扱い（移動不可）。
+   夜勤明けに自動配置した「振」があれば振休として充当（出勤日ラベルに昇格）。
+   ============================================================ */
+const FURIKYU_AUTO_KEY = "kinmu_furikyu_auto";
+let FURIKYU_AFTER_DAYS = 14;   // 振休の付与期限: 出勤後○日以内
+let FURIKYU_BEFORE_DAYS = 7;   // 前付与の許容: 出勤の○日前まで
+let FURIKYU_LATE_FALLBACK = true;  // 期限内に置けない場合、繰越にせず期間内の後ろへ配置（期限超過表示）
+let FURIKYU_AUTO = loadFurikyuAuto();  // [{name, iso, duty, night}]
+let _FSTATE = null;                    // render時に計算する振休の現況キャッシュ
+const CARRY_KEY = "kinmu_furikyu_carry";
+let CARRY_SET = loadCarrySet();        // 手動で繰越指定した権利 "氏名|出勤日"
+function loadCarrySet() {
+  try {
+    const s = localStorage.getItem(CARRY_KEY);
+    if (s) return new Set(JSON.parse(s));
+  } catch (e) {}
+  return new Set();
+}
+function saveCarrySet() { localStorage.setItem(CARRY_KEY, JSON.stringify([...CARRY_SET])); }
+function loadFurikyuAuto() {
+  try {
+    const s = localStorage.getItem(FURIKYU_AUTO_KEY);
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return [];
+}
+function saveFurikyuAuto() { localStorage.setItem(FURIKYU_AUTO_KEY, JSON.stringify(FURIKYU_AUTO)); }
+
+/* 前回シフト（7-9月）からの繰越振休19件（最終確定PDFの「10月以降繰り越し」欄・初期値、
+   「振休繰越管理」で追加・削除可能） */
+const DEFAULT_PREV_CARRYOVER = [
+  {name:"三世川", duty:"2026-09-22"},
+  {name:"大澤", duty:"2026-09-23"}, {name:"品川", duty:"2026-09-23"}, {name:"木暮", duty:"2026-09-23"},
+  {name:"佐藤", duty:"2026-09-23"}, {name:"廣田", duty:"2026-09-23"}, {name:"関口", duty:"2026-09-23"},
+  {name:"齊藤江", duty:"2026-09-26"}, {name:"丸岡", duty:"2026-09-26"}, {name:"山田", duty:"2026-09-26"},
+  {name:"前原", duty:"2026-09-26"}, {name:"皆川", duty:"2026-09-26"}, {name:"齋藤将", duty:"2026-09-26"},
+  {name:"我妻", duty:"2026-09-27"}, {name:"狩野", duty:"2026-09-27"}, {name:"小池", duty:"2026-09-27"},
+  {name:"北原", duty:"2026-09-27"}, {name:"丸岡", duty:"2026-09-27"}, {name:"山田", duty:"2026-09-27"},
+];
+let PREV_CARRY = loadJson("kinmu_prev_carryover", DEFAULT_PREV_CARRYOVER);
+function removePlacementFor(name, duty) {
+  // 配置済みの振休（ラベル付き振）を取り消す（夜勤明け充当分は「振」に戻す）
+  const fi = FURIKYU_AUTO.findIndex(f => f.name === name && f.duty === duty);
+  if (fi < 0) return false;
+  const f = FURIKYU_AUTO[fi];
+  if ((DATA[f.name] || {})[f.iso] === furikyuLabel(f.duty)) {
+    if (f.night) { DATA[f.name][f.iso] = "振"; NIGHT_AUTO.push(f.name + "|" + f.iso); }
+    else delete DATA[f.name][f.iso];
+  }
+  FURIKYU_AUTO.splice(fi, 1);
+  return true;
+}
+const PREV_REST_SET = new Set(["2026-09-19","2026-09-20","2026-09-21","2026-09-22","2026-09-23","2026-09-26","2026-09-27"]);
+
+function isRestIso(iso) {
+  if (allPeriodDates().includes(iso)) return isRestDay(iso);
+  if (PREV_REST_SET.has(iso)) return true;
+  const w = dowOf(iso);
+  return w === 0 || w === 6;
+}
+function furikyuLabel(duty) {
+  const [y,m,d] = duty.split("-").map(Number);
+  return `${m}/${d}振`;
+}
+function kibouExplicitDuty(mk) {
+  // 「10/24振◆」のように出勤日を明記した振◆の指定日を返す
+  const m = (mk || "").match(/^(\d{1,2})\/(\d{1,2})振◆$/);
+  if (!m) return null;
+  const mo = Number(m[1]);
+  return isoOf(mo >= 9 ? 2026 : 2027, mo, Number(m[2]));
+}
+function labelToDuty(label) {
+  const fm = label.match(/^(\d{1,2})\/(\d{1,2})振$/);
+  if (!fm) return null;
+  const m = Number(fm[1]);
+  const y = (m >= 9) ? 2026 : 2027;
+  return isoOf(y, m, Number(fm[2]));
+}
+function dutyStreakInfo(duty) {
+  let s = duty, e = duty;
+  while (isRestIso(addDaysIso(s, -1))) s = addDaysIso(s, -1);
+  while (isRestIso(addDaysIso(e, 1))) e = addDaysIso(e, 1);
+  return { long: diffDaysIso(s, e) + 1 >= 5 };
+}
+
+/* 振休の権利（日直○・土日祝の業/入/明・前回繰越）と振◆マッチング・繰越指定の現況を計算 */
+function computeFurikyuState() {
+  const dates = allPeriodDates();
+  const SRC = { "○": "日直", "業": "業", "入": "夜勤入り", "明": "夜勤明け" };
+  const duties = PREV_CARRY.map(c =>
+    ({ name: c.name, duty: c.duty, src: "前回繰越", placedAt: null, kibouAt: null, carry: false }));
+  for (const iso of dates) {
+    if (!isRestDay(iso)) continue;
+    for (const n of STAFF) {   // その他が休日に○業入明を持てば振休権利が発生する
+      const mk = (DATA[n] || {})[iso];
+      if (SRC[mk]) duties.push({ name: n, duty: iso, src: SRC[mk], placedAt: null, kibouAt: null, carry: false });
+    }
+  }
+  duties.sort((a, b) => a.duty < b.duty ? -1 : 1);
+  for (const d of duties) if (CARRY_SET.has(d.name + "|" + d.duty)) d.carry = true;
+  const open = d => !d.placedAt && !d.kibouAt && !d.carry;
+  // 1) 配置済みのラベル付き振（M/D振）と対応付け
+  for (const n of STAFF) {
+    for (const iso in (DATA[n] || {})) {
+      const duty = labelToDuty(DATA[n][iso]);
+      if (!duty) continue;
+      const d = duties.find(d => d.name === n && d.duty === duty && !d.placedAt && !d.kibouAt);
+      if (d) { d.placedAt = iso; d.carry = false; }
+    }
+  }
+  // 2) 振◆（移動不可の振休）と対応付け: 後付与≤14日 or 前付与≤7日、後付与を優先
+  const kibous = [];
+  for (const iso of dates) {
+    for (const n of STAFF) {
+      const mkv = (DATA[n] || {})[iso] || "";
+      if (mkv.endsWith("振◆")) kibous.push({ name: n, iso, explicit: kibouExplicitDuty(mkv) });
+    }
+  }
+  kibous.sort((a, b) => a.iso < b.iso ? -1 : 1);
+  const unmatchedKibou = [];
+  for (const k of kibous) {
+    let best = null;
+    if (k.explicit) {
+      // 出勤日が明記されている場合はその日の出勤と直接対応付け（ルール窓は適用しない）
+      best = duties.find(d => open(d) && d.name === k.name && d.duty === k.explicit) || null;
+    } else {
+      let bestPref = 9, bestAbs = 99;
+      for (const d of duties) {
+        if (!open(d) || d.name !== k.name) continue;
+        const diff = diffDaysIso(d.duty, k.iso);  // 正: 出勤→振◆（後付与）
+        const ok = (diff >= 1 && diff <= FURIKYU_AFTER_DAYS) || (diff <= -1 && diff >= -FURIKYU_BEFORE_DAYS);
+        if (!ok) continue;
+        const pref = diff >= 1 ? 0 : 1, abs = Math.abs(diff);
+        if (pref < bestPref || (pref === bestPref && abs < bestAbs)) { best = d; bestPref = pref; bestAbs = abs; }
+      }
+    }
+    if (best) best.kibouAt = k.iso;
+    else unmatchedKibou.push(k);
+  }
+  const kibouMap = {};  // "氏名|振◆の日" → 出勤日
+  for (const d of duties) if (d.kibouAt) kibouMap[d.name + "|" + d.kibouAt] = d.duty;
+  const pending = duties.filter(open);
+  const carried = duties.filter(d => d.carry);
+  return { duties, pending, carried, unmatchedKibou, kibouMap };
+}
+
+function doAssignFurikyu() {
+  doClearFurikyu();
+  const dates = allPeriodDates();
+  const inPeriodSet = new Set(dates);
+  // 夜勤明けの「振」（「明」の翌日）を NIGHT_AUTO に再構築（JSON読み込み後にも対応）
+  for (const n of STAFF) {
+    for (const iso of dates) {
+      if ((DATA[n] || {})[iso] === "明") {
+        const rest = addDaysIso(iso, 1);
+        if (inPeriodSet.has(rest) && (DATA[n] || {})[rest] === "振" && !NIGHT_AUTO.includes(n + "|" + rest))
+          NIGHT_AUTO.push(n + "|" + rest);
+      }
+    }
+  }
+  const st = computeFurikyuState();
+  // 締切（出勤日+期限日数）の早い順に処理。長期連休分は配置範囲のみ期間内全体に広げる
+  const items = st.pending.map(d => {
+    const long = dutyStreakInfo(d.duty).long;
+    return { ...d, long, deadline: addDaysIso(d.duty, FURIKYU_AFTER_DAYS) };
+  });
+  items.sort((a, b) => a.deadline < b.deadline ? -1 : a.deadline > b.deadline ? 1 : (a.duty < b.duty ? -1 : 1));
+
+  const freeCell = (n, iso) => !(DATA[n] || {})[iso] && !onLeave(n, iso);
+  const adjacentFuri = (n, iso) => {
+    const p = (DATA[n] || {})[addDaysIso(iso, -1)] || "", q = (DATA[n] || {})[addDaysIso(iso, 1)] || "";
+    return p.includes("振") || q.includes("振");
+  };
+  const lateViolations = [];
+  let carryNext = [];
+  const inWindow = (duty, iso, long) => {
+    const diff = diffDaysIso(duty, iso);
+    return (diff >= 1 && diff <= FURIKYU_AFTER_DAYS) || (diff <= -1 && diff >= -FURIKYU_BEFORE_DAYS) || (long && diff >= 1);
+  };
+  const tryPlaceItem = (it) => {
+    // 候補日を優先順に: 直後の週 → 期限内 → （長期連休は期間内どこでも）→ 前付与
+    const after1 = [], after2 = [], before = [], late = [];
+    for (const iso of dates) {
+      if (isRestDay(iso)) continue;
+      const diff = diffDaysIso(it.duty, iso);
+      if (diff >= 1 && diff <= 7) after1.push(iso);
+      else if (diff >= 8 && diff <= FURIKYU_AFTER_DAYS) after2.push(iso);
+      else if (diff >= -FURIKYU_BEFORE_DAYS && diff <= -1) before.push(iso);
+      else if (diff > FURIKYU_AFTER_DAYS) late.push(iso);
+    }
+    // 通常分は期限内＋前付与まで。FURIKYU_LATE_FALLBACK時は期間内の後ろも許容（繰越より優先）
+    const tiers = it.long ? [after1, after2, late, before]
+      : (FURIKYU_LATE_FALLBACK ? [after1, after2, before, late] : [after1, after2, before]);
+    const sortTier = arr => arr.slice().sort((a, b) =>
+      (adjacentFuri(it.name, a) ? 0 : 1) - (adjacentFuri(it.name, b) ? 0 : 1) || (a < b ? -1 : 1));
+    let placed = null, viaNight = false, isLate = false;
+    // 1) まず全ウィンドウで、夜勤明けの自動振（日付なしの「振」）への充当を探す
+    for (let t = 0; t < tiers.length && !placed; t++) {
+      for (const iso of sortTier(tiers[t])) {
+        if ((DATA[it.name] || {})[iso] === "振" && NIGHT_AUTO.includes(it.name + "|" + iso)) {
+          placed = iso; viaNight = true;
+          if (!it.long && tiers[t] === late) isLate = true;
+          break;
+        }
+      }
+    }
+    // 2) 充当先が無ければ空きセルに新規配置
+    for (let t = 0; t < tiers.length && !placed; t++) {
+      for (const iso of sortTier(tiers[t])) {
+        if (freeCell(it.name, iso) && !restBlocked(it.name, iso) && countYasumi(iso) < MAX_YASUMI_PER_DAY) {
+          placed = iso;
+          if (!it.long && tiers[t] === late) isLate = true;
+          break;
+        }
+      }
+    }
+    if (!placed) return false;
+    if (viaNight) NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== it.name + "|" + placed);
+    if (!DATA[it.name]) DATA[it.name] = {};
+    DATA[it.name][placed] = furikyuLabel(it.duty);
+    FURIKYU_AUTO.push({ name: it.name, iso: placed, duty: it.duty, night: viaNight });
+    if (isLate) lateViolations.push(`${it.name}（出勤${it.duty.slice(5).replace("-","/")}→付与${placed.slice(5).replace("-","/")}）`);
+    return true;
+  };
+  // 0) 夜勤明けの「振」に、その夜勤（休日の入・明）で発生した権利を最優先で充当する
+  //    （明け翌日の休みは、その夜勤自体の代休として使うのが自然）
+  for (const key of NIGHT_AUTO.slice()) {
+    const [n, iso] = key.split("|");  // iso = 明け翌日
+    if ((DATA[n] || {})[iso] !== "振") continue;
+    const inIso = addDaysIso(iso, -2), akeIso = addDaysIso(iso, -1);
+    let dutyIso = null;
+    if ((DATA[n] || {})[inIso] === "入" && isRestDay(inIso)) dutyIso = inIso;
+    else if ((DATA[n] || {})[akeIso] === "明" && isRestDay(akeIso)) dutyIso = akeIso;
+    if (!dutyIso) continue;
+    const idx = items.findIndex(it => it.name === n && it.duty === dutyIso);
+    if (idx < 0) continue;  // その権利が既に対象外（振◆充当・繰越指定など）
+    items.splice(idx, 1);
+    NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== key);
+    if (!DATA[n]) DATA[n] = {};
+    DATA[n][iso] = furikyuLabel(dutyIso);
+    FURIKYU_AUTO.push({ name: n, iso, duty: dutyIso, night: true });
+  }
+  for (const it of items) {
+    if (!tryPlaceItem(it)) carryNext.push(it);
+  }
+  // 3) 後処理スワップ: 残った日付なし振に、同じ人の配置済み振休（ウィンドウ内）のラベルを
+  //    付け替え、元の新規配置セルを解放する（休み枠の節約＋日付なし振の解消）
+  let movedAny = true;
+  while (movedAny) {
+    movedAny = false;
+    for (const key of NIGHT_AUTO.slice()) {
+      const [n, plainIso] = key.split("|");
+      if ((DATA[n] || {})[plainIso] !== "振") continue;
+      const fi = FURIKYU_AUTO.findIndex(f =>
+        f.name === n && !f.night && inWindow(f.duty, plainIso, dutyStreakInfo(f.duty).long));
+      if (fi < 0) continue;
+      const f = FURIKYU_AUTO[fi];
+      delete DATA[n][f.iso];
+      DATA[n][plainIso] = furikyuLabel(f.duty);
+      NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== key);
+      FURIKYU_AUTO[fi] = { name: n, iso: plainIso, duty: f.duty, night: true };
+      movedAny = true;
+    }
+  }
+  // 4) スワップで空いた枠に、未配置分をもう一度配置
+  const still = [];
+  for (const it of carryNext) {
+    if (!tryPlaceItem(it)) still.push(it);
+  }
+  carryNext = still;
+  // 5) 権利で充当できなかった夜勤明けの「振」は日付なしのまま残す
+  //    （明け翌日の休みとして成立。日付が付かないことは警告欄で可視化する）
+  saveNightAuto(); saveFurikyuAuto(); saveSchedule(); render();
+  return { lateViolations, carryNext, unmatchedKibou: st.unmatchedKibou };
+}
+function assignFurikyu() {
+  if (!confirm("配置済みの振休（ラベル付き振）をクリアして配置し直します。よろしいですか？\n（振◆・申請・日直・夜勤・繰越指定は変更されません）")) return;
+  pushUndo("振休配置");
+  const r = doAssignFurikyu();
+  let msg = "";
+  if (r.unmatchedKibou.length) msg += "対応する出勤が見つからない振◆:\n" + r.unmatchedKibou.map(k => `${k.name} ${k.iso.slice(5).replace("-","/")}`).join("、") + "\n\n";
+  if (r.lateViolations.length) msg += `期限（出勤後${FURIKYU_AFTER_DAYS}日）を超えて付与: ${r.lateViolations.length}件（詳細は警告欄）\n\n`;
+  if (r.carryNext.length) msg += "期間内に付与できず次回へ繰越（自動）:\n" + r.carryNext.map(c => `${c.name}（${c.duty.slice(5).replace("-","/")}出勤分）`).join("、") + "\n\n";
+  if (CARRY_SET.size) msg += `繰越指定済み: ${CARRY_SET.size}件（「振休繰越管理」で確認できます）`;
+  alert(msg || "すべての振休を配置できました（繰越なし）");
+}
+
+/* ---- 振休繰越管理モーダル ---- */
+function openCarryModal() {
+  const pcSel = document.getElementById("pc-name");
+  if (!pcSel.options.length) fillNameSelect(pcSel);
+  renderPrevCarry();
+  const st = computeFurikyuState();
+  const tb = document.getElementById("carry-list");
+  tb.innerHTML = "";
+  for (const d of st.duties) {
+    const key = d.name + "|" + d.duty;
+    let status, cls = "";
+    if (d.kibouAt) { status = `振◆（${d.kibouAt.slice(5).replace("-","/")}）に充当`; }
+    else if (d.placedAt) { status = `${d.placedAt.slice(5).replace("-","/")} に配置済み`; }
+    else if (d.carry) { status = "次回へ繰越（指定）"; cls = "color:#BF5B00;font-weight:bold;"; }
+    else { status = "未配置（次回へ繰越）"; cls = "color:#CC0000;"; }
+    const tr = document.createElement("tr");
+    const disabled = d.kibouAt ? "disabled title='振◆に充当済みのため繰越にできません'" : "";
+    tr.innerHTML =
+      `<td><b>${d.name}</b></td>` +
+      `<td>${d.duty.slice(5).replace("-","/")}<span style="color:#999;font-size:10px;">（${d.src}）</span></td>` +
+      `<td style="${cls}">${status}</td>` +
+      `<td style="text-align:center;"><input type="checkbox" class="carry-box" data-key="${key}" ${d.carry ? "checked" : ""} ${disabled}></td>`;
+    tb.appendChild(tr);
+  }
+  const carryAll = [...st.carried, ...st.pending];
+  document.getElementById("carry-summary").innerHTML = carryAll.length
+    ? `<b>次回へ繰越 ${carryAll.length}件:</b> ` + carryAll.map(p => `${p.name}(${p.duty.slice(5).replace("-","/")})`).join("、")
+    : "次回への繰越はありません";
+  document.getElementById("carry-modal").style.display = "block";
+}
+function closeCarryModal() { document.getElementById("carry-modal").style.display = "none"; }
+function renderPrevCarry() {
+  const tb = document.getElementById("prev-carry-list");
+  const list = PREV_CARRY.slice().sort((a, b) => a.duty < b.duty ? -1 : a.duty > b.duty ? 1 : STAFF.indexOf(a.name) - STAFF.indexOf(b.name));
+  tb.innerHTML = list.length ? "" : `<tr><td colspan="3" style="color:#888;">登録なし</td></tr>`;
+  for (const c of list) {
+    const [y, m, d] = c.duty.split("-").map(Number);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${c.name}</b></td><td>${y}/${m}/${d}（${YOBI[dowOf(c.duty)]}）</td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
+    b.onclick = () => {
+      if (!confirm(`${c.name} の前回繰越（${m}/${d}出勤分）を削除しますか？\n配置済みの振休があれば取り消されます。`)) return;
+      pushUndo("前回繰越の削除");
+      const idx = PREV_CARRY.findIndex(x => x.name === c.name && x.duty === c.duty);
+      if (idx >= 0) PREV_CARRY.splice(idx, 1);
+      removePlacementFor(c.name, c.duty);
+      CARRY_SET.delete(c.name + "|" + c.duty);
+      saveJson("kinmu_prev_carryover", PREV_CARRY);
+      saveNightAuto(); saveFurikyuAuto(); saveCarrySet(); saveSchedule();
+      openCarryModal(); render();
+    };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+function addPrevCarry() {
+  const name = document.getElementById("pc-name").value;
+  const duty = document.getElementById("pc-date").value;
+  if (!name || !duty) { alert("氏名と出勤日を入力してください"); return; }
+  if (duty >= allPeriodDates()[0]) { alert("前回繰越の出勤日は今回の期間（10/1）より前の日付です"); return; }
+  if (PREV_CARRY.some(x => x.name === name && x.duty === duty)) { alert("同じ繰越がすでに登録されています"); return; }
+  pushUndo("前回繰越の追加");
+  PREV_CARRY.push({ name, duty });
+  saveJson("kinmu_prev_carryover", PREV_CARRY);
+  openCarryModal(); render();
+  alert("追加しました。「3. 振休」の再実行で配置されます。");
+}
+function saveCarryModal() {
+  pushUndo("繰越指定の保存");
+  const newSet = new Set();
+  for (const box of document.querySelectorAll("#carry-list .carry-box")) {
+    if (box.checked) newSet.add(box.dataset.key);
+  }
+  // 新たに繰越指定された権利に配置済みの振があれば取り消す
+  let removed = 0;
+  for (const key of newSet) {
+    if (CARRY_SET.has(key)) continue;
+    const [name, duty] = key.split("|");
+    const fi = FURIKYU_AUTO.findIndex(f => f.name === name && f.duty === duty);
+    if (fi >= 0) {
+      const f = FURIKYU_AUTO[fi];
+      if ((DATA[f.name] || {})[f.iso] === furikyuLabel(f.duty)) {
+        if (f.night) { DATA[f.name][f.iso] = "振"; NIGHT_AUTO.push(f.name + "|" + f.iso); }
+        else delete DATA[f.name][f.iso];
+      }
+      FURIKYU_AUTO.splice(fi, 1);
+      removed++;
+    }
+  }
+  CARRY_SET = newSet;
+  saveCarrySet(); saveNightAuto(); saveFurikyuAuto(); saveSchedule();
+  closeCarryModal(); render();
+  if (removed) alert(`${removed} 件の配置済み振休を取り消して繰越にしました。空いた枠を活かすには「振休を配置」を再実行してください。`);
+}
+function doClearFurikyu() {
+  // データを走査して全「M/D振」ラベルをクリア（FURIKYU_AUTO 記録が無くても動く）。
+  // 夜勤明けの翌日（前日が「明」）は「振」に戻し、それ以外は削除する。振◆・M/D振◆は保持。
+  for (const n of STAFF) {
+    const days = DATA[n] || {};
+    for (const iso in days) {
+      if (labelToDuty(days[iso])) {
+        if (days[addDaysIso(iso, -1)] === "明") days[iso] = "振";
+        else delete days[iso];
+      }
+    }
+  }
+  NIGHT_AUTO = [];
+  FURIKYU_AUTO = [];
+}
+function clearFurikyu() {
+  if (!confirm("自動配置した振休をすべて削除します（夜勤明けの振は「振」に戻ります）。よろしいですか？")) return;
+  pushUndo("振休クリア");
+  doClearFurikyu();
+  saveNightAuto(); saveFurikyuAuto(); saveSchedule(); render();
+}
+
+/* ============================================================
+   残当・NG／行事／勤務条件モーダル
+   ============================================================ */
+function fillNameSelect(sel, includeAll) {
+  sel.innerHTML = "";
+  for (const [tname, members] of (includeAll ? TEAMS : TEAMS.slice(0, 5))) {
+    const og = document.createElement("optgroup");
+    og.label = tname;
+    for (const n of members) {
+      const op = document.createElement("option");
+      op.value = n; op.textContent = n;
+      og.appendChild(op);
+    }
+    sel.appendChild(og);
+  }
+}
+function parseNames(text) {
+  const names = text.split(/[、,\s]+/).filter(Boolean);
+  return { ok: names.filter(n => STAFF.includes(n)), bad: names.filter(n => !STAFF.includes(n)) };
+}
+
+function openZanModal() {
+  const box = document.getElementById("zan-ng-boxes");
+  box.innerHTML = "";
+  for (const [tname, members] of TEAMS) {  // 全チーム（その他・事務含む）をチーム見出し付きで
+    box.innerHTML += `<div style="width:100%;font-size:10px;color:#888;margin-top:4px;">${tname}</div>`;
+    for (const n of members) {
+      box.innerHTML += `<label style="margin-right:8px;"><input type="checkbox" class="zan-ng" data-name="${n}" ${(ZAN_CONDS[n]||{}).ng ? "checked" : ""}> ${n}</label>`;
+    }
+  }
+  fillNameSelect(document.getElementById("ngp-a"), true);   // 全メンバー
+  fillNameSelect(document.getElementById("ngp-b"), true);
+  renderNgPairs();
+  document.getElementById("zan-modal").style.display = "block";
+}
+function closeZanModal() { document.getElementById("zan-modal").style.display = "none"; }
+function renderNgPairs() {
+  const tb = document.getElementById("ng-pair-list");
+  tb.innerHTML = NG_PAIRS.length ? "" : `<tr><td colspan="3" style="color:#888;">登録なし</td></tr>`;
+  NG_PAIRS.forEach((p, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${p.type === "残" ? "残り当番" : "日直"}</td><td><b>${p.a}</b> × <b>${p.b}</b></td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
+    b.onclick = () => { NG_PAIRS.splice(i, 1); saveJson("kinmu_ng_pairs", NG_PAIRS); renderNgPairs(); render(); };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  });
+}
+function addNgPair() {
+  const type = document.getElementById("ngp-type").value;
+  const a = document.getElementById("ngp-a").value, b = document.getElementById("ngp-b").value;
+  if (a === b) { alert("同じ人は選べません"); return; }
+  NG_PAIRS.push({ type, a, b });
+  saveJson("kinmu_ng_pairs", NG_PAIRS); renderNgPairs(); render();
+}
+function saveZanModal() {
+  const conds = {};
+  for (const box of document.querySelectorAll(".zan-ng")) {
+    if (box.checked) conds[box.dataset.name] = { ng: true };
+  }
+  ZAN_CONDS = conds;
+  saveJson("kinmu_zan_conds", ZAN_CONDS);
+  closeZanModal(); render();
+  alert("保存しました。「4. 残り当番」の再実行で反映されます。");
+}
+
+function openEventModal() { renderEvents(); renderEventMoves(); document.getElementById("event-modal").style.display = "block"; }
+function renderEventMoves() {
+  const tb = document.getElementById("event-move-list");
+  const ocs = eventOccurrences().sort((a, b) => a.orig < b.orig ? -1 : 1);
+  tb.innerHTML = ocs.length ? "" : `<tr><td colspan="4" style="color:#888;">開催回なし</td></tr>`;
+  const fmt = iso => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return `${m}/${d}（${YOBI[dowOf(iso)]}）`;
+  };
+  for (const oc of ocs) {
+    const tr = document.createElement("tr");
+    const holMark = isRestDay(oc.orig) ? ` <span style="color:#CC0000;font-size:10px;">祝日/休日</span>` : "";
+    tr.innerHTML = `<td><b>${oc.ev.name}</b></td><td>${fmt(oc.orig)}${holMark}</td>`;
+    const tdD = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.type = "date"; inp.value = oc.eff;
+    inp.min = allPeriodDates()[0]; inp.max = allPeriodDates()[allPeriodDates().length - 1];
+    inp.onchange = () => {
+      if (!inp.value || !allPeriodDates().includes(inp.value)) { alert("期間内の日付を指定してください"); inp.value = oc.eff; return; }
+      pushUndo("行事の日程変更");
+      if (inp.value === oc.orig) delete EVENT_MOVES[oc.key];
+      else EVENT_MOVES[oc.key] = inp.value;
+      saveJson("kinmu_event_moves", EVENT_MOVES);
+      renderEventMoves(); render();
+    };
+    tdD.appendChild(inp); tr.appendChild(tdD);
+    const td = document.createElement("td");
+    if (oc.moved) {
+      const b = document.createElement("button");
+      b.className = "btn btn-gray btn-sm"; b.textContent = "元の日に戻す";
+      b.onclick = () => {
+        pushUndo("行事の日程変更");
+        delete EVENT_MOVES[oc.key];
+        saveJson("kinmu_event_moves", EVENT_MOVES);
+        renderEventMoves(); render();
+      };
+      td.appendChild(b);
+    }
+    tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+function closeEventModal() { document.getElementById("event-modal").style.display = "none"; }
+function renderEvents() {
+  const tb = document.getElementById("event-list");
+  tb.innerHTML = EVENTS_FIXED.length ? "" : `<tr><td colspan="5" style="color:#888;">登録なし</td></tr>`;
+  EVENTS_FIXED.forEach((ev, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${ev.name}</b></td><td>第${ev.nth}</td><td>${YOBI[ev.dow]}曜</td>`;
+    const tdM = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.value = ev.members.join("、"); inp.style.width = "160px";
+    inp.onchange = () => {
+      const p = parseNames(inp.value);
+      if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
+      ev.members = p.ok;
+      saveJson("kinmu_events_fixed", EVENTS_FIXED); render();
+    };
+    tdM.appendChild(inp); tr.appendChild(tdM);
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
+    b.onclick = () => { EVENTS_FIXED.splice(i, 1); saveJson("kinmu_events_fixed", EVENTS_FIXED); renderEvents(); render(); };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  });
+}
+function addEvent() {
+  const name = document.getElementById("ev-name").value.trim();
+  if (!name) { alert("行事名を入力してください"); return; }
+  const p = parseNames(document.getElementById("ev-members").value);
+  if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
+  EVENTS_FIXED.push({ name, nth: Number(document.getElementById("ev-nth").value),
+                      dow: Number(document.getElementById("ev-dow").value), members: p.ok });
+  saveJson("kinmu_events_fixed", EVENTS_FIXED);
+  document.getElementById("ev-name").value = ""; document.getElementById("ev-members").value = "";
+  renderEvents(); render();
+}
+
+function openWorkModal() {
+  renderGroups(); renderMustDays();
+  fillNameSelect(document.getElementById("md-name"));
+  document.getElementById("work-modal").style.display = "block";
+}
+function closeWorkModal() { document.getElementById("work-modal").style.display = "none"; }
+function renderGroups() {
+  const tb = document.getElementById("group-list");
+  tb.innerHTML = GROUPS.length ? "" : `<tr><td colspan="4" style="color:#888;">登録なし</td></tr>`;
+  GROUPS.forEach((g, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${g.name}</b></td>`;
+    const tdM = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.value = g.members.join("、"); inp.style.width = "220px";
+    inp.onchange = () => {
+      const p = parseNames(inp.value);
+      if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
+      g.members = p.ok; saveJson("kinmu_groups", GROUPS); render();
+    };
+    tdM.appendChild(inp); tr.appendChild(tdM);
+    const tdN = document.createElement("td");
+    const num = document.createElement("input");
+    num.type = "number"; num.min = 1; num.max = 9; num.value = g.min; num.style.width = "44px";
+    num.onchange = () => { g.min = Number(num.value) || 1; saveJson("kinmu_groups", GROUPS); render(); };
+    tdN.appendChild(num); tr.appendChild(tdN);
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
+    b.onclick = () => { GROUPS.splice(i, 1); saveJson("kinmu_groups", GROUPS); renderGroups(); render(); };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  });
+}
+function addGroup() {
+  const name = document.getElementById("gr-name").value.trim();
+  if (!name) { alert("グループ名を入力してください"); return; }
+  const p = parseNames(document.getElementById("gr-members").value);
+  if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
+  if (!p.ok.length) { alert("メンバーを入力してください"); return; }
+  GROUPS.push({ name, members: p.ok, min: Number(document.getElementById("gr-min").value) || 1 });
+  saveJson("kinmu_groups", GROUPS);
+  document.getElementById("gr-name").value = ""; document.getElementById("gr-members").value = "";
+  renderGroups(); render();
+}
+function renderMustDays() {
+  const tb = document.getElementById("mustday-list");
+  const names = Object.keys(MUST_DAYS);
+  tb.innerHTML = names.length ? "" : `<tr><td colspan="3" style="color:#888;">登録なし</td></tr>`;
+  const DOWS = [1,2,3,4,5];
+  for (const n of names) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${n}</b></td>`;
+    const tdD = document.createElement("td");
+    for (const dw of DOWS) {
+      const lb = document.createElement("label");
+      lb.style.marginRight = "6px";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = MUST_DAYS[n].includes(dw);
+      cb.onchange = () => {
+        if (cb.checked) MUST_DAYS[n].push(dw);
+        else MUST_DAYS[n] = MUST_DAYS[n].filter(x => x !== dw);
+        saveJson("kinmu_must_days", MUST_DAYS); render();
+      };
+      lb.appendChild(cb); lb.appendChild(document.createTextNode(YOBI[dw]));
+      tdD.appendChild(lb);
+    }
+    tr.appendChild(tdD);
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
+    b.onclick = () => { delete MUST_DAYS[n]; saveJson("kinmu_must_days", MUST_DAYS); renderMustDays(); render(); };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+function addMustDay() {
+  const n = document.getElementById("md-name").value;
+  if (MUST_DAYS[n]) { alert("すでに登録されています"); return; }
+  MUST_DAYS[n] = [];
+  saveJson("kinmu_must_days", MUST_DAYS);
+  renderMustDays();
+}
+
+/* ============================================================
+   過去の勤務表アーカイブ・年間集計
+   ============================================================ */
+function loadArchive() { return loadJson("kinmu_archive", []); }
+function saveArchive(a) { saveJson("kinmu_archive", a); }
+function periodLabel(p) {
+  let s = `${p.year}年${p.months.join("・")}月`;
+  if (p.extraDates && p.extraDates.length) s += `＋${p.extraLabel || "追加日程"}`;
+  return s;
+}
+function saveCurrentSchedule() {
+  const arch = loadArchive();
+  const label = periodLabel(PERIOD);
+  const entry = { id: Date.now(), label, period: JSON.parse(JSON.stringify(PERIOD)),
+                  data: JSON.parse(JSON.stringify(DATA)), savedAt: new Date().toISOString() };
+  const idx = arch.findIndex(a => a.label === label);
+  if (idx >= 0) {
+    if (!confirm(`「${label}」は既に保存されています。上書きしますか？`)) return;
+    entry.id = arch[idx].id; arch[idx] = entry;
+  } else arch.push(entry);
+  arch.sort((a, b) => a.period.year - b.period.year || (a.period.months[0] - b.period.months[0]));
+  saveArchive(arch);
+  alert(`「${label}」を保存しました（過去の勤務表・年間集計から見返せます）。`);
+}
+function fiscalYearOf(p) {
+  // 会計年度（4月始まり）: 対象月の最初の月から判定。1〜3月は前年度扱い。
+  const m = p.months[0], y = p.year;
+  return m >= 4 ? y : y - 1;
+}
+function archiveInFiscalYear(e, fy) {
+  // その期の各月が年度 fy（fy/4 〜 fy+1/3）に属するか（1つでも該当すれば対象）
+  const monthsY = e.period.months.map(m => ({ y: e.period.year, m }));
+  const extraY = (e.period.extraDates || []).map(iso => ({ y: Number(iso.slice(0,4)), m: Number(iso.slice(5,7)) }));
+  return [...monthsY, ...extraY].some(({y, m}) => {
+    const f = m >= 4 ? y : y - 1;
+    return f === fy;
+  });
+}
+function renderFiscalYearOptions() {
+  const sel = document.getElementById("fy-select");
+  const arch = loadArchive();
+  const fys = new Set();
+  for (const e of arch) {
+    for (const m of e.period.months) fys.add(m >= 4 ? e.period.year : e.period.year - 1);
+    for (const iso of (e.period.extraDates || [])) { const y = Number(iso.slice(0,4)), mm = Number(iso.slice(5,7)); fys.add(mm >= 4 ? y : y - 1); }
+  }
+  sel.innerHTML = `<option value="">（手動選択）</option>` +
+    [...fys].sort().map(fy => `<option value="${fy}">${fy}年度（${fy}/4〜${fy+1}/3）</option>`).join("");
+}
+function selectFiscalYear() {
+  const fy = document.getElementById("fy-select").value;
+  if (fy === "") return;
+  const fyn = Number(fy);
+  for (const box of document.querySelectorAll(".arch-chk")) {
+    const e = loadArchive().find(a => a.id === Number(box.dataset.id));
+    box.checked = e ? archiveInFiscalYear(e, fyn) : false;
+  }
+  renderSummary();
+}
+function openArchiveModal() { renderArchiveList(); renderFiscalYearOptions(); document.getElementById("summary-area").innerHTML = ""; document.getElementById("archive-modal").style.display = "block"; }
+function closeArchiveModal() { document.getElementById("archive-modal").style.display = "none"; }
+function renderArchiveList() {
+  const arch = loadArchive();
+  const tb = document.getElementById("archive-list");
+  tb.innerHTML = arch.length ? "" : `<tr><td colspan="5" style="color:#888;">保存済みの勤務表はありません</td></tr>`;
+  arch.forEach(e => {
+    const tr = document.createElement("tr");
+    const d = new Date(e.savedAt);
+    tr.innerHTML = `<td><b>${e.label}</b></td><td>${d.toLocaleString("ja-JP")}</td>` +
+      `<td style="text-align:center;"><input type="checkbox" class="arch-chk" data-id="${e.id}" checked></td>`;
+    const tdL = document.createElement("td");
+    const bl = document.createElement("button"); bl.className = "btn btn-primary btn-sm"; bl.textContent = "読込";
+    bl.onclick = () => loadArchiveEntry(e.id);
+    tdL.appendChild(bl); tr.appendChild(tdL);
+    const tdD = document.createElement("td");
+    const bd = document.createElement("button"); bd.className = "btn btn-danger btn-sm"; bd.textContent = "削除";
+    bd.onclick = () => { if (confirm(`「${e.label}」を削除しますか？`)) { saveArchive(loadArchive().filter(x => x.id !== e.id)); renderArchiveList(); } };
+    tdD.appendChild(bd); tr.appendChild(tdD);
+    tb.appendChild(tr);
+  });
+}
+function loadArchiveEntry(id) {
+  const e = loadArchive().find(a => a.id === id);
+  if (!e) return;
+  if (!confirm(`「${e.label}」を読み込みます。現在の表示内容は置き換わります。\n（今の内容を残すには先に「この勤務表を保存」してください）よろしいですか？`)) return;
+  pushUndo("過去の勤務表の読込");
+  PERIOD = JSON.parse(JSON.stringify(e.period)); savePeriod(); TABS = buildTabs(); currentTab = String(PERIOD.months[0]);
+  DATA = JSON.parse(JSON.stringify(e.data)); saveSchedule();
+  DUTY_TEAM_MAP = buildDutyTeamMap(); EVENT_DATES = buildEventDates();
+  closeArchiveModal(); render();
+}
+const SUMMARY_COLS = [
+  ["日直", d => d === "○"], ["夜勤", d => d === "入"], ["残当", d => d === "残"],
+  ["有給", d => d === "有"], ["夏期", d => d === "夏"], ["特別", d => d === "特"],
+  ["振休", d => d === "振" || /^\d{1,2}\/\d{1,2}振$/.test(d)], ["振◆", d => d.endsWith("振◆")],
+  ["×", d => d === "×"], ["出張", d => d === "出"], ["業務", d => d === "業"], ["研修", d => d === "研"],
+];
+function selectedArchives() {
+  const ids = new Set([...document.querySelectorAll(".arch-chk:checked")].map(b => Number(b.dataset.id)));
+  return loadArchive().filter(e => ids.has(e.id));
+}
+function computeSummary(entries) {
+  const sum = {}; for (const n of STAFF) { sum[n] = {}; for (const [c] of SUMMARY_COLS) sum[n][c] = 0; }
+  for (const e of entries) {
+    for (const n in e.data) { if (!sum[n]) continue;
+      for (const iso in e.data[n]) { const v = e.data[n][iso];
+        for (const [c, test] of SUMMARY_COLS) if (test(v)) { sum[n][c]++; break; }
+      }
+    }
+  }
+  return sum;
+}
+function renderSummary() {
+  const entries = selectedArchives();
+  if (!entries.length) { document.getElementById("summary-area").innerHTML = `<div style="color:#888;">集計対象の期間をチェックしてください。</div>`; return; }
+  const sum = computeSummary(entries);
+  let html = `<div style="color:#555;margin-bottom:4px;">対象: ${entries.map(e=>e.label).join("、")}</div>`;
+  html += `<table style="border-collapse:collapse;"><thead><tr><th style="position:sticky;left:0;background:#EFEFEF;">氏名</th>` +
+    SUMMARY_COLS.map(([c]) => `<th>${c}</th>`).join("") + `</tr></thead><tbody>`;
+  for (const [tname, members] of TEAMS) {
+    for (const n of members) {
+      html += `<tr><td style="position:sticky;left:0;background:white;font-weight:bold;">${n}</td>` +
+        SUMMARY_COLS.map(([c]) => `<td style="text-align:center;">${sum[n][c] || ""}</td>`).join("") + `</tr>`;
+    }
+  }
+  html += `</tbody></table>`;
+  document.getElementById("summary-area").innerHTML = html;
+}
+async function exportSummaryExcel() {
+  const entries = selectedArchives();
+  if (!entries.length) { alert("集計対象の期間をチェックしてください。"); return; }
+  if (typeof ExcelJS === "undefined") { alert("ExcelJSの読み込みに失敗しました。"); return; }
+  const sum = computeSummary(entries);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("年間集計");
+  ws.getCell(1, 1).value = "集計対象: " + entries.map(e => e.label).join("、");
+  ws.getCell(1, 1).font = { name: "ＭＳ Ｐゴシック", size: 11, bold: true };
+  const header = ["氏名", "チーム", ...SUMMARY_COLS.map(c => c[0])];
+  ws.getRow(3).values = header;
+  ws.getRow(3).font = { name: "ＭＳ Ｐゴシック", size: 10, bold: true };
+  let r = 4;
+  for (const [tname, members] of TEAMS) {
+    for (const n of members) {
+      ws.getRow(r).values = [n, tname, ...SUMMARY_COLS.map(([c]) => sum[n][c] || 0)];
+      r++;
+    }
+  }
+  ws.getColumn(1).width = 10; ws.getColumn(2).width = 9;
+  for (let i = 3; i <= header.length; i++) ws.getColumn(i).width = 6;
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "勤務表_年間集計.xlsx"; a.click();
+}
+
+/* ============================================================
+   期間設定・次期作成モーダル
+   ============================================================ */
+let _pendingExtra = PERIOD.extraDates.slice();
+function openPeriodModal() {
+  document.getElementById("pd-year").value = PERIOD.year;
+  document.getElementById("pd-months").value = PERIOD.months.join(",");
+  document.getElementById("pd-extralabel").value = PERIOD.extraLabel || "追加日程";
+  _pendingExtra = PERIOD.extraDates.slice();
+  renderExtraPreview();
+  document.getElementById("pd-cycle").value = String(CYCLE_START_IDX);
+  document.getElementById("pd-pn-name").value = PREV_NIGHT.name;
+  document.getElementById("pd-pn-date").value = PREV_NIGHT.date;
+  document.getElementById("period-modal").style.display = "block";
+}
+function closePeriodModal() { document.getElementById("period-modal").style.display = "none"; }
+function renderExtraPreview() {
+  const el = document.getElementById("pd-extra-preview");
+  el.textContent = _pendingExtra.length ? "追加日程: " + _pendingExtra.map(d=>d.slice(5).replace("-","/")).join("、") : "追加日程: なし";
+}
+function setExtraRange() {
+  const f = document.getElementById("pd-extra-from").value, t = document.getElementById("pd-extra-to").value;
+  if (!f || !t || f > t) { alert("追加日程の開始・終了日を正しく指定してください"); return; }
+  const arr = [];
+  let cur = f;
+  while (cur <= t) { arr.push(cur); cur = addDaysIso(cur, 1); }
+  _pendingExtra = arr;
+  renderExtraPreview();
+}
+function applyPeriod() {
+  const year = Number(document.getElementById("pd-year").value);
+  const months = document.getElementById("pd-months").value.split(/[,、\s]+/).map(Number).filter(m=>m>=1&&m<=12);
+  if (!year || !months.length) { alert("年と対象月を正しく入力してください"); return; }
+  if (!confirm("期間を変更すると現在の割り当て内容はこの期間に合わせて再表示されます。\n※先に「JSON書出」でバックアップを取ることをおすすめします。適用しますか？")) return;
+  pushUndo("期間の変更");
+  PERIOD = { year, months, extraDates: _pendingExtra.slice(), extraLabel: document.getElementById("pd-extralabel").value.trim() || "追加日程" };
+  savePeriod();
+  TABS = buildTabs();
+  currentTab = String(PERIOD.months[0]);
+  DUTY_TEAM_MAP = buildDutyTeamMap();
+  EVENT_DATES = buildEventDates();
+  render();
+  alert("期間を適用しました。希望休データが未取り込みなら「希望休アプリと同期」または「JSON読込」で申請を入れてください。");
+}
+function applyStart() {
+  pushUndo("起点の変更");
+  CYCLE_START_IDX = Number(document.getElementById("pd-cycle").value);
+  PREV_NIGHT = { name: document.getElementById("pd-pn-name").value.trim(), date: document.getElementById("pd-pn-date").value };
+  saveJson("kinmu_cycle_start", CYCLE_START_IDX);
+  saveJson("kinmu_prev_night", PREV_NIGHT);
+  DUTY_TEAM_MAP = buildDutyTeamMap();
+  render();
+  alert("起点を保存しました。「1. 日直」「2. 夜勤」の再実行で反映されます。");
+}
+function syncFromKiboushu() {
+  let period, teams, reqs, extra;
+  try {
+    const ps = localStorage.getItem("kiboushu_period");
+    period = ps ? JSON.parse(ps) : null;
+    teams = JSON.parse(localStorage.getItem("kiboushu_teams_2026") || "null");
+    reqs = JSON.parse(localStorage.getItem("kiboushu_requests") || "{}");
+    extra = JSON.parse(localStorage.getItem("kiboushu_extra_dates") || "[]");
+  } catch (e) { alert("希望休アプリのデータが読めませんでした: " + e.message); return; }
+  if (!period) { alert("希望休アプリの期間データが見つかりません。\n同じブラウザ・同じ配置場所で希望休アプリを使用しているか確認してください。\nGAS版の場合はJSON/Excelで受け渡してください。"); return; }
+  if (!confirm(`希望休アプリから取り込みます:\n・期間 ${period.year}年 ${period.months.join("・")}月${extra.length?"＋追加日程"+extra.length+"日":""}\n・申請 ${Object.keys(reqs).length}名分\n現在の内容を置き換えます。よろしいですか？（先にJSON書出でバックアップ推奨）`)) return;
+  pushUndo("希望休アプリと同期");
+  PERIOD = { year: period.year, months: period.months.slice(), extraDates: extra.slice(), extraLabel: "追加日程" };
+  savePeriod();
+  TABS = buildTabs();
+  currentTab = String(PERIOD.months[0]);
+  // 申請を取り込み（期間内のみ）
+  const inP = new Set(allPeriodDates());
+  const nd = {};
+  for (const name in reqs) {
+    if (!STAFF.includes(name)) continue;
+    for (const iso in reqs[name]) { if (inP.has(iso)) { (nd[name] = nd[name] || {})[iso] = reqs[name][iso]; } }
+  }
+  DATA = nd;
+  DUTY_TEAM_MAP = buildDutyTeamMap();
+  EVENT_DATES = buildEventDates();
+  saveSchedule(); render();
+  alert("希望休アプリから期間・申請を取り込みました。「①希望休の連休に×」→「1〜4」の順で作成してください。");
+}
+function exportCarryForNext() {
+  const st = computeFurikyuState();
+  const carryAll = [...st.carried, ...st.pending];
+  if (!carryAll.length) { alert("繰越の振休はありません。"); return; }
+  const next = carryAll.map(p => ({ name: p.name, duty: p.duty }));
+  const blob = new Blob([JSON.stringify(next, null, 1)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "kinmu_prev_carryover_for_next.json";
+  a.click();
+  alert(`今期の繰越 ${next.length}件 を書き出しました。\n次期のセットアップ後、「振休繰越管理」の前回繰越をこの内容に置き換えてください（将来は自動化予定）。`);
+}
+
+/* ============================================================
+   割り当て参加設定モーダル（日直・夜勤・残当の開始/中断）
+   ============================================================ */
+const PART_TYPE_LABEL = { nikichoku: "日直", yakin: "夜勤", zan: "残り当番" };
+function openPartModal() {
+  const sel = document.getElementById("pt-name");
+  if (!sel.options.length) fillNameSelect(sel, true);  // 全チーム（その他・事務含む）
+  renderPart();
+  document.getElementById("part-modal").style.display = "block";
+}
+function closePartModal() { document.getElementById("part-modal").style.display = "none"; }
+function renderPart() {
+  const tb = document.getElementById("part-list");
+  tb.innerHTML = PARTICIPATION.length ? "" : `<tr><td colspan="6" style="color:#888;">登録なし（既定: A〜E参加・その他不参加）</td></tr>`;
+  PARTICIPATION.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${r.name}</b></td><td>${PART_TYPE_LABEL[r.type]}</td>` +
+      `<td style="color:${r.enable ? "#276221" : "#CC0000"};">${r.enable ? "参加" : "中断"}</td>` +
+      `<td>${r.from}</td><td>${r.to}</td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
+    b.onclick = () => {
+      pushUndo("割り当て参加の削除");
+      PARTICIPATION.splice(i, 1);
+      saveJson("kinmu_participation", PARTICIPATION);
+      renderPart(); render();
+    };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  });
+}
+function addPart() {
+  const name = document.getElementById("pt-name").value;
+  const type = document.getElementById("pt-type").value;
+  const enable = document.getElementById("pt-enable").value === "1";
+  const from = document.getElementById("pt-from").value;
+  const to = document.getElementById("pt-to").value;
+  if (!name || !from || !to) { alert("氏名・開始日・終了日を入力してください"); return; }
+  if (from > to) { alert("開始日が終了日より後になっています"); return; }
+  pushUndo("割り当て参加の追加");
+  PARTICIPATION.push({ name, type, from, to, enable });
+  PARTICIPATION.sort((a, b) => a.from < b.from ? -1 : 1);
+  saveJson("kinmu_participation", PARTICIPATION);
+  renderPart(); render();
+  alert(`${name} の${PART_TYPE_LABEL[type]}を「${enable ? "参加" : "中断"}」に設定しました。該当ステップの再実行で反映されます。`);
+}
+
+/* ============================================================
+   長期休暇設定モーダル
+   ============================================================ */
+function openLeaveModal() {
+  const sel = document.getElementById("leave-name");
+  if (!sel.options.length) {
+    for (const [tname, members] of TEAMS) {
+      const og = document.createElement("optgroup");
+      og.label = tname;
+      for (const n of members) {
+        const op = document.createElement("option");
+        op.value = n; op.textContent = n;
+        og.appendChild(op);
+      }
+      sel.appendChild(og);
+    }
+  }
+  renderLeaves();
+  document.getElementById("leave-modal").style.display = "block";
+}
+function closeLeaveModal() { document.getElementById("leave-modal").style.display = "none"; }
+function renderLeaves() {
+  const tb = document.getElementById("leave-list");
+  tb.innerHTML = "";
+  if (!LEAVES.length) {
+    tb.innerHTML = `<tr><td colspan="5" style="color:#888;">登録なし</td></tr>`;
+    return;
+  }
+  LEAVES.forEach((l, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${l.name}</b></td><td>${l.type}</td><td>${l.from}</td><td>${l.to}</td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm";
+    b.textContent = "削除";
+    b.onclick = () => delLeave(i);
+    td.appendChild(b);
+    tr.appendChild(td);
+    tb.appendChild(tr);
+  });
+}
+function addLeave() {
+  const name = document.getElementById("leave-name").value;
+  const type = document.getElementById("leave-type").value;
+  const from = document.getElementById("leave-from").value;
+  const to   = document.getElementById("leave-to").value;
+  if (!name || !from || !to) { alert("氏名・開始日・終了日を入力してください"); return; }
+  if (from > to) { alert("開始日が終了日より後になっています"); return; }
+  pushUndo("長期休暇追加");
+  LEAVES.push({ name, type, from, to });
+  LEAVES.sort((a, b) => a.from < b.from ? -1 : 1);
+  // 期間内の日直（○）は自動削除（申請マークは残す）
+  let removed = 0;
+  for (const iso in (DATA[name] || {})) {
+    if (DATA[name][iso] === "○" && from <= iso && iso <= to) { delete DATA[name][iso]; removed++; }
+  }
+  saveLeaves(); saveSchedule(); renderLeaves(); render();
+  if (removed) alert(`${name} の期間内の日直 ${removed} 件を解除しました。「日直を割り当て」の再実行をおすすめします。`);
+}
+function delLeave(i) {
+  const l = LEAVES[i];
+  if (!confirm(`${l.name} の ${l.type}（${l.from}～${l.to}）を削除しますか？`)) return;
+  pushUndo("長期休暇削除");
+  LEAVES.splice(i, 1);
+  saveLeaves(); renderLeaves(); render();
+}
+
+/* ============================================================
+   Excel / 印刷（PDF）出力
+   ============================================================ */
+const NOTE_LINES = [
+  "【注 意】①振休の変更は、原則交振です（薬剤部 有給休暇等の取得に関する規程より）　②有休および時間休を取得する場合は、必ず薬剤部長の許可を得てから記載してください",
+  "③時間休を追記する場合は、取得時間の数字を記載してください 例）始業から12時まで：～12、12時から終業まで：12～、10時から15時まで：10～15　④調剤・注射・外ケモ・周術期・緩和・DIは必ず1人以上勤務、各病棟は担当者が必ず2人以上勤務となるよう割り振られております。休みの追加・変更は必ず各部門内で問題無いこと確認した上で行ってください",
+];
+function blockDefs() {
+  return [
+    { title: "10月", label: "１０月", dates: datesOfTab("10") },
+    { title: "11月", label: "１１月", dates: datesOfTab("11") },
+    { title: "12月", label: "１２月", dates: datesOfTab("12") },
+    { title: "追加日程", label: "追加日程", dates: datesOfTab("extra") },
+  ];
+}
+function cellTextOf(name, iso) {
+  const lv = onLeave(name, iso);
+  if (lv) return lv.type;
+  const mk = (DATA[name] || {})[iso] || "";
+  const fm = mk.match(/^(\d{1,2}\/\d{1,2})(振◆?)$/);
+  if (fm) return fm[1] + "\n" + fm[2];
+  if (mk === "振◆") {
+    const kd = _FSTATE && _FSTATE.kibouMap[name + "|" + iso];
+    if (kd) return `${Number(kd.slice(5,7))}/${Number(kd.slice(8,10))}\n振◆`;
+  }
+  return mk;
+}
+function nikichokuCountOf(iso) {
+  return isRestDay(iso) ? STAFF.filter(n => (DATA[n] || {})[iso] === "○").length : "";
+}
+function furikyuCountOf(iso) {
+  if (isRestDay(iso)) return "";
+  return STAFF.filter(n => ((DATA[n] || {})[iso] || "").includes("振")).length || "";
+}
+function teamStartCols(base) {  // base = スタッフ先頭の列番号
+  const set = new Set();
+  let c = base;
+  for (const [t, ms] of TEAMS) { set.add(c); c += ms.length; }
+  set.add(c);  // 日直人数列の左
+  return set;
+}
+/* 7-9月最終確定PDFと同じマーク別の塗り色 */
+const EXPORT_MARK_BG = { "入": "D9E1F2", "明": "8EA9DB", "残": "D9D9D9", "出": "9999FF",
+                         "夏": "FFFF99", "有": "FF9933", "業": "99CCFF" };
+function exportBgOf(name, iso) {
+  if (onLeave(name, iso)) return "808080";
+  const raw = (DATA[name] || {})[iso] || "";
+  if (!raw) return null;
+  if (raw.includes("振")) return "FFC000";
+  return EXPORT_MARK_BG[raw] || null;
+}
+
+async function exportExcel() {
+  if (typeof ExcelJS === "undefined") { alert("ExcelJSの読み込みに失敗しました。ネット接続を確認してください。"); return; }
+  _FSTATE = computeFurikyuState();
+  const wb = new ExcelJS.Workbook();
+  const GREEN = "FF92D050", DGREEN = "FF00B050", PINK = "FFFFCCFF", HDR = "FFEFEFEF";
+  const SBASE = 5;  // スタッフ先頭列(E)
+  const NCOL = 4 + STAFF.length + 2;
+  const TL = teamStartCols(SBASE);
+  const thin = { style: "thin", color: { argb: "FF999999" } };
+  const med = { style: "medium", color: { argb: "FF444444" } };
+  const bdr = c => ({ top: thin, bottom: thin, right: thin, left: TL.has(c) ? med : thin });
+  const fill = argb => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
+  const FONT = s => ({ name: "ＭＳ Ｐゴシック", size: s });
+  const CTR = { horizontal: "center", vertical: "middle", wrapText: true };
+
+  for (const blk of blockDefs()) {
+    const ws = wb.addWorksheet(blk.title, {
+      pageSetup: { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 1,
+                   margins: { left: 0.2, right: 0.2, top: 0.3, bottom: 0.3, header: 0.1, footer: 0.1 } },
+      views: [{ state: "frozen", xSplit: 4, ySplit: 2 }],
+    });
+    ws.getColumn(1).width = 7.5; ws.getColumn(2).width = 3.2;
+    ws.getColumn(3).width = 11; ws.getColumn(4).width = 6.5;
+    for (let i = 0; i < STAFF.length; i++) ws.getColumn(SBASE + i).width = 3.4;
+    ws.getColumn(NCOL - 1).width = 4.6; ws.getColumn(NCOL).width = 4.6;
+
+    // ヘッダー2行（氏名行は濃紺002060＋白文字 = 最終確定PDFと同じ）
+    const NAVY_FONT = { ...FONT(8), bold: true, color: { argb: "FFFFFFFF" } };
+    const setH = (r, c, v, f, bg) => {
+      const cell = ws.getCell(r, c);
+      cell.value = v; cell.font = f || FONT(9); cell.alignment = CTR;
+      cell.border = bdr(c);
+      if (bg) cell.fill = fill(bg);
+    };
+    ws.mergeCells(1, 1, 2, 2); setH(1, 1, blk.label, { ...FONT(14), bold: true });
+    ws.mergeCells(1, 3, 2, 3); setH(1, 3, "事務連絡");
+    ws.mergeCells(1, 4, 2, 4); setH(1, 4, "夜勤");
+    let c = SBASE;
+    for (const [tname, ms] of TEAMS) {
+      if (ms.length > 1) ws.mergeCells(1, c, 1, c + ms.length - 1);
+      setH(1, c, tname, { ...FONT(9), bold: true });
+      ms.forEach((n, i) => setH(2, c + i, n, NAVY_FONT, "FF002060"));
+      c += ms.length;
+    }
+    ws.mergeCells(1, NCOL - 1, 2, NCOL - 1); setH(1, NCOL - 1, "日直\n人数", FONT(8));
+    ws.mergeCells(1, NCOL, 2, NCOL); setH(1, NCOL, "振休\n人数", FONT(8));
+    ws.getRow(1).height = 16; ws.getRow(2).height = 30;
+
+    // 日付行
+    let r = 3;
+    for (const iso of blk.dates) {
+      const [y, m, d] = iso.split("-").map(Number);
+      const hol = isHoliday(iso), wknd = !hol && (dowOf(iso) === 0 || dowOf(iso) === 6);
+      const rowFill = hol ? DGREEN : (wknd ? GREEN : null);
+      const row = ws.getRow(r);
+      row.height = 22;
+      const put = (col, v, f) => {
+        const cell = ws.getCell(r, col);
+        cell.value = v; cell.font = f || FONT(9); cell.alignment = CTR; cell.border = bdr(col);
+        if (rowFill) cell.fill = fill(rowFill);
+      };
+      put(1, `${m}月${d}日`, { ...FONT(9), bold: true });
+      put(2, YOBI[dowOf(iso)]);
+      put(3, eventsTextOf(iso), FONT(7));
+      put(4, nightPersonOf(iso), { ...FONT(8), bold: true });
+      STAFF.forEach((n, i) => {
+        const t = cellTextOf(n, iso);
+        put(SBASE + i, t, t.includes("\n") || t.length >= 3 ? FONT(7) : FONT(9));
+        const cell = ws.getCell(r, SBASE + i);
+        // 7-9月の最終確定PDFと同じマーク別配色（行の塗りより優先）
+        const bg = exportBgOf(n, iso);
+        if (bg) cell.fill = fill("FF" + bg);
+        if (onLeave(n, iso)) {
+          cell.font = { ...FONT(7), color: { argb: "FFFFFFFF" }, italic: true };
+        }
+      });
+      put(NCOL - 1, nikichokuCountOf(iso), FONT(8));
+      put(NCOL, furikyuCountOf(iso), FONT(8));
+      r++;
+    }
+    // フッター（氏名・チームのミラー）
+    let cc = SBASE;
+    for (const [tname, ms] of TEAMS) {
+      ms.forEach((n, i) => setH(r, cc + i, n, NAVY_FONT, "FF002060"));
+      if (ms.length > 1) ws.mergeCells(r + 1, cc, r + 1, cc + ms.length - 1);
+      setH(r + 1, cc, tname, { ...FONT(9), bold: true });
+      cc += ms.length;
+    }
+    ws.getRow(r).height = 30;
+    r += 2;
+    // 注意書き
+    for (const line of NOTE_LINES) {
+      ws.mergeCells(r, 1, r, NCOL);
+      const cell = ws.getCell(r, 1);
+      cell.value = line; cell.font = { ...FONT(8), bold: true };
+      cell.alignment = { horizontal: "left", vertical: "middle" };
+      r++;
+    }
+    // 最終ブロックの下に「次回へ繰り越し」グリッド（7-9月版の様式）
+    if (blk.title === "追加日程") {
+      r += 1;
+      const carryAll = [..._FSTATE.carried, ..._FSTATE.pending];
+      const byName = {};
+      for (const pc of carryAll) (byName[pc.name] = byName[pc.name] || []).push(pc.duty);
+      for (const nm in byName) byName[nm].sort();
+      const depth = Math.max(1, ...Object.values(byName).map(a => a.length), 0);
+      const r0 = r;
+      ws.mergeCells(r0, 1, r0 + depth - 1, 4);
+      const lab = ws.getCell(r0, 1);
+      lab.value = "次回へ繰り越しの振休";
+      lab.font = { ...FONT(10), bold: true }; lab.alignment = CTR; lab.border = bdr(1);
+      for (let dR = 0; dR < depth; dR++) {
+        ws.getRow(r0 + dR).height = 22;
+        STAFF.forEach((n, i) => {
+          const cell = ws.getCell(r0 + dR, SBASE + i);
+          cell.border = bdr(SBASE + i); cell.alignment = CTR;
+          const duty = (byName[n] || [])[dR];
+          if (duty) {
+            const [yy, mm, dd] = duty.split("-").map(Number);
+            cell.value = `${mm}/${dd}\n振`;
+            cell.font = FONT(7);
+            cell.fill = fill("FFFFC000");
+          }
+        });
+        for (const cN of [NCOL - 1, NCOL]) ws.getCell(r0 + dR, cN).border = bdr(cN);
+      }
+      r = r0 + depth;
+    }
+  }
+
+  // 繰越・集計シート
+  const ws2 = wb.addWorksheet("繰越・集計");
+  const st = _FSTATE;
+  ws2.getCell(1, 1).value = "次回へ繰越の振休";
+  ws2.getCell(1, 1).font = { ...FONT(12), bold: true };
+  ws2.getRow(2).values = ["氏名", "出勤日", "種別", "区分"];
+  const carryAll = [...st.carried, ...st.pending].sort((a, b) => a.duty < b.duty ? -1 : 1);
+  let rr = 3;
+  for (const p of carryAll) {
+    ws2.getRow(rr).values = [p.name, p.duty, p.src, p.carry ? "指定繰越" : "未配置"];
+    rr++;
+  }
+  rr += 1;
+  ws2.getCell(rr, 1).value = "期間内の集計（10/1～1/11）";
+  ws2.getCell(rr, 1).font = { ...FONT(12), bold: true };
+  rr++;
+  const CNT_MARKS = ["○", "入", "残", "有", "夏", "特", "出", "業", "研"];
+  ws2.getRow(rr).values = ["氏名", "日直", "夜勤", "残当", "振休", ...CNT_MARKS.slice(3)];
+  rr++;
+  for (const n of STAFF) {
+    const cnt = mk => Object.keys(DATA[n] || {}).filter(k => (DATA[n] || {})[k] === mk).length;
+    const furi = Object.keys(DATA[n] || {}).filter(k => ((DATA[n] || {})[k] || "").includes("振")).length;
+    ws2.getRow(rr).values = [n, cnt("○"), cnt("入"), cnt("残"), furi,
+                             cnt("有"), cnt("夏"), cnt("特"), cnt("出"), cnt("業"), cnt("研")];
+    rr++;
+  }
+  for (let i = 1; i <= 11; i++) ws2.getColumn(i).width = i === 1 ? 10 : 7;
+
+  window._lastWb = wb;  // 動作確認用
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "勤務表_2026年10月-12月＋追加日程.xlsx";
+  a.click();
+}
+
+function buildPrintHtml() {
+  _FSTATE = computeFurikyuState();
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  let html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>勤務表 印刷</title><style>
+@page { size: A4 landscape; margin: 6mm; }
+body { font-family: 'Meiryo','MS Gothic',sans-serif; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.blk { page-break-after: always; }
+h2 { font-size: 12pt; margin: 0 0 2pt; }
+table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+th, td { border: 0.5pt solid #888; text-align: center; font-size: 6pt; padding: 0; height: 14pt; overflow: hidden; line-height: 1.1; }
+th { background: #EFEFEF; }
+tr.wknd td { background: #92D050; }
+tr.hol td { background: #00B050; }
+th.nm { background: #002060; color: #FFFFFF; }
+.tl { border-left: 1.2pt solid #333 !important; }
+.small { font-size: 5pt; }
+.lv { color: #999; font-style: italic; }
+.notes { font-size: 6.5pt; margin-top: 3pt; font-weight: bold; }
+.sum td, .sum th { height: 11pt; font-size: 7pt; }
+</style></head><body>`;
+  const teamCols = [];
+  {
+    let c = 0;
+    for (const [t, ms] of TEAMS) { teamCols.push(c); c += ms.length; }
+    teamCols.push(c);
+  }
+  for (const blk of blockDefs()) {
+    html += `<div class="blk"><h2>${blk.label}　勤務表（2026年度）</h2><table><colgroup>` +
+      `<col style="width:34pt"><col style="width:14pt"><col style="width:44pt"><col style="width:26pt">` +
+      STAFF.map(() => `<col>`).join("") +
+      `<col style="width:20pt"><col style="width:20pt"></colgroup><thead><tr>` +
+      `<th rowspan="2">日付</th><th rowspan="2">曜</th><th rowspan="2">事務連絡</th><th rowspan="2">夜勤</th>`;
+    for (const [tname, ms] of TEAMS) html += `<th colspan="${ms.length}" class="tl">${tname}</th>`;
+    html += `<th rowspan="2" class="tl">日直<br>人数</th><th rowspan="2">振休<br>人数</th></tr><tr>`;
+    for (const [tname, ms] of TEAMS) ms.forEach((n, i) => html += `<th class="nm${i === 0 ? " tl" : ""}">${n}</th>`);
+    html += `</tr></thead><tbody>`;
+    for (const iso of blk.dates) {
+      const [y, m, d] = iso.split("-").map(Number);
+      const hol = isHoliday(iso), wknd = !hol && (dowOf(iso) === 0 || dowOf(iso) === 6);
+      html += `<tr class="${hol ? "hol" : wknd ? "wknd" : ""}">` +
+        `<td><b>${m}/${d}</b></td><td>${YOBI[dowOf(iso)]}</td>` +
+        `<td class="small">${esc(eventsTextOf(iso))}</td>` +
+        `<td><b>${nightPersonOf(iso)}</b></td>`;
+      let ci = 0;
+      for (const [tname, ms] of TEAMS) {
+        for (let i = 0; i < ms.length; i++, ci++) {
+          const n = ms[i];
+          const t = cellTextOf(n, iso);
+          const cls = [];
+          if (i === 0) cls.push("tl");
+          if (t.includes("\n") || t.length >= 3) cls.push("small");
+          const bg = exportBgOf(n, iso);
+          const sty = bg ? ` style="background:#${bg};${bg === "808080" ? "color:#fff;font-style:italic;" : ""}"` : "";
+          html += `<td${cls.length ? ` class="${cls.join(" ")}"` : ""}${sty}>${esc(t).replace("\n", "<br>")}</td>`;
+        }
+      }
+      html += `<td class="tl">${nikichokuCountOf(iso)}</td><td>${furikyuCountOf(iso)}</td></tr>`;
+    }
+    html += `</tbody></table><div class="notes">${NOTE_LINES.map(esc).join("<br>")}</div>`;
+    if (blk.title === "追加日程") {
+      const carryAll = [..._FSTATE.carried, ..._FSTATE.pending];
+      const byName = {};
+      for (const pc of carryAll) (byName[pc.name] = byName[pc.name] || []).push(pc.duty);
+      for (const nm in byName) byName[nm].sort();
+      const depth = Math.max(1, ...Object.values(byName).map(a => a.length), 0);
+      html += `<table style="margin-top:6pt;"><colgroup>` +
+        `<col style="width:34pt"><col style="width:14pt"><col style="width:44pt"><col style="width:26pt">` +
+        STAFF.map(() => `<col>`).join("") +
+        `<col style="width:20pt"><col style="width:20pt"></colgroup><tbody>`;
+      for (let dR = 0; dR < depth; dR++) {
+        html += `<tr>`;
+        if (dR === 0) html += `<td colspan="4" rowspan="${depth}" style="font-weight:bold;">次回へ繰り越しの振休</td>`;
+        let ci2 = 0;
+        for (const [tname2, ms2] of TEAMS) {
+          for (let i2 = 0; i2 < ms2.length; i2++, ci2++) {
+            const duty = (byName[ms2[i2]] || [])[dR];
+            const cls2 = i2 === 0 ? ' class="tl small"' : ' class="small"';
+            if (duty) {
+              const mm = Number(duty.slice(5, 7)), dd = Number(duty.slice(8, 10));
+              html += `<td${cls2} style="background:#FFC000;">${mm}/${dd}<br>振</td>`;
+            } else {
+              html += `<td${cls2}></td>`;
+            }
+          }
+        }
+        html += `<td class="tl"></td><td></td></tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+    html += `</div>`;
+  }
+  // 繰越・集計ページ
+  const st = _FSTATE;
+  const carryAll = [...st.carried, ...st.pending].sort((a, b) => a.duty < b.duty ? -1 : 1);
+  html += `<div><h2>次回へ繰越の振休（${carryAll.length}件）・期間内集計</h2><table class="sum" style="width:48%; float:left; margin-right:2%;"><thead><tr><th>氏名</th><th>出勤日</th><th>種別</th><th>区分</th></tr></thead><tbody>`;
+  for (const p of carryAll) html += `<tr><td>${p.name}</td><td>${p.duty.slice(5).replace("-","/")}</td><td>${p.src}</td><td>${p.carry ? "指定" : "未配置"}</td></tr>`;
+  html += `</tbody></table><table class="sum" style="width:50%; float:left;"><thead><tr><th>氏名</th><th>日直</th><th>夜勤</th><th>残当</th><th>振休</th><th>有</th><th>夏</th><th>特</th><th>出</th><th>業</th><th>研</th></tr></thead><tbody>`;
+  for (const n of STAFF) {
+    const cnt = mk => Object.keys(DATA[n] || {}).filter(k => (DATA[n] || {})[k] === mk).length;
+    const furi = Object.keys(DATA[n] || {}).filter(k => ((DATA[n] || {})[k] || "").includes("振")).length;
+    html += `<tr><td>${n}</td><td>${cnt("○")}</td><td>${cnt("入")}</td><td>${cnt("残")}</td><td>${furi}</td><td>${cnt("有")}</td><td>${cnt("夏")}</td><td>${cnt("特")}</td><td>${cnt("出")}</td><td>${cnt("業")}</td><td>${cnt("研")}</td></tr>`;
+  }
+  html += `</tbody></table></div></body></html>`;
+  return html;
+}
+function exportPrint() {
+  const w = window.open("", "_blank");
+  if (!w) { alert("ポップアップがブロックされました。許可してください。"); return; }
+  w.document.write(buildPrintHtml());
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+}
+
+/* ============================================================
+   元に戻す（Undo）・祝日扱い設定モーダル
+   ============================================================ */
+const UNDO_STACK = [];
+const UNDO_MAX = 30;
+function pushUndo(label) {
+  UNDO_STACK.push({ label, time: new Date().toLocaleTimeString("ja-JP"), snap: JSON.stringify({
+    data: DATA, nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, part: PARTICIPATION,
+    holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES,
+    prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION,
+  }) });
+  if (UNDO_STACK.length > UNDO_MAX) UNDO_STACK.shift();
+  updateUndoBtn();
+}
+function applySnapshot(snap) {
+  const o = JSON.parse(snap);
+  DATA = o.data; NIGHT_AUTO = o.nightAuto; FURIKYU_AUTO = o.furiAuto;
+  CUSTOM_HOLIDAYS = new Set(o.holidays); CARRY_SET = new Set(o.carry); LEAVES = o.leaves;
+  if (o.moves) { EVENT_MOVES = o.moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
+  if (o.prevCarry) { PREV_CARRY = o.prevCarry; saveJson("kinmu_prev_carryover", PREV_CARRY); }
+  if (o.part) { PARTICIPATION = o.part; saveJson("kinmu_participation", PARTICIPATION); }
+  if (o.period) { PERIOD = o.period; savePeriod(); TABS = buildTabs(); if (!PERIOD.months.includes(Number(currentTab)) && currentTab !== "extra") currentTab = String(PERIOD.months[0]); }
+  if (o.cycle !== undefined) { CYCLE_START_IDX = o.cycle; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
+  if (o.prevNight) { PREV_NIGHT = o.prevNight; saveJson("kinmu_prev_night", PREV_NIGHT); }
+  DUTY_TEAM_MAP = buildDutyTeamMap(); EVENT_DATES = buildEventDates();
+  saveSchedule(); saveNightAuto(); saveFurikyuAuto(); saveCustomHolidays(); saveCarrySet(); saveLeaves();
+  DUTY_TEAM_MAP = buildDutyTeamMap();
+  render(); updateUndoBtn();
+}
+function undoLast() {
+  if (!UNDO_STACK.length) return;
+  const { label, snap } = UNDO_STACK.pop();
+  applySnapshot(snap);
+  document.getElementById("save-status").textContent =
+    `「${label}」を元に戻しました ` + new Date().toLocaleTimeString("ja-JP");
+}
+function openHistoryModal() {
+  const tb = document.getElementById("history-list");
+  tb.innerHTML = UNDO_STACK.length ? "" : `<tr><td colspan="3" style="color:#888;">履歴なし</td></tr>`;
+  for (let i = UNDO_STACK.length - 1; i >= 0; i--) {
+    const s = UNDO_STACK[i];
+    const back = UNDO_STACK.length - i;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${back}手前</td><td><b>${s.label}</b> <span style="color:#999;font-size:10px;">${s.time || ""}</span></td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-orange btn-sm";
+    b.textContent = "この操作の前に戻す";
+    b.onclick = () => {
+      if (!confirm(`「${s.label}」とそれ以降の操作（計${back}件）をまとめて取り消します。よろしいですか？`)) return;
+      const snap = s.snap, label = s.label;
+      UNDO_STACK.length = i;
+      applySnapshot(snap);
+      document.getElementById("save-status").textContent =
+        `「${label}」の直前まで戻しました ` + new Date().toLocaleTimeString("ja-JP");
+      closeHistoryModal();
+    };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  }
+  document.getElementById("history-modal").style.display = "block";
+}
+function closeHistoryModal() { document.getElementById("history-modal").style.display = "none"; }
+function updateUndoBtn() {
+  const b = document.getElementById("undo-btn");
+  if (!b) return;
+  b.disabled = !UNDO_STACK.length;
+  b.textContent = UNDO_STACK.length ? `↩ 元に戻す（${UNDO_STACK[UNDO_STACK.length - 1].label}）` : "↩ 元に戻す";
+  const h = document.getElementById("history-btn");
+  if (h) h.disabled = !UNDO_STACK.length;
+}
+
+function openHolidayModal() {
+  document.getElementById("nat-holiday-list").innerHTML = Object.keys(HOLIDAYS).map(iso => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return `${m}/${d}（${YOBI[dowOf(iso)]}）${HOLIDAYS[iso]}`;
+  }).join("、 ");
+  renderCustomHolidays();
+  document.getElementById("holiday-modal").style.display = "block";
+}
+function closeHolidayModal() { document.getElementById("holiday-modal").style.display = "none"; }
+function renderCustomHolidays() {
+  const tb = document.getElementById("custom-holiday-list");
+  const list = [...CUSTOM_HOLIDAYS].sort();
+  tb.innerHTML = list.length ? "" : `<tr><td colspan="3" style="color:#888;">登録なし</td></tr>`;
+  for (const iso of list) {
+    const [y, m, d] = iso.split("-").map(Number);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${y}/${m}/${d}</b></td><td>${YOBI[dowOf(iso)]}</td>`;
+    const td = document.createElement("td");
+    const b = document.createElement("button");
+    b.className = "btn btn-danger btn-sm"; b.textContent = "解除";
+    b.onclick = () => {
+      pushUndo("祝日扱い解除");
+      CUSTOM_HOLIDAYS.delete(iso);
+      saveCustomHolidays(); DUTY_TEAM_MAP = buildDutyTeamMap();
+      renderCustomHolidays(); render();
+    };
+    td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+  }
+}
+function addHolidayFromModal() {
+  const v = document.getElementById("hol-date").value;
+  if (!v) { alert("日付を選択してください"); return; }
+  if (!allPeriodDates().includes(v)) { alert("期間外の日付です（2026/10/1～2027/1/11）"); return; }
+  if (v in HOLIDAYS) { alert("国民の祝日のためそのまま祝日です"); return; }
+  if (CUSTOM_HOLIDAYS.has(v)) { alert("すでに祝日扱いです"); return; }
+  pushUndo("祝日扱い設定");
+  CUSTOM_HOLIDAYS.add(v);
+  saveCustomHolidays(); DUTY_TEAM_MAP = buildDutyTeamMap();
+  renderCustomHolidays(); render();
+}
+
+/* ============================================================
+   メモ欄（設定内容・条件の覚え書き）
+   ============================================================ */
+const MEMO_KEY = "kinmu_memo";
+let _memoTimer = null;
+function loadMemo() {
+  const ta = document.getElementById("memo-area");
+  ta.value = localStorage.getItem(MEMO_KEY) || "";
+  // 内容があれば開いた状態で表示
+  if (ta.value.trim()) openMemo(true);
+}
+function openMemo(open) {
+  const ta = document.getElementById("memo-area");
+  const btn = document.getElementById("memo-toggle");
+  ta.style.display = open ? "block" : "none";
+  btn.textContent = open ? "▼ メモを閉じる" : "▶ メモを開く";
+}
+function toggleMemo() {
+  const shown = document.getElementById("memo-area").style.display !== "none";
+  openMemo(!shown);
+}
+function onMemoInput() {
+  clearTimeout(_memoTimer);
+  _memoTimer = setTimeout(() => {
+    localStorage.setItem(MEMO_KEY, document.getElementById("memo-area").value);
+    const el = document.getElementById("memo-saved");
+    el.textContent = "保存しました " + new Date().toLocaleTimeString("ja-JP");
+    setTimeout(() => { el.textContent = ""; }, 2500);
+  }, 400);
+}
+
+/* ============================================================
+   初期化
+   ============================================================ */
+renderLegend();
+render();
+loadMemo();
+saveSchedule();
+updateUndoBtn();
+</script>
+</body>
+</html>
