@@ -446,7 +446,31 @@ const HOLIDAYS_BUILTIN = {
   '2027-10-11':'スポーツの日','2027-11-03':'文化の日','2027-11-23':'勤労感謝の日',
 };
 
-function getHolidays() { return HOLIDAYS_BUILTIN; }
+// ---- カスタム祝日（管理者が任意の日を休日扱いにできる。例: 病院創立記念日） ----
+// 形式: [{ ds:'YYYY-MM-DD', name:'病院創立記念日', yearly:true }]  yearly=true なら毎年同じ月日
+let _holidaysCache = null;
+function loadCustomHolidays() {
+  try { return JSON.parse(localStorage.getItem('kiboushu_custom_holidays') || '[]'); } catch { return []; }
+}
+function saveCustomHolidays(list) {
+  localStorage.setItem('kiboushu_custom_holidays', JSON.stringify(list));
+  _holidaysCache = null;
+}
+function getHolidays() {
+  if (!_holidaysCache) {
+    const merged = Object.assign({}, HOLIDAYS_BUILTIN);
+    for (const h of loadCustomHolidays()) {
+      if (h.yearly) {
+        const md = h.ds.slice(5);
+        for (let y = 2024; y <= 2032; y++) merged[`${y}-${md}`] = h.name;
+      } else {
+        merged[h.ds] = h.name;
+      }
+    }
+    _holidaysCache = merged;
+  }
+  return _holidaysCache;
+}
 
 const DEFAULT_TEAMS = {
   'Aチーム': ['大澤','品川','木暮','佐藤','堀内','春日'],
@@ -1177,7 +1201,7 @@ function openModal(m, d, ds, curReq, limit, count) {
 // 管理者が任意スタッフの申請を編集するモーダル
 function openAdminModal(staffName, ds, m, d) {
   const dow = new Date(+ds.slice(0,4), +ds.slice(5,7)-1, d).getDay();
-  const wknd = dow === 0 || dow === 6 || !!HOLIDAYS_BUILTIN[ds];
+  const wknd = dow === 0 || dow === 6 || !!getHolidays()[ds];
   const limit = wknd ? Infinity : 5;
   const data  = loadData();
   const count = Object.values(data).filter(v => v[ds]).length;
@@ -1459,7 +1483,7 @@ function _renderExtraCalendar(containerId, extraSet) {
       const ds  = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const dow = new Date(y, m-1, d).getDay();
       const sat = dow === 6, sun = dow === 0;
-      const hol = HOLIDAYS_BUILTIN[ds] || '';
+      const hol = getHolidays()[ds] || '';
       const wknd = sat || sun;
       const isExtra = extraSet.has(ds);
 
@@ -1503,7 +1527,7 @@ function openExtraDateModal(ds) {
   if (isPastDeadline()) { alert('申請期限を過ぎているため、申請を変更できません。'); return; }
   const [y, m, d] = ds.split('-').map(Number);
   const dow = new Date(y, m-1, d).getDay();
-  const sat = dow === 6, sun = dow === 0, hol = HOLIDAYS_BUILTIN[ds] || '';
+  const sat = dow === 6, sun = dow === 0, hol = getHolidays()[ds] || '';
   const data = loadData();
   const curReq = currentUser ? (data[currentUser] || {})[ds] || '' : '';
   const limit = (sat || sun || hol) ? Infinity : 5;
@@ -1547,7 +1571,7 @@ function renderAdminExtraDates(containerId = 'adm-extra', readonly = false) {
   for (const ds of dates) {
     const [y, m, d] = ds.split('-').map(Number);
     const dow = new Date(y, m-1, d).getDay();
-    const sat = dow === 6, sun = dow === 0, hol = HOLIDAYS_BUILTIN[ds] || '';
+    const sat = dow === 6, sun = dow === 0, hol = getHolidays()[ds] || '';
     const wknd = sat || sun;
     const lim = (wknd || hol) ? Infinity : 5;
     const c = dayCounts[ds];
@@ -1715,7 +1739,7 @@ function renderAdminTable(m, containerId) {
 
     const dayBg   = hol ? 'var(--holiday)' : wknd ? 'var(--weekend)' : '';
     const numColor = hol ? 'var(--orange)' : sun ? 'var(--red)' : sat ? '#1565C0' : '';
-    const holName  = HOLIDAYS_BUILTIN[dateStr(m,d)] || '';
+    const holName  = getHolidays()[dateStr(m,d)] || '';
 
     const rowCls = hol ? ' class="row-holiday"' : wknd ? ' class="row-weekend"' : '';
     tbody += `<tr${rowCls}>`;
@@ -1937,7 +1961,7 @@ function renderStaffMgmt() {
       return '<ul style="list-style:none;margin-top:6px;">' + extras.map(ds => {
         const [y,m,d] = ds.split('-').map(Number);
         const dow = new Date(y,m-1,d).getDay();
-        const hol = HOLIDAYS_BUILTIN[ds] || '';
+        const hol = getHolidays()[ds] || '';
         const label = `${m}/${d}（${dows[dow]}）${hol ? ' ' + hol : ''}`;
         return `<li style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f0f0;">
           <span style="font-size:13px;">${label}</span>
@@ -2014,15 +2038,39 @@ function renderStaffMgmt() {
     ${pdfAdminHtml}
   </div>`;
 
+  // ---- カスタム祝日 ----
+  const customHols = loadCustomHolidays();
+  html += `<div class="panel-card" style="margin-top:14px;">
+    <h3>🎌 カスタム祝日（休日扱いにする日）</h3>
+    <div class="form-row" style="align-items:center;flex-wrap:wrap;">
+      <input type="date" id="custom-hol-date" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+      <input type="text" id="custom-hol-name" placeholder="名称（例: 病院創立記念日）" style="flex:1;min-width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;"><input type="checkbox" id="custom-hol-yearly" checked> 毎年</label>
+      <button class="btn btn-primary btn-sm" onclick="addCustomHoliday()">＋ 追加</button>
+    </div>
+    ${customHols.length ? '<ul style="list-style:none;margin-top:6px;">' + customHols.map((h, i) => {
+      const [y, m, d] = h.ds.split('-').map(Number);
+      const label = h.yearly ? `毎年 ${m}月${d}日` : `${y}年${m}月${d}日`;
+      return `<li style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="font-size:13px;"><strong>${label}</strong>　${escapeHtml(h.name)}</span>
+        <button class="btn btn-danger btn-sm" onclick="removeCustomHoliday(${i})" style="padding:2px 6px;font-size:10px;">削除</button>
+      </li>`;
+    }).join('') + '</ul>' : '<div style="font-size:11px;color:#aaa;">カスタム祝日なし</div>'}
+    <div style="font-size:11px;color:#888;margin-top:6px;">登録した日は祝日と同じ扱い（上限なし・業/研/出/× のみ選択可）になります。国民の祝日は自動で組み込み済みです</div>
+  </div>`;
+
   // ---- 申請データ管理 ----
+  const confirmedCount = Object.keys(loadConfirmed()).filter(n => loadConfirmed()[n]).length;
   html += `<div class="panel-card" style="margin-top:14px;">
     <h3>申請データ管理</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button class="btn btn-orange btn-sm" onclick="confirmUnconfirmAll()"${confirmedCount ? '' : ' disabled'}>🔓 全員の確定を取り消す（${confirmedCount}名）</button>
       <button class="btn btn-danger btn-sm" onclick="confirmClearAll()">🗑 全申請データを削除</button>
       <button class="btn btn-success btn-sm" onclick="exportExcel()">📥 Excelダウンロード</button>
       <button class="btn btn-primary btn-sm" onclick="openPdfExportModal()">📄 PDF出力</button>
       <span id="data-summary" style="font-size:11px;color:#666;"></span>
     </div>
+    <div style="font-size:11px;color:#888;margin-top:6px;">次の期間の申請を始める前に「全員の確定を取り消す」を押すと、全員が再び申請・変更できる状態に戻ります（申請データは残ります）</div>
     <div style="font-size:11px;color:#888;margin-top:8px;">データはこのブラウザのlocalStorageに保存されています。</div>
   </div>`;
 
@@ -2367,6 +2415,48 @@ function confirmResetTeams() {
   renderStaffMgmt();
 }
 
+function confirmUnconfirmAll() {
+  const c = loadConfirmed();
+  const names = Object.keys(c).filter(n => c[n]);
+  if (!names.length) { toast('確定済みのスタッフはいません'); return; }
+  if (!confirm(`確定済みの ${names.length} 名全員の確定を取り消しますか？\n（申請データは残ります。各自が再び申請・変更できるようになります）`)) return;
+  saveConfirmed({});
+  invalidateAdminCache();
+  if (currentUser) updateConfirmUI();
+  toast(`${names.length}名の確定を取り消しました`);
+  renderStaffMgmt();
+}
+
+function addCustomHoliday() {
+  const ds = document.getElementById('custom-hol-date').value;
+  const name = document.getElementById('custom-hol-name').value.trim();
+  const yearly = document.getElementById('custom-hol-yearly').checked;
+  if (!ds) { alert('日付を選択してください'); return; }
+  if (!name) { alert('名称を入力してください'); return; }
+  const list = loadCustomHolidays();
+  const md = ds.slice(5);
+  if (list.some(h => (h.yearly || yearly) ? h.ds.slice(5) === md : h.ds === ds)) { alert('その日はすでに登録されています'); return; }
+  list.push({ ds, name, yearly });
+  list.sort((a, b) => a.ds.slice(5).localeCompare(b.ds.slice(5)));
+  saveCustomHolidays(list);
+  _afterHolidayChange();
+  toast(`「${name}」を${yearly ? '毎年の' : ''}祝日に追加しました`);
+}
+function removeCustomHoliday(i) {
+  const list = loadCustomHolidays();
+  const h = list[i];
+  if (!h || !confirm(`「${h.name}」を祝日から外しますか？`)) return;
+  list.splice(i, 1);
+  saveCustomHolidays(list);
+  _afterHolidayChange();
+  toast(`「${h.name}」を削除しました`);
+}
+function _afterHolidayChange() {
+  invalidateAdminCache();
+  if (currentUser) renderAllCalendars();
+  renderStaffMgmt();
+}
+
 function confirmClearAll() {
   if (!confirm('全スタッフの申請データをすべて削除しますか？\nこの操作は取り消せません。')) return;
   saveData({});
@@ -2520,7 +2610,7 @@ function exportExcel() {
     for (let d = dFrom; d <= dTo; d++) {
       const ds = dateStr(m, d);
       const dow = getDow(m, d);
-      const holName = HOLIDAYS_BUILTIN[ds] || '';
+      const holName = getHolidays()[ds] || '';
       const lim = getLimit(m, d);
       const limStr = lim === Infinity ? '∞' : lim;
       const cnt = dayCounts[d] || '';
