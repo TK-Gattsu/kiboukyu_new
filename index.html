@@ -512,6 +512,7 @@ function getPeriod() {
       const s = localStorage.getItem('kiboushu_period');
       _periodCache = s ? JSON.parse(s) : { year: 2026, months: [7, 8, 9] };
     } catch { _periodCache = { year: 2026, months: [7, 8, 9] }; }
+    if (!_periodCache.start) _periodCache.months = normalizeMonths(_periodCache.months);
   }
   return _periodCache;
 }
@@ -523,6 +524,60 @@ function savePeriod(p) {
 
 function getYear()   { return getPeriod().year; }
 function getMonths() { return getPeriod().months; }
+
+// 月の並びを「年をまたぐ並び」に正規化する（例: [1,2,12] → [12,1,2]）
+// 昇順に並べ、隙間が最も大きい箇所の直後を先頭にする。同点なら昇順のまま。
+function normalizeMonths(arr) {
+  const ms = [...new Set(arr)].sort((a, b) => a - b);
+  if (ms.length < 2) return ms;
+  let bestI = ms.length - 1, bestGap = ms[0] + 12 - ms[ms.length - 1];
+  for (let i = 0; i < ms.length - 1; i++) {
+    const gap = ms[i + 1] - ms[i];
+    if (gap > bestGap) { bestGap = gap; bestI = i; }
+  }
+  const startIdx = (bestI + 1) % ms.length;
+  return [...ms.slice(startIdx), ...ms.slice(0, startIdx)];
+}
+
+// 月 m の属する年。先頭月より小さい月は翌年扱い（例: year=2026, months=[12,1,2] → 1月は2027年）
+function yearOf(m) {
+  const p = getPeriod();
+  return m >= p.months[0] ? p.year : p.year + 1;
+}
+
+// 月 m の対象日範囲 [開始日, 終了日]。日付指定の期間では端の月が途中から/途中までになる
+function dayRange(m) {
+  const p = getPeriod();
+  const y = yearOf(m);
+  let from = 1, to = new Date(y, m, 0).getDate();
+  if (p.start) { const [sy, sm, sd] = p.start.split('-').map(Number); if (sy === y && sm === m) from = sd; }
+  if (p.end)   { const [ey, em, ed] = p.end.split('-').map(Number);   if (ey === y && em === m) to = ed; }
+  return [from, to];
+}
+function inPeriod(m, d) { const [a, b] = dayRange(m); return d >= a && d <= b; }
+
+// 日付文字列が期間中の何番目の月に属するか（期間外なら -1）
+function periodMonthIndex(ds) {
+  const [y, m, d] = ds.split('-').map(Number);
+  const idx = getMonths().indexOf(m);
+  return (idx >= 0 && yearOf(m) === y && inPeriod(m, d)) ? idx : -1;
+}
+
+// 期間の表示ラベル（例: 「2026年10月・11月・12月」「2026年12月・2027年1月・2月」「2026年10月15日〜2027年1月10日」）
+function periodLabel() {
+  const p = getPeriod();
+  if (p.start && p.end) {
+    const f = s => { const [y, m, d] = s.split('-').map(Number); return `${y}年${m}月${d}日`; };
+    return `${f(p.start)}〜${f(p.end)}`;
+  }
+  let label = '', lastY = null;
+  for (const m of p.months) {
+    const y = yearOf(m);
+    label += (label ? '・' : '') + (y !== lastY ? `${y}年` : '') + `${m}月`;
+    lastY = y;
+  }
+  return label;
+}
 
 // ============================================================
 // チーム・スタッフデータ管理
@@ -545,74 +600,131 @@ function getTeamOf(name) {
   return '';
 }
 
+// ---- スタッフ管理の下書き ----
+// スタッフ管理画面での変更はまず下書き（メモリ上）に溜め、「変更を反映する」で保存する。
+// 反映するまで、カレンダー・管理者テーブル・ログイン選択肢には影響しない。
+let _teamsDraft = null;       // 未反映のチーム構成（null = 変更なし）
+let _teamsDraftLog = [];      // 変更内容の説明（画面表示用）
+let _teamsDraftRenames = [];  // [[旧名, 新名], ...] 反映時に申請データ・確定状態へ適用
+
+function hasTeamsDraft() { return _teamsDraft !== null; }
+function getTeamsDraft() { return _teamsDraft || JSON.parse(JSON.stringify(loadTeams())); }
+function setTeamsDraft(t, logMsg) {
+  _teamsDraft = t;
+  if (logMsg && _teamsDraftLog[_teamsDraftLog.length - 1] !== logMsg) _teamsDraftLog.push(logMsg);
+}
+function getDraftTeamOf(name) {
+  for (const [t, members] of Object.entries(getTeamsDraft()))
+    if (members.includes(name)) return t;
+  return '';
+}
+
 function addTeam(name) {
   name = name.trim();
   if (!name) return false;
-  const t = loadTeams();
+  const t = getTeamsDraft();
   if (t[name]) return false;
-  t[name] = []; saveTeams(t); return true;
+  t[name] = []; setTeamsDraft(t, `チーム「${name}」を追加`); return true;
 }
 
 function renameTeam(oldN, newN) {
   newN = newN.trim();
   if (!newN || oldN === newN) return false;
-  const t = loadTeams();
+  const t = getTeamsDraft();
   if (!t[oldN] || t[newN]) return false;
   const result = {};
   for (const [k, v] of Object.entries(t)) result[k === oldN ? newN : k] = v;
-  saveTeams(result); return true;
+  setTeamsDraft(result, `チーム「${oldN}」→「${newN}」に名前変更`); return true;
 }
 
 function deleteTeam(name) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   if (!t[name] || t[name].length > 0) return false;
-  delete t[name]; saveTeams(t); return true;
+  delete t[name]; setTeamsDraft(t, `チーム「${name}」を削除`); return true;
 }
 
 function addStaff(name, team) {
   name = name.trim();
   if (!name || !team) return false;
-  const t = loadTeams();
+  const t = getTeamsDraft();
   if (!t[team]) return false;
   if (Object.values(t).flat().includes(name)) return false;
-  t[team].push(name); saveTeams(t); return true;
+  t[team].push(name); setTeamsDraft(t, `${name} を追加（${team}）`); return true;
 }
 
 function removeStaff(name) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   for (const team of Object.keys(t)) {
     const i = t[team].indexOf(name);
-    if (i >= 0) { t[team].splice(i, 1); saveTeams(t); return true; }
+    if (i >= 0) { t[team].splice(i, 1); setTeamsDraft(t, `${name} を削除`); return true; }
   }
   return false;
 }
 
 function moveStaff(name, newTeam) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   if (!t[newTeam]) return false;
+  let oldTeam = '';
   for (const team of Object.keys(t)) {
     const i = t[team].indexOf(name);
-    if (i >= 0) { t[team].splice(i, 1); break; }
+    if (i >= 0) { t[team].splice(i, 1); oldTeam = team; break; }
   }
-  t[newTeam].push(name); saveTeams(t); return true;
+  t[newTeam].push(name); setTeamsDraft(t, `${name} を ${oldTeam}→${newTeam} に移動`); return true;
 }
 
 function renameStaff(oldN, newN) {
   newN = newN.trim();
   if (!newN || oldN === newN) return false;
-  if (getAllStaff().includes(newN)) return false;
-  const t = loadTeams();
+  const t = getTeamsDraft();
+  if (Object.values(t).flat().includes(newN)) return false;
   for (const team of Object.keys(t)) {
     const i = t[team].indexOf(oldN);
     if (i >= 0) { t[team][i] = newN; break; }
   }
-  saveTeams(t);
-  const d = loadData();
-  if (d[oldN]) { d[newN] = d[oldN]; delete d[oldN]; saveData(d); }
+  _teamsDraftRenames.push([oldN, newN]);
+  setTeamsDraft(t, `${oldN} → ${newN} に名前変更`);
   return true;
 }
 
-function resetTeamsToDefault() { saveTeams(JSON.parse(JSON.stringify(DEFAULT_TEAMS))); }
+function resetTeamsToDefault() {
+  _teamsDraftLog = []; _teamsDraftRenames = [];
+  setTeamsDraft(JSON.parse(JSON.stringify(DEFAULT_TEAMS)), '初期データに戻す');
+}
+
+// 下書きを保存して全画面に反映する
+function applyTeamsDraft() {
+  if (!hasTeamsDraft()) { toast('未反映の変更はありません'); return; }
+  const n = _teamsDraftLog.length;
+  if (!confirm(`${n}件の変更を反映しますか？\n反映するとカレンダー・管理者テーブル・ログイン選択肢に即時反映されます。`)) return;
+  saveTeams(_teamsDraft);
+  if (_teamsDraftRenames.length) {
+    const d = loadData(), c = loadConfirmed();
+    for (const [o, nw] of _teamsDraftRenames) {
+      if (d[o]) { d[nw] = d[o]; delete d[o]; }
+      if (c[o]) { c[nw] = c[o]; delete c[o]; }
+      if (currentUser === o) currentUser = nw;
+    }
+    saveData(d); saveConfirmed(c);
+  }
+  _teamsDraft = null; _teamsDraftLog = []; _teamsDraftRenames = [];
+  invalidateAdminCache();
+  populateLoginSelect();
+  if (currentUser) {
+    document.getElementById('user-display').textContent = currentUser;
+    document.getElementById('current-user-label').textContent = currentUser + ' さん';
+    renderAllCalendars();
+  }
+  renderStaffMgmt();
+  toast(`${n}件の変更を反映しました`);
+}
+
+function discardTeamsDraft() {
+  if (!hasTeamsDraft()) return;
+  if (!confirm(`未反映の変更（${_teamsDraftLog.length}件）を破棄しますか？`)) return;
+  _teamsDraft = null; _teamsDraftLog = []; _teamsDraftRenames = [];
+  renderStaffMgmt();
+  toast('変更を破棄しました');
+}
 
 // ============================================================
 // 申請データ管理
@@ -772,16 +884,16 @@ function escapeHtml(s) {
 // ============================================================
 // 日付ユーティリティ
 // ============================================================
-function dateStr(m, d) { return `${getYear()}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
-function getDow(m, d)  { return ['日','月','火','水','木','金','土'][new Date(getYear(),m-1,d).getDay()]; }
-function isSat(m, d)   { return new Date(getYear(),m-1,d).getDay() === 6; }
-function isSun(m, d)   { return new Date(getYear(),m-1,d).getDay() === 0; }
+function dateStr(m, d) { return `${yearOf(m)}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+function getDow(m, d)  { return ['日','月','火','水','木','金','土'][new Date(yearOf(m),m-1,d).getDay()]; }
+function isSat(m, d)   { return new Date(yearOf(m),m-1,d).getDay() === 6; }
+function isSun(m, d)   { return new Date(yearOf(m),m-1,d).getDay() === 0; }
 function isWeekend(m, d) { return isSat(m,d) || isSun(m,d); }
 function isHoliday(m, d) { return !!getHolidays()[dateStr(m,d)]; }
 function isRestDay(m, d) { return isWeekend(m,d) || isHoliday(m,d); }
 function getLimit(m, d)  { return isRestDay(m,d) ? Infinity : 5; }
-function daysInMonth(m)  { return new Date(getYear(), m, 0).getDate(); }
-function firstDow(m)     { return new Date(getYear(), m-1, 1).getDay(); }
+function daysInMonth(m)  { return new Date(yearOf(m), m, 0).getDate(); }
+function firstDow(m)     { return new Date(yearOf(m), m-1, 1).getDay(); }
 
 function computeDayCounts(m, data, staff) {
   const days = daysInMonth(m);
@@ -817,9 +929,7 @@ function toast(msg) {
 // タイトル更新
 // ============================================================
 function updateTitle() {
-  const p = getPeriod();
-  const mStr = p.months.map(m => m + '月').join('・');
-  const title = `希望休申請フォーム ${p.year}年${mStr}`;
+  const title = `希望休申請フォーム ${periodLabel()}`;
   document.getElementById('app-title').textContent = title;
   document.title = title;
 }
@@ -856,7 +966,7 @@ function rebuildAdminPanel() {
   tabBar.innerHTML = months.map((m, i) =>
     `<div class="tab${i===0?' active':''}" onclick="switchAdminTab(this,'adm${m}')">${m}月</div>`
   ).join('') +
-  `<div class="tab" onclick="switchAdminTab(this,'adm-all')">3ヶ月合計</div>` +
+  `<div class="tab" onclick="switchAdminTab(this,'adm-all')">${months.length}ヶ月合計</div>` +
   (hasExtra ? `<div class="tab" onclick="switchAdminTab(this,'adm-extra')">📅 追加日程</div>` : '') +
   `<div class="tab" onclick="switchAdminTab(this,'staff-mgmt')">⚙ スタッフ管理</div>`;
 
@@ -977,9 +1087,10 @@ function renderCalendar(m) {
   const block = document.createElement('div');
   block.className = 'month-block';
 
-  block.innerHTML = `<div class="month-header">${getYear()}年${m}月</div>`;
+  block.innerHTML = `<div class="month-header">${yearOf(m)}年${m}月</div>`;
   const grid = document.createElement('div');
   grid.className = 'cal-grid';
+  const [dFrom, dTo] = dayRange(m);
 
   ['日','月','火','水','木','金','土'].forEach((label, i) => {
     const cell = document.createElement('div');
@@ -994,6 +1105,16 @@ function renderCalendar(m) {
 
   const days = daysInMonth(m);
   for (let d = 1; d <= days; d++) {
+    // 期間外の日（日付指定の期間で端の月の対象外部分）は薄く表示して操作不可にする
+    if (d < dFrom || d > dTo) {
+      const c = document.createElement('div');
+      c.className = 'cal-cell empty';
+      c.style.opacity = '0.35';
+      c.innerHTML = `<div class="day-num" style="color:#999;">${d}</div>`;
+      c.title = '対象期間外';
+      grid.appendChild(c);
+      continue;
+    }
     const ds   = dateStr(m, d);
     const hol  = isHoliday(m, d);
     const sat  = isSat(m, d);
@@ -1534,6 +1655,10 @@ function _openAdminPanel() {
 }
 
 function closeAdmin() {
+  if (hasTeamsDraft()) {
+    if (!confirm(`スタッフ管理に未反映の変更（${_teamsDraftLog.length}件）があります。\n破棄して戻りますか？\n（反映する場合は「キャンセル」→「変更を反映する」を押してください）`)) return;
+    _teamsDraft = null; _teamsDraftLog = []; _teamsDraftRenames = [];
+  }
   document.getElementById('admin-panel').style.display = 'none';
   if (currentUser) {
     document.getElementById('main-panel').style.display = 'block';
@@ -1580,7 +1705,8 @@ function renderAdminTable(m, containerId) {
   staff.forEach(n => staffCounts[n] = 0);
 
   let tbody = '<tbody>';
-  for (let d = 1; d <= days; d++) {
+  const [dFrom, dTo] = dayRange(m);
+  for (let d = dFrom; d <= dTo; d++) {
     const sat = isSat(m,d), sun = isSun(m,d), hol = isHoliday(m,d), wknd = isWeekend(m,d);
     const lim = getLimit(m,d);
     const c   = dayCounts[d];
@@ -1635,7 +1761,7 @@ function renderAdminSummary() {
   const data  = loadData();
   const months = getMonths();
 
-  let html = '<div class="section-title">スタッフ別 申請合計（' + months.join('・') + '月）</div>';
+  let html = '<div class="section-title">スタッフ別 申請合計（' + periodLabel() + '）</div>';
   html += '<div class="admin-table-wrap" style="max-height:none;"><table class="admin-table" style="max-width:720px;">';
   const mHeaders = months.map(m => `<th>${m}月</th>`).join('');
   html += `<thead><tr><th class="col-name">氏名</th><th style="min-width:50px;">チーム</th>${mHeaders}<th>合計</th>${REQUEST_TYPES.map(t=>`<th>${t}</th>`).join('')}</tr></thead><tbody>`;
@@ -1647,8 +1773,7 @@ function renderAdminSummary() {
       const mCnt = months.map(() => 0);
       const tCnt = {};
       for (const [ds, type] of Object.entries(myData)) {
-        const mon = parseInt(ds.split('-')[1]);
-        const idx = months.indexOf(mon);
+        const idx = periodMonthIndex(ds);
         if (idx >= 0) { mCnt[idx]++; tCnt[type] = (tCnt[type]||0) + 1; }
       }
       const total = mCnt.reduce((a,b) => a+b, 0);
@@ -1661,9 +1786,9 @@ function renderAdminSummary() {
   const overRows = [];
   const allStaff = Object.values(teams).flat();
   for (const m of months) {
-    const days = daysInMonth(m);
+    const [dFrom, dTo] = dayRange(m);
     const counts = computeDayCounts(m, data, allStaff);
-    for (let d = 1; d <= days; d++) {
+    for (let d = dFrom; d <= dTo; d++) {
       const c = counts[d], lim = getLimit(m,d);
       if (lim !== Infinity && c > lim) overRows.push({m,d,c,lim});
     }
@@ -1688,13 +1813,32 @@ let editTarget = null;
 
 function renderStaffMgmt() {
   const container = document.getElementById('staff-mgmt');
-  const teams = loadTeams();
+  const teams = getTeamsDraft();
 
-  let html = `<div class="staff-mgmt-grid">`;
+  let html = '';
+  if (hasTeamsDraft()) {
+    html += `<div id="teams-pending-bar" style="background:#FFF8E1;border:2px solid #F9A825;border-radius:6px;padding:10px 14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <strong style="color:#8a4000;font-size:13px;">⚠ 未反映の変更が ${_teamsDraftLog.length} 件あります</strong>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button class="btn btn-success btn-sm" onclick="applyTeamsDraft()">✅ 変更を反映する</button>
+          <button class="btn btn-gray btn-sm" onclick="discardTeamsDraft()">↩ 変更を破棄</button>
+        </div>
+      </div>
+      <ul style="margin:8px 0 0 18px;font-size:12px;color:#5a3d00;line-height:1.7;">
+        ${_teamsDraftLog.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+      </ul>
+      <div style="font-size:11px;color:#8a6d00;margin-top:6px;">反映するまで、カレンダー・管理者テーブル・ログイン選択肢には反映されません</div>
+    </div>`;
+  } else {
+    html += `<div style="font-size:11px;color:#888;margin-bottom:10px;">ℹ スタッフ・チームの変更は「変更を反映する」ボタンを押すまで保存されません（まとめて反映できます）</div>`;
+  }
+
+  html += `<div class="staff-mgmt-grid">`;
 
   // 左：スタッフ一覧
   html += `<div class="panel-card">
-    <h3>スタッフ一覧（全${Object.values(teams).flat().length}名）</h3>
+    <h3>スタッフ一覧（全${Object.values(teams).flat().length}名）${hasTeamsDraft() ? '<span style="font-size:10px;color:#BF5B00;font-weight:normal;margin-left:6px;">※ 未反映の内容を表示中</span>' : ''}</h3>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" onclick="openAddStaff()">＋ スタッフ追加</button>
       <button class="btn btn-gray btn-sm" onclick="confirmResetTeams()">⟳ 初期データに戻す</button>
@@ -1751,21 +1895,33 @@ function renderStaffMgmt() {
   const monthOpts = (sel) => Array.from({length:12},(_,i)=>i+1).map(m =>
     `<option value="${m}"${sel===m?' selected':''}>${m}月</option>`).join('');
 
+  const dateMode = !!(p.start && p.end);
+  const pm = dateMode ? [p.months[0], p.months[1] || (p.months[0] % 12) + 1, p.months[2] || ((p.months[0] + 1) % 12) + 1] : p.months;
   html += `<div class="panel-card" style="margin-top:14px;">
     <h3>📅 対象期間設定</h3>
-    <div class="form-row">
+    <div style="display:flex;gap:16px;margin-bottom:8px;font-size:13px;flex-wrap:wrap;">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="radio" name="period-mode" value="month"${dateMode?'':' checked'} onchange="switchPeriodMode('month')"> 月で指定（3ヶ月）</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="radio" name="period-mode" value="date"${dateMode?' checked':''} onchange="switchPeriodMode('date')"> 日付で指定</label>
+    </div>
+    <div id="period-mode-month" class="form-row"${dateMode?' style="display:none;"':''}>
       <label>年</label>
       <select id="period-year">${yearOpts}</select>
       <label>月1</label>
-      <select id="period-m1">${monthOpts(p.months[0])}</select>
+      <select id="period-m1">${monthOpts(pm[0])}</select>
       <label>月2</label>
-      <select id="period-m2">${monthOpts(p.months[1])}</select>
+      <select id="period-m2">${monthOpts(pm[1])}</select>
       <label>月3</label>
-      <select id="period-m3">${monthOpts(p.months[2])}</select>
+      <select id="period-m3">${monthOpts(pm[2])}</select>
+    </div>
+    <div id="period-mode-date" class="form-row" style="align-items:center;flex-wrap:wrap;${dateMode?'':'display:none;'}">
+      <input type="date" id="period-start" value="${p.start||''}" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+      <span style="font-size:12px;color:#666;">〜</span>
+      <input type="date" id="period-end" value="${p.end||''}" style="padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+      <span style="font-size:11px;color:#888;">開始日・終了日を含む期間が対象（最大12ヶ月）</span>
     </div>
     <button class="btn btn-primary btn-sm" onclick="applyPeriod()">適用</button>
-    <span style="font-size:11px;color:#888;margin-left:10px;">現在：${p.year}年${p.months.join('・')}月</span>
-    <div style="font-size:11px;color:#888;margin-top:6px;">※ 申請データは保持されます</div>
+    <span style="font-size:11px;color:#888;margin-left:10px;">現在：${periodLabel()}</span>
+    <div style="font-size:11px;color:#888;margin-top:6px;">※ 申請データは保持されます。月の並びが年をまたぐ場合（例: 12月・1月・2月）は1月以降を翌年として扱います</div>
     <hr style="margin:14px 0;border-color:#eee;">
     <div style="font-weight:bold;font-size:12px;color:var(--blue);margin-bottom:8px;">📅 追加日程（任意延長）</div>
     <div class="form-row" style="align-items:center;flex-wrap:wrap;">
@@ -1880,13 +2036,36 @@ function renderStaffMgmt() {
 }
 
 // ---- 期間適用 ----
+function switchPeriodMode(mode) {
+  document.getElementById('period-mode-month').style.display = mode === 'month' ? '' : 'none';
+  document.getElementById('period-mode-date').style.display  = mode === 'date'  ? '' : 'none';
+}
+
 function applyPeriod() {
-  const year = parseInt(document.getElementById('period-year').value);
-  const m1 = parseInt(document.getElementById('period-m1').value);
-  const m2 = parseInt(document.getElementById('period-m2').value);
-  const m3 = parseInt(document.getElementById('period-m3').value);
-  if (m1 === m2 || m2 === m3 || m1 === m3) { alert('同じ月を選択しないでください'); return; }
-  savePeriod({ year, months: [m1, m2, m3] });
+  const modeEl = document.querySelector('input[name="period-mode"]:checked');
+  const mode = modeEl ? modeEl.value : 'month';
+  let period;
+  if (mode === 'date') {
+    const start = document.getElementById('period-start').value;
+    const end   = document.getElementById('period-end').value;
+    if (!start || !end) { alert('開始日と終了日を選択してください'); return; }
+    if (start > end) { alert('開始日は終了日以前にしてください'); return; }
+    const [sy, sm] = start.split('-').map(Number);
+    const [ey, em] = end.split('-').map(Number);
+    const span = (ey - sy) * 12 + (em - sm) + 1;
+    if (span > 12) { alert('期間は最大12ヶ月までです'); return; }
+    const months = [];
+    for (let i = 0; i < span; i++) months.push(((sm - 1 + i) % 12) + 1);
+    period = { year: sy, months, start, end };
+  } else {
+    const year = parseInt(document.getElementById('period-year').value);
+    const m1 = parseInt(document.getElementById('period-m1').value);
+    const m2 = parseInt(document.getElementById('period-m2').value);
+    const m3 = parseInt(document.getElementById('period-m3').value);
+    if (m1 === m2 || m2 === m3 || m1 === m3) { alert('同じ月を選択しないでください'); return; }
+    period = { year, months: normalizeMonths([m1, m2, m3]) };
+  }
+  savePeriod(period);
   updateTitle();
   rebuildStaffPanel();
   rebuildAdminPanel();
@@ -1901,7 +2080,7 @@ function applyPeriod() {
   const firstAdm = document.getElementById(admId);
   if (firstAdm) firstAdm.style.display = 'block';
   document.querySelectorAll('#admin-tabs .tab').forEach((t,i) => t.classList.toggle('active', i===0));
-  toast(`期間を ${year}年${m1}・${m2}・${m3}月 に変更しました`);
+  toast(`期間を ${periodLabel()} に変更しました`);
   renderStaffMgmt();
 }
 
@@ -2062,14 +2241,14 @@ function openEditStaff(name) {
   editTarget = { mode: 'edit', name };
   document.getElementById('edit-modal-title').textContent = `編集：${name}`;
   document.getElementById('edit-name').value = name;
-  populateEditTeamSelect(getTeamOf(name));
+  populateEditTeamSelect(getDraftTeamOf(name));
   document.getElementById('edit-modal').classList.add('open');
 }
 
 function populateEditTeamSelect(selected) {
   const sel = document.getElementById('edit-team');
   sel.innerHTML = '';
-  for (const team of getTeamNames()) {
+  for (const team of Object.keys(getTeamsDraft())) {
     const opt = document.createElement('option');
     opt.value = team; opt.textContent = team;
     if (team === selected) opt.selected = true;
@@ -2087,7 +2266,7 @@ function saveEditStaff() {
     if (!addStaff(newName, newTeam)) {
       alert(`「${newName}」は既に登録されています`); return;
     }
-    toast(`${newName}（${newTeam}）を追加しました`);
+    toast(`${newName}（${newTeam}）を追加（未反映）`);
   } else {
     const old = editTarget.name;
     if (newName !== old) {
@@ -2095,15 +2274,13 @@ function saveEditStaff() {
         alert(`「${newName}」は既に登録されています`); return;
       }
     }
-    const curTeam = getTeamOf(newName);
+    const curTeam = getDraftTeamOf(newName);
     if (curTeam !== newTeam) moveStaff(newName, newTeam);
-    toast(`${old}→${newName}（${newTeam}）に更新しました`);
+    toast(`${old}→${newName}（${newTeam}）に更新（未反映）`);
   }
 
   closeEditModal();
-  invalidateAdminCache();
   renderStaffMgmt();
-  populateLoginSelect();
 }
 
 function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); }
@@ -2111,10 +2288,8 @@ function closeEditModal() { document.getElementById('edit-modal').classList.remo
 function confirmRemoveStaff(name) {
   if (!confirm(`「${name}」を削除しますか？\n（その人の申請データは残ります）`)) return;
   removeStaff(name);
-  invalidateAdminCache();
-  toast(`${name}を削除しました`);
+  toast(`${name}を削除（未反映）`);
   renderStaffMgmt();
-  populateLoginSelect();
 }
 
 function addNewTeam() {
@@ -2122,82 +2297,74 @@ function addNewTeam() {
   if (!name) { alert('チーム名を入力してください'); return; }
   if (!addTeam(name)) { alert(`「${name}」は既に存在します`); return; }
   document.getElementById('new-team-input').value = '';
-  invalidateAdminCache();
-  toast(`「${name}」チームを追加しました`);
+  toast(`「${name}」チームを追加（未反映）`);
   renderStaffMgmt();
-  populateLoginSelect();
 }
 
 function renameTeamUI(oldName) {
   const newName = prompt(`「${oldName}」の新しい名前：`, oldName);
   if (!newName || newName.trim() === oldName) return;
   if (!renameTeam(oldName, newName.trim())) { alert('その名前は既に使われています'); return; }
-  invalidateAdminCache();
-  toast(`「${oldName}」→「${newName.trim()}」に変更しました`);
+  toast(`「${oldName}」→「${newName.trim()}」に変更（未反映）`);
   renderStaffMgmt();
-  populateLoginSelect();
 }
 
 function deleteTeamUI(team) {
   if (!confirm(`「${team}」を削除しますか？`)) return;
   if (!deleteTeam(team)) { alert('メンバーがいるチームは削除できません'); return; }
-  invalidateAdminCache();
-  toast(`「${team}」を削除しました`);
+  toast(`「${team}」を削除（未反映）`);
   renderStaffMgmt();
-  populateLoginSelect();
 }
 
 function moveStaffUp(name) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   for (const team of Object.keys(t)) {
     const i = t[team].indexOf(name);
     if (i > 0) {
       [t[team][i-1], t[team][i]] = [t[team][i], t[team][i-1]];
-      saveTeams(t); invalidateAdminCache(); renderStaffMgmt(); return;
+      setTeamsDraft(t, `${name} の並び順を変更`); renderStaffMgmt(); return;
     }
   }
 }
 
 function moveStaffDown(name) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   for (const team of Object.keys(t)) {
     const i = t[team].indexOf(name);
     if (i >= 0 && i < t[team].length - 1) {
       [t[team][i+1], t[team][i]] = [t[team][i], t[team][i+1]];
-      saveTeams(t); invalidateAdminCache(); renderStaffMgmt(); return;
+      setTeamsDraft(t, `${name} の並び順を変更`); renderStaffMgmt(); return;
     }
   }
 }
 
 function moveTeamUp(name) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   const keys = Object.keys(t);
   const i = keys.indexOf(name);
   if (i <= 0) return;
   [keys[i-1], keys[i]] = [keys[i], keys[i-1]];
   const result = {};
   keys.forEach(k => result[k] = t[k]);
-  saveTeams(result); invalidateAdminCache(); renderStaffMgmt();
+  setTeamsDraft(result, `チーム「${name}」の並び順を変更`); renderStaffMgmt();
 }
 
 function moveTeamDown(name) {
-  const t = loadTeams();
+  const t = getTeamsDraft();
   const keys = Object.keys(t);
   const i = keys.indexOf(name);
   if (i < 0 || i >= keys.length - 1) return;
   [keys[i], keys[i+1]] = [keys[i+1], keys[i]];
   const result = {};
   keys.forEach(k => result[k] = t[k]);
-  saveTeams(result); invalidateAdminCache(); renderStaffMgmt();
+  setTeamsDraft(result, `チーム「${name}」の並び順を変更`); renderStaffMgmt();
 }
 
 function confirmResetTeams() {
-  if (!confirm('スタッフ・チーム設定を初期データに戻しますか？\n（申請データは変更されません）')) return;
+  if (!confirm('スタッフ・チーム設定を初期データに戻しますか？\n（申請データは変更されません。「変更を反映する」を押すまで保存されません）')) return;
   resetTeamsToDefault();
-  invalidateAdminCache();
-  toast('初期データに戻しました');
+  toast('初期データに戻しました（未反映）');
   renderStaffMgmt();
-  populateLoginSelect();
 }
 
 function confirmClearAll() {
@@ -2217,7 +2384,7 @@ function openPdfExportModal() {
   const list = document.getElementById('pdf-export-list');
   const lblStyle = 'display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:5px 8px;border:1px solid var(--border);border-radius:4px;';
   let html = months.map(m =>
-    `<label style="${lblStyle}"><input type="checkbox" class="pdf-export-target" value="${m}" checked> ${getYear()}年${m}月</label>`
+    `<label style="${lblStyle}"><input type="checkbox" class="pdf-export-target" value="${m}" checked> ${yearOf(m)}年${m}月</label>`
   ).join('');
   if (loadExtraDates().length) {
     html += `<label style="${lblStyle}"><input type="checkbox" class="pdf-export-target" value="extra" checked> 📅 追加日程</label>`;
@@ -2259,7 +2426,7 @@ function exportPdf() {
   let sections = '';
   for (const m of months) {
     renderAdminTable(m, '_pdf-tmp');
-    sections += section(`希望休申請一覧　${y}年${m}月`, _stripInteractive(tmp.innerHTML));
+    sections += section(`希望休申請一覧　${yearOf(m)}年${m}月`, _stripInteractive(tmp.innerHTML));
   }
   if (withExtra) {
     renderAdminExtraDates('_pdf-tmp', true);
@@ -2323,7 +2490,7 @@ function exportExcel() {
   const allStaff = Object.values(teams).flat();
 
   for (const m of months) {
-    const days = daysInMonth(m);
+    const [dFrom, dTo] = dayRange(m);
     const dayCounts = computeDayCounts(m, data, allStaff);
 
     // ヘッダー行1: 日付・上限・申請数 + チーム名（メンバー数分）
@@ -2342,14 +2509,15 @@ function exportExcel() {
     // 合計行（名前ごとの申請合計）
     const totalRow = ['合計', '', '', '-', '-'];
     const staffTotals = {};
-    allStaff.forEach(n => { staffTotals[n] = Object.keys(data[n]||{}).filter(ds => ds.startsWith(`${getYear()}-${String(m).padStart(2,'0')}`)).length; });
+    const mIdx = months.indexOf(m);
+    allStaff.forEach(n => { staffTotals[n] = Object.keys(data[n]||{}).filter(ds => periodMonthIndex(ds) === mIdx).length; });
     for (const [, members] of Object.entries(teams)) {
       for (const name of members) totalRow.push(staffTotals[name] || '');
     }
 
     const rows = [hdr1, hdr2, totalRow];
 
-    for (let d = 1; d <= days; d++) {
+    for (let d = dFrom; d <= dTo; d++) {
       const ds = dateStr(m, d);
       const dow = getDow(m, d);
       const holName = HOLIDAYS_BUILTIN[ds] || '';
@@ -2387,8 +2555,7 @@ function exportExcel() {
       const myData = data[name] || {};
       const mCnt = months.map(()=>0); const tCnt = {};
       for (const [ds, type] of Object.entries(myData)) {
-        const mon = parseInt(ds.split('-')[1]);
-        const idx = months.indexOf(mon);
+        const idx = periodMonthIndex(ds);
         if (idx >= 0) { mCnt[idx]++; tCnt[type]=(tCnt[type]||0)+1; }
       }
       srows.push([name, team, ...mCnt, mCnt.reduce((a,b)=>a+b,0), ...REQUEST_TYPES.map(t=>tCnt[t]||'')]);
@@ -2400,7 +2567,8 @@ function exportExcel() {
 
   const now = new Date();
   const p = getPeriod();
-  XLSX.writeFile(wb, `希望休申請_${p.year}年${p.months.join('')}月_${now.getMonth()+1}月${now.getDate()}日.xlsx`);
+  const pLabel = (p.start && p.end) ? `${p.start}〜${p.end}` : `${p.year}年${p.months.join('・')}月`;
+  XLSX.writeFile(wb, `希望休申請_${pLabel}_${now.getMonth()+1}月${now.getDate()}日.xlsx`);
   toast('Excelをダウンロードしました');
 }
 
@@ -2424,6 +2592,10 @@ document.getElementById('pdf-export-modal').addEventListener('click', e => {
 });
 document.getElementById('pdf-viewer-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('pdf-viewer-modal')) closePdfViewer();
+});
+// スタッフ管理に未反映の変更があるままページを閉じようとしたら警告
+window.addEventListener('beforeunload', e => {
+  if (hasTeamsDraft()) { e.preventDefault(); e.returnValue = ''; }
 });
 document.getElementById('edit-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') saveEditStaff();
