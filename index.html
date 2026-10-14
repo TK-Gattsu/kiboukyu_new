@@ -795,6 +795,7 @@ function confirmRequests() {
   const obj = loadConfirmed();
   obj[currentUser] = true;
   saveConfirmed(obj);
+  addLog({ k: 'c', s: currentUser });
   updateConfirmUI();
   renderAllCalendars();
   toast('申請を確定しました');
@@ -805,6 +806,7 @@ function unconfirmRequests() {
   const obj = loadConfirmed();
   delete obj[currentUser];
   saveConfirmed(obj);
+  addLog({ k: 'u', s: currentUser });
   updateConfirmUI();
   renderAllCalendars();
   toast('確定を取り消しました');
@@ -839,10 +841,58 @@ function updateConfirmUI() {
 function setRequest(name, ds, type) {
   const d = loadData();
   if (!d[name]) d[name] = {};
+  const before = d[name][ds] || '';
+  if (before === (type || '')) return;
   if (!type) delete d[name][ds]; else d[name][ds] = type;
   saveData(d);
+  addLog({ k: 'r', s: name, d: ds, f: before, o: type || '' });
 }
 function getRequest(name, ds) { return (loadData()[name] || {})[ds] || ''; }
+
+// ============================================================
+// 申請ログ（誰が・いつ・どの日を・どう変更したか）
+// ============================================================
+const LOG_MAX = 500; // 保存件数の上限（古いものから破棄）
+
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem('kiboushu_log') || '[]'); } catch { return []; }
+}
+function saveLog(arr) { localStorage.setItem('kiboushu_log', JSON.stringify(arr)); }
+
+// 操作者（管理者ビューが開いていれば管理者とみなす）
+function _logActor() {
+  const panel = document.getElementById('admin-panel');
+  const adminOpen = panel && panel.style.display !== 'none';
+  return adminOpen ? { b: '管理者', a: 1 } : { b: currentUser || '不明', a: 0 };
+}
+
+// k: r=申請変更 / c=確定 / u=確定取消 / x=データ削除
+function addLog(entry) {
+  const arr = loadLog();
+  arr.push(Object.assign({ t: Math.floor(Date.now() / 1000) }, _logActor(), entry));
+  if (arr.length > LOG_MAX) arr.splice(0, arr.length - LOG_MAX);
+  saveLog(arr);
+}
+
+function logTimeLabel(t) {
+  const d = new Date(t * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function logActionLabel(e) {
+  if (e.k === 'c') return '<span style="color:#16a34a;font-weight:bold;">確定</span>';
+  if (e.k === 'u') return '<span style="color:var(--orange);font-weight:bold;">確定取消</span>';
+  if (e.k === 'x') return '<span style="color:var(--red);font-weight:bold;">データ削除</span>';
+  const chip = t => {
+    if (!t) return '<span style="color:#aaa;">なし</span>';
+    const [bg, fg] = TYPE_STYLE[t] || ['#eee','#333'];
+    return `<span style="background:${bg};color:${fg};padding:1px 6px;border-radius:3px;font-weight:bold;">${t}</span>`;
+  };
+  if (!e.f) return `${chip(e.o)} を申請`;
+  if (!e.o) return `${chip(e.f)} を取消`;
+  return `${chip(e.f)} → ${chip(e.o)}`;
+}
 
 // ============================================================
 // 管理者パスワード
@@ -992,6 +1042,7 @@ function rebuildAdminPanel() {
   ).join('') +
   `<div class="tab" onclick="switchAdminTab(this,'adm-all')">${months.length}ヶ月合計</div>` +
   (hasExtra ? `<div class="tab" onclick="switchAdminTab(this,'adm-extra')">📅 追加日程</div>` : '') +
+  `<div class="tab" onclick="switchAdminTab(this,'adm-log')">📝 申請ログ</div>` +
   `<div class="tab" onclick="switchAdminTab(this,'staff-mgmt')">⚙ スタッフ管理</div>`;
 
   const admContents = document.getElementById('adm-contents');
@@ -1000,6 +1051,7 @@ function rebuildAdminPanel() {
   ).join('') +
   `<div id="adm-all" class="adm-content" style="display:none;"></div>` +
   (hasExtra ? `<div id="adm-extra" class="adm-content" style="display:none;"></div>` : '') +
+  `<div id="adm-log" class="adm-content" style="display:none;"></div>` +
   `<div id="staff-mgmt" class="adm-content" style="display:none;"></div>`;
 }
 
@@ -1050,7 +1102,9 @@ function logout() {
 
 function clearMyData() {
   if (!currentUser || !confirm(`${currentUser}さんの申請をすべて削除しますか？`)) return;
-  const d = loadData(); delete d[currentUser]; saveData(d);
+  const d = loadData(); const n = Object.keys(d[currentUser] || {}).length;
+  delete d[currentUser]; saveData(d);
+  addLog({ k: 'x', s: currentUser, f: `${n}件` });
   renderAllCalendars(); toast('申請をクリアしました');
 }
 
@@ -1090,6 +1144,7 @@ function switchAdminTab(el, target) {
     _admRendered[target] = true;
   } else if (target === 'adm-all') renderAdminSummary();
   else if (target === 'adm-extra') renderAdminExtraDates();
+  else if (target === 'adm-log') renderAdminLog();
   else if (target === 'staff-mgmt') renderStaffMgmt();
 }
 
@@ -1211,21 +1266,14 @@ function openAdminModal(staffName, ds, m, d) {
   document.getElementById('modal-title').textContent =
     `【管理者編集】${staffName}　${m}月${d}日（${['日','月','火','水','木','金','土'][dow]}）`;
   _buildTypeGrid(ds, curReq, limit, count, () => {
-    invalidateAdminCache();
-    // 管理者テーブルを再描画
-    document.querySelectorAll('[id^="adm"], [id^="allreq-"], [id="adm-extra-tbl"]').forEach(el => {
-      el.innerHTML = '';
+    _refreshAdminViews();
+    // スタッフ側「全員の申請」ビューが開いていれば、そちらも更新する
+    getMonths().forEach(mm => {
+      const el = document.getElementById(`allreq-${mm}`);
+      if (el && el.innerHTML) { el.innerHTML = ''; renderAdminTable(mm, `allreq-${mm}`); }
     });
-    Object.keys(_admRendered).forEach(k => delete _admRendered[k]);
-    const months = getMonths();
-    months.forEach(mm => {
-      const el = document.getElementById(`adm${mm}`);
-      if (el) { renderAdminTable(mm, `adm${mm}`); _admRendered[`adm${mm}`] = true; }
-      const el2 = document.getElementById(`allreq-${mm}`);
-      if (el2) { el2.innerHTML = ''; renderAdminTable(mm, `allreq-${mm}`); }
-    });
-    const el3 = document.getElementById('adm-extra-tbl');
-    if (el3) renderAdminExtraDates();
+    const exAll = document.getElementById('allreq-extra');
+    if (exAll && exAll.innerHTML) { exAll.innerHTML = ''; renderAdminExtraDates('allreq-extra', true); }
   });
   document.getElementById('type-modal').classList.add('open');
 }
@@ -1560,7 +1608,7 @@ function renderAdminExtraDates(containerId = 'adm-extra', readonly = false) {
   for (const [, members] of Object.entries(teams)) {
     for (const name of members) {
       const ok = confirmedMap[name];
-      thead += `<th style="font-size:10px;min-width:36px;">${name}${ok ? '<br><span style="color:#16a34a;font-size:9px;">✓確定</span>' : '<br><span style="color:#aaa;font-size:9px;">－</span>'}</th>`;
+      thead += `<th style="font-size:10px;min-width:36px;">${name}${confirmBadgeHtml(name, ok)}</th>`;
     }
   }
   thead += '</tr></thead>';
@@ -1715,11 +1763,7 @@ function renderAdminTable(m, containerId) {
   const confirmedMap = loadConfirmed();
   for (const [, members] of Object.entries(teams)) {
     for (const name of members) {
-      const ok = confirmedMap[name];
-      const badge = ok
-        ? '<br><span style="color:#16a34a;font-size:9px;">✓確定</span>'
-        : '<br><span style="color:#aaa;font-size:9px;">－</span>';
-      thead += `<th style="font-size:10px;min-width:36px;">${name}${badge}</th>`;
+      thead += `<th style="font-size:10px;min-width:36px;">${name}${confirmBadgeHtml(name, confirmedMap[name])}</th>`;
     }
   }
   thead += '</tr></thead>';
@@ -1828,6 +1872,109 @@ function renderAdminSummary() {
     html += '</tbody></table>';
   }
   container.innerHTML = html;
+}
+
+// ============================================================
+// 申請ログ画面
+// ============================================================
+let _logFilter = { staff: '', kind: '' };
+
+function renderAdminLog() {
+  const container = document.getElementById('adm-log');
+  if (!container) return;
+  const all = loadLog();
+  const staffOpts = [...new Set(all.map(e => e.s).filter(Boolean))].sort();
+
+  let html = `<div class="section-title">申請ログ（最新 ${LOG_MAX} 件まで保存）</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      <label style="font-size:12px;">対象スタッフ</label>
+      <select id="log-filter-staff" onchange="applyLogFilter()" style="padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+        <option value="">すべて</option>
+        ${staffOpts.map(n => `<option value="${escapeHtml(n)}"${_logFilter.staff===n?' selected':''}>${escapeHtml(n)}</option>`).join('')}
+      </select>
+      <label style="font-size:12px;">種類</label>
+      <select id="log-filter-kind" onchange="applyLogFilter()" style="padding:5px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;">
+        <option value="">すべて</option>
+        <option value="r"${_logFilter.kind==='r'?' selected':''}>申請の変更</option>
+        <option value="c"${_logFilter.kind==='c'?' selected':''}>確定</option>
+        <option value="u"${_logFilter.kind==='u'?' selected':''}>確定取消</option>
+        <option value="x"${_logFilter.kind==='x'?' selected':''}>データ削除</option>
+      </select>
+      <button class="btn btn-success btn-sm" onclick="exportLogCsv()">📥 CSVダウンロード</button>
+      <button class="btn btn-danger btn-sm" onclick="confirmClearLog()">🗑 ログを消去</button>
+    </div>`;
+
+  const rows = all
+    .filter(e => (!_logFilter.staff || e.s === _logFilter.staff) && (!_logFilter.kind || e.k === _logFilter.kind))
+    .reverse(); // 新しい順
+
+  if (!rows.length) {
+    html += '<div style="padding:16px;color:#888;">該当するログはありません。</div>';
+    container.innerHTML = html;
+    return;
+  }
+
+  html += `<div style="font-size:11px;color:#888;margin-bottom:6px;">${rows.length} 件（新しい順）</div>
+    <div class="admin-table-wrap"><table class="admin-table" style="max-width:760px;">
+    <thead><tr>
+      <th style="min-width:110px;">日時</th>
+      <th style="min-width:70px;">操作者</th>
+      <th style="min-width:60px;">対象</th>
+      <th style="min-width:80px;">希望日</th>
+      <th style="min-width:110px;">内容</th>
+    </tr></thead><tbody>`;
+  for (const e of rows) {
+    const [y, m, d] = (e.d || '').split('-').map(Number);
+    const target = e.d ? `${m}月${d}日（${['日','月','火','水','木','金','土'][new Date(y, m-1, d).getDay()]}）` : '—';
+    const who = e.a
+      ? '<span style="color:var(--orange);font-weight:bold;">管理者</span>'
+      : escapeHtml(e.b || '');
+    html += `<tr>
+      <td style="font-size:11px;white-space:nowrap;">${logTimeLabel(e.t)}</td>
+      <td style="font-size:11px;">${who}</td>
+      <td style="font-size:11px;">${escapeHtml(e.s || '')}</td>
+      <td style="font-size:11px;white-space:nowrap;">${target}</td>
+      <td style="font-size:11px;">${logActionLabel(e)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function applyLogFilter() {
+  _logFilter.staff = document.getElementById('log-filter-staff').value;
+  _logFilter.kind  = document.getElementById('log-filter-kind').value;
+  renderAdminLog();
+}
+
+function confirmClearLog() {
+  if (!confirm('申請ログをすべて消去しますか？\nこの操作は取り消せません。')) return;
+  saveLog([]);
+  toast('ログを消去しました');
+  renderAdminLog();
+}
+
+function exportLogCsv() {
+  const all = loadLog();
+  if (!all.length) { toast('ログがありません'); return; }
+  const kindName = { r: '申請変更', c: '確定', u: '確定取消', x: 'データ削除' };
+  const esc = s => `"${String(s == null ? '' : s).replace(/"/g, '""')}"`;
+  const lines = [['日時','操作者','管理者操作','対象スタッフ','希望日','種類','変更前','変更後'].map(esc).join(',')];
+  for (const e of all) {
+    lines.push([
+      logTimeLabel(e.t), e.b || '', e.a ? 'はい' : 'いいえ', e.s || '',
+      e.d || '', kindName[e.k] || e.k, e.f || '', e.o || ''
+    ].map(esc).join(','));
+  }
+  // Excelで文字化けしないようBOM付きUTF-8で出力する
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const now = new Date();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `希望休申請ログ_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  toast('ログをCSVでダウンロードしました');
 }
 
 // ============================================================
@@ -2038,6 +2185,30 @@ function renderStaffMgmt() {
     ${pdfAdminHtml}
   </div>`;
 
+  // ---- 確定状況（締切の前後を問わず管理者が切り替えられる） ----
+  const confMap = loadConfirmed();
+  const savedTeams = loadTeams();
+  const allSaved = Object.values(savedTeams).flat();
+  const doneCnt = allSaved.filter(n => confMap[n]).length;
+  html += `<div class="panel-card" style="margin-top:14px;">
+    <h3>✅ 確定状況（${doneCnt} / ${allSaved.length} 名）</h3>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+      <button class="btn btn-success btn-sm" onclick="adminConfirmAll()">全員を確定にする</button>
+      <button class="btn btn-orange btn-sm" onclick="confirmUnconfirmAll()"${doneCnt ? '' : ' disabled'}>全員の確定を取り消す</button>
+      <span style="font-size:11px;color:#888;">名前をクリックすると個別に切り替えられます（申請締切の前後を問わず操作できます）</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
+  for (const [team, members] of Object.entries(savedTeams)) {
+    for (const name of members) {
+      const ok = !!confMap[name];
+      const safe = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      html += `<button onclick="adminToggleConfirm('${safe}')" title="${team}／クリックで${ok?'未確定に戻す':'確定にする'}"
+        style="border:1px solid ${ok?'#86efac':'#ddd'};background:${ok?'#dcfce7':'#fafafa'};color:${ok?'#15803d':'#888'};border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;font-weight:${ok?'bold':'normal'};">
+        ${ok ? '✓' : '○'} ${name}</button>`;
+    }
+  }
+  html += `</div></div>`;
+
   // ---- カスタム祝日 ----
   const customHols = loadCustomHolidays();
   html += `<div class="panel-card" style="margin-top:14px;">
@@ -2060,17 +2231,15 @@ function renderStaffMgmt() {
   </div>`;
 
   // ---- 申請データ管理 ----
-  const confirmedCount = Object.keys(loadConfirmed()).filter(n => loadConfirmed()[n]).length;
   html += `<div class="panel-card" style="margin-top:14px;">
     <h3>申請データ管理</h3>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-      <button class="btn btn-orange btn-sm" onclick="confirmUnconfirmAll()"${confirmedCount ? '' : ' disabled'}>🔓 全員の確定を取り消す（${confirmedCount}名）</button>
       <button class="btn btn-danger btn-sm" onclick="confirmClearAll()">🗑 全申請データを削除</button>
       <button class="btn btn-success btn-sm" onclick="exportExcel()">📥 Excelダウンロード</button>
       <button class="btn btn-primary btn-sm" onclick="openPdfExportModal()">📄 PDF出力</button>
       <span id="data-summary" style="font-size:11px;color:#666;"></span>
     </div>
-    <div style="font-size:11px;color:#888;margin-top:6px;">次の期間の申請を始める前に「全員の確定を取り消す」を押すと、全員が再び申請・変更できる状態に戻ります（申請データは残ります）</div>
+    <div style="font-size:11px;color:#888;margin-top:6px;">次の期間の申請を始める前に、上の「確定状況」で全員の確定を取り消してください（申請データは残ります）</div>
     <div style="font-size:11px;color:#888;margin-top:8px;">データはこのブラウザのlocalStorageに保存されています。</div>
   </div>`;
 
@@ -2421,10 +2590,63 @@ function confirmUnconfirmAll() {
   if (!names.length) { toast('確定済みのスタッフはいません'); return; }
   if (!confirm(`確定済みの ${names.length} 名全員の確定を取り消しますか？\n（申請データは残ります。各自が再び申請・変更できるようになります）`)) return;
   saveConfirmed({});
-  invalidateAdminCache();
+  names.forEach(n => addLog({ k: 'u', s: n }));
   if (currentUser) updateConfirmUI();
   toast(`${names.length}名の確定を取り消しました`);
-  renderStaffMgmt();
+  _refreshAdminViews();
+}
+
+// 管理者テーブルの氏名欄に出す確定バッジ。管理者ビューからはクリックで切り替えられる
+function confirmBadgeHtml(name, ok) {
+  const panel = document.getElementById('admin-panel');
+  const adminOpen = panel && panel.style.display !== 'none';
+  if (!adminOpen) {
+    return ok ? '<br><span style="color:#16a34a;font-size:9px;">✓確定</span>'
+              : '<br><span style="color:#aaa;font-size:9px;">－</span>';
+  }
+  const safe = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const style = ok ? 'color:#16a34a;' : 'color:#aaa;';
+  return `<br><span onclick="event.stopPropagation();adminToggleConfirm('${safe}')" title="クリックで確定／未確定を切り替え" style="${style}font-size:9px;cursor:pointer;text-decoration:underline dotted;">${ok ? '✓確定' : '－'}</span>`;
+}
+
+// 表示中の管理者タブを再描画する
+function _refreshAdminViews() {
+  invalidateAdminCache();
+  getMonths().forEach(mm => {
+    const el = document.getElementById(`adm${mm}`);
+    if (el && el.innerHTML) { renderAdminTable(mm, `adm${mm}`); _admRendered[`adm${mm}`] = true; }
+  });
+  const ex = document.getElementById('adm-extra');
+  if (ex && ex.innerHTML) renderAdminExtraDates();
+  const sm = document.getElementById('staff-mgmt');
+  if (sm && sm.innerHTML) renderStaffMgmt();
+  const lg = document.getElementById('adm-log');
+  if (lg && lg.innerHTML) renderAdminLog();
+}
+
+// 管理者による確定の切り替え（締切の前後を問わず操作できる）
+function adminToggleConfirm(name) {
+  const obj = loadConfirmed();
+  const was = !!obj[name];
+  if (was) delete obj[name]; else obj[name] = true;
+  saveConfirmed(obj);
+  addLog({ k: was ? 'u' : 'c', s: name });
+  if (currentUser === name) updateConfirmUI();
+  toast(`${name} を${was ? '未確定に戻しました' : '確定にしました'}`);
+  _refreshAdminViews();
+}
+
+function adminConfirmAll() {
+  const staff = getAllStaff();
+  const obj = loadConfirmed();
+  const todo = staff.filter(n => !obj[n]);
+  if (!todo.length) { toast('全員すでに確定済みです'); return; }
+  if (!confirm(`未確定の ${todo.length} 名を確定状態にしますか？`)) return;
+  todo.forEach(n => { obj[n] = true; addLog({ k: 'c', s: n }); });
+  saveConfirmed(obj);
+  if (currentUser) updateConfirmUI();
+  toast(`${todo.length}名を確定にしました`);
+  _refreshAdminViews();
 }
 
 function addCustomHoliday() {
@@ -2459,11 +2681,14 @@ function _afterHolidayChange() {
 
 function confirmClearAll() {
   if (!confirm('全スタッフの申請データをすべて削除しますか？\nこの操作は取り消せません。')) return;
+  const d = loadData();
+  let total = 0;
+  for (const v of Object.values(d)) total += Object.keys(v).length;
   saveData({});
-  invalidateAdminCache();
+  addLog({ k: 'x', s: '全員', f: `${total}件` });
   if (currentUser) renderAllCalendars();
   toast('全申請データを削除しました');
-  renderStaffMgmt();
+  _refreshAdminViews();
 }
 
 // ============================================================
