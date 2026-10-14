@@ -951,6 +951,12 @@ function loadRulePdfs() {
 }
 function saveRulePdfs(list) { localStorage.setItem('kiboushu_rule_pdfs', JSON.stringify(list)); }
 
+// onclick属性に名前を埋め込む際のエスケープ。
+// 正規表現リテラル内に引用符を書くとGASのHTML配信処理が文字列と誤認するため、split/joinで処理する
+function jsStr(s) {
+  return String(s).split('\\').join('\\\\').split("'").join("\\'");
+}
+
 function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -1958,7 +1964,7 @@ function exportLogCsv() {
   const all = loadLog();
   if (!all.length) { toast('ログがありません'); return; }
   const kindName = { r: '申請変更', c: '確定', u: '確定取消', x: 'データ削除' };
-  const esc = s => `"${String(s == null ? '' : s).replace(/"/g, '""')}"`;
+  const esc = s => '"' + String(s == null ? '' : s).split('"').join('""') + '"';
   const lines = [['日時','操作者','管理者操作','対象スタッフ','希望日','種類','変更前','変更後'].map(esc).join(',')];
   for (const e of all) {
     lines.push([
@@ -2019,7 +2025,7 @@ function renderStaffMgmt() {
   for (const [team, members] of Object.entries(teams)) {
     html += `<li style="background:#EEF2F8;font-size:11px;font-weight:bold;color:var(--blue);padding:4px 10px;">${team}（${members.length}名）</li>`;
     for (const name of members) {
-      const safeName = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      const safeName = jsStr(name);
       html += `<li>
         <span class="name">${name}</span>
         <span class="team-badge">${team}</span>
@@ -2043,7 +2049,7 @@ function renderStaffMgmt() {
     <ul class="team-list">`;
 
   for (const [team, members] of Object.entries(teams)) {
-    const safeTeam = team.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const safeTeam = jsStr(team);
     html += `<li>
       <span style="flex:1;font-weight:bold;">${team}</span>
       <span style="font-size:11px;color:#888;margin-right:6px;">${members.length}名</span>
@@ -2201,7 +2207,7 @@ function renderStaffMgmt() {
   for (const [team, members] of Object.entries(savedTeams)) {
     for (const name of members) {
       const ok = !!confMap[name];
-      const safe = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      const safe = jsStr(name);
       html += `<button onclick="adminToggleConfirm('${safe}')" title="${team}／クリックで${ok?'未確定に戻す':'確定にする'}"
         style="border:1px solid ${ok?'#86efac':'#ddd'};background:${ok?'#dcfce7':'#fafafa'};color:${ok?'#15803d':'#888'};border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;font-weight:${ok?'bold':'normal'};">
         ${ok ? '✓' : '○'} ${name}</button>`;
@@ -2379,10 +2385,10 @@ function _loadPdfJs() {
   if (_pdfjsLoading) return _pdfjsLoading;
   _pdfjsLoading = new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.src = 'https:\/\/cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
     s.onload = () => {
       pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        'https:\/\/cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
       resolve();
     };
     s.onerror = () => { _pdfjsLoading = null; reject(new Error('PDF.jsの読み込みに失敗しました')); };
@@ -2604,7 +2610,7 @@ function confirmBadgeHtml(name, ok) {
     return ok ? '<br><span style="color:#16a34a;font-size:9px;">✓確定</span>'
               : '<br><span style="color:#aaa;font-size:9px;">－</span>';
   }
-  const safe = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const safe = jsStr(name);
   const style = ok ? 'color:#16a34a;' : 'color:#aaa;';
   return `<br><span onclick="event.stopPropagation();adminToggleConfirm('${safe}')" title="クリックで確定／未確定を切り替え" style="${style}font-size:9px;cursor:pointer;text-decoration:underline dotted;">${ok ? '✓確定' : '－'}</span>`;
 }
