@@ -43,6 +43,14 @@ Tab contents are rebuilt dynamically by `rebuildStaffPanel()` and `rebuildAdminP
 
 **Holiday data:** Built-in `HOLIDAYS_BUILTIN` constant covers 2025–2027. No dynamic holiday fetching.
 
+## 勤務表作成アプリ（`勤務表作成アプリ.html`）の作り方ガイド
+
+アプリ内の「📖 作り方」ガイド（`GUIDE_UPDATES` と `guideHtml()`）は、ユーザーが手順を確認する唯一のマニュアル。
+作り方（手順・ボタン名・画面・自動割り当てのルール）が変わる改修をしたら、同じコミットで必ず:
+- `guideHtml()` の該当説明を書き換える
+- `GUIDE_UPDATES` の先頭に `{ date, ver, items }` を追加する（`APP_VERSION` と同じバージョン）。先頭が変わるとボタンに「更新あり」が出る
+- 説明文は平易な日本語で、ボタン名は画面の表記どおりに書く
+
 ## Domain Context
 
 - Staff are organized into teams (A–E + その他 + 事務); default members are in `DEFAULT_TEAMS`

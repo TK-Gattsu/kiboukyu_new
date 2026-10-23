@@ -31,7 +31,8 @@ header {
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 header h1 { font-size: 17px; font-weight: bold; }
-header .subtitle { font-size: 11px; opacity: 0.8; }
+header h1 { white-space: nowrap; }
+header .subtitle { font-size: 11px; opacity: 0.8; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .top-bar {
   background: white; padding: 10px 20px;
@@ -164,6 +165,36 @@ td.hancell { min-width: 24px; cursor: default; font-size: 11px; color: #555; fon
 
 .warn-list { margin: 6px 20px 0; font-size: 12px; color: var(--red); }
 footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
+
+/* 作り方ガイド */
+.guide-btn {
+  margin-left: auto; flex-shrink: 0; background: white; color: var(--blue); border: none; border-radius: 4px;
+  padding: 6px 14px; font-size: 13px; font-weight: bold; cursor: pointer; position: relative;
+}
+.guide-btn:hover { background: var(--blue-light); }
+.guide-badge {
+  position: absolute; top: -8px; right: -10px; background: var(--red); color: white;
+  font-size: 10px; padding: 1px 6px; border-radius: 9px; white-space: nowrap;
+}
+.guide-tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 2px solid var(--blue); margin: 8px 0 12px; }
+.guide-tabs .tab { padding: 6px 14px; font-size: 12px; }
+.guide-body { font-size: 13px; line-height: 1.75; }
+.guide-body h4 { font-size: 14px; color: var(--blue); margin: 14px 0 6px; border-left: 4px solid var(--blue); padding-left: 8px; }
+.guide-body h4:first-child { margin-top: 0; }
+.guide-body ol, .guide-body ul { padding-left: 1.6em; margin: 4px 0 8px; }
+.guide-body li { margin-bottom: 6px; }
+.guide-body .gb { display: inline-block; background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 0 6px; font-size: 12px; font-weight: bold; line-height: 1.6; }
+.guide-body .g-tip  { background: #EAF3DE; border: 1px solid #C0DD97; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.guide-body .g-warn { background: #FFF4E5; border: 1px solid #F5C37A; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.guide-body .g-new  { background: #FADBD8; border: 1px solid #E8A39B; border-radius: 6px; padding: 8px 10px; margin: 0 0 12px; }
+.guide-body table.g-status { width: 100%; border: 1px solid var(--border); margin: 4px 0 8px; }
+.guide-body table.g-status th, .guide-body table.g-status td {
+  position: static; text-align: left; padding: 4px 8px; font-size: 12px; height: auto; cursor: default; min-width: 0;
+}
+.guide-body table.g-status th { width: 30%; background: var(--gray); }
+.guide-body .g-next { font-weight: bold; color: var(--red); }
+.guide-body .ok { color: var(--green); font-weight: bold; }
+.guide-body .ng { color: #999; }
 </style>
 </head>
 <body>
@@ -171,6 +202,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <header>
   <h1>勤務表作成アプリ</h1>
   <div class="subtitle" id="app-subtitle"></div>
+  <button class="guide-btn" onclick="openGuide()">📖 作り方<span id="guide-badge" class="guide-badge" style="display:none;">更新あり</span></button>
 </header>
 
 <div class="top-bar">
@@ -233,23 +265,8 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <div class="table-wrap" id="table-wrap"></div>
 
 <footer>
-  データはこのブラウザのlocalStorage（kinmu_schedule）に保存されています。セルをクリックすると編集できます。<br>
-  平日の休み上限は5人（特・夏・有・業・出・振・振◆をカウント）。超過した日は申請数が赤く表示されます。<br>
-  日直（○）: 土日・祝日とも1本のサイクルでA→B→…→Eの班輪番（「班」列に表示）。土日4人・祝日5人（最大5人）、課長・係長・主任を最低1人、他・事務は対象外。
-  前回シフトの最終休日（9/27=E班）の次なのでA班スタート。<br>
-  日付セルをクリックすると任意の日を「祝日扱い」にできます（12/29～31は設定済み）。国民の祝日は解除不可。<br>
-  「長期休暇設定」で育休・産休・病欠などの期間を登録すると、その間は割り当て対象外（セルはグレー表示・休み人数カウント除外）になります。<br>
-  「希望休の連休に×」: 有・夏・特・振◆の隣にある連続した休日（土日祝）に「×」を置き連休化します（1〜4の割り当て前に実行）。取り消しは「クリア: ×のみ」。<br>
-  夜勤（入・明）: 1日1人・入と明は連続・間隔は1週間以上・明け翌日は必ず休み（土日祝・特・夏・有・振・振◆）。振休権利があれば日付付き「M/D振」、無ければ日付なし「振」（警告表示）。
-  前回シフトの9/30入り=町田さんの「明」を10/1に自動配置。「班」列の右に各日の夜勤者（入）を表示。条件は「夜勤条件設定」で変更できます。<br>
-  振休: 日直（○）と土日祝の「業」「入」「明」で1日付与（前回からの繰越19件も含む）。原則直後の週・最長2週間以内に「M/D振」（M/D=出勤日）として配置。
-  無理なら1週間以内の前付与、5連休以上の出勤分は期間内配置でOK。夜勤明けの「振」があれば振休として充当。2件たまった場合は連続配置を優先。
-  振◆は動かさず対応する出勤（前14日/後7日以内）とマッチングし、枠内に出勤日を表示します。順番は 日直 → 夜勤 → 振休 の順に実行してください。<br>
-  「振休繰越管理」で権利の一覧（配置状況）を確認でき、任意の分を次回の勤務表へ繰越指定できます。<br>
-  残り当番（残）: 平日に1日2人・間隔1週間以上・期間内で均等。対象外とNG組み合わせ（日直/残り当番）は「残当・NG組み合わせ」で設定。実行順は 日直 → 夜勤 → 振休 → 残り当番。<br>
-  連続勤務は6日まで（超えると警告。自動割り当ても6日を超えないよう選出）。
-  事務連絡列: 固定行事（第n曜日・「行事設定」で管理、必須出勤者の指定可）＋セルクリックで日別の追記。
-  「勤務条件」でグループ最低出勤（調剤1人以上・病棟2人以上など初期設定済み）と必須勤務曜日を設定できます。
+  データはこのブラウザ（localStorage）に保存されています。別のPCで続きを行うときは「JSON書出」→ 別のPCで「JSON読込」で移してください。<br>
+  セルをクリックすると編集できます。作り方・自動割り当てのルールは右上の「📖 作り方」をご覧ください。
 </footer>
 
 <div id="popup"></div>
@@ -272,7 +289,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
     <b style="font-size:12px;">祝日扱いにする日（追加分）</b>
     <table style="margin:4px 0 8px;"><thead><tr><th>日付</th><th>曜日</th><th></th></tr></thead><tbody id="custom-holiday-list"></tbody></table>
     <div class="leave-form">
-      <input type="date" id="hol-date" min="2026-10-01" max="2027-01-11">
+      <input type="date" id="hol-date">
       <button class="btn btn-success btn-sm" onclick="addHolidayFromModal()">追加</button>
     </div>
     <button class="btn btn-gray" onclick="closeHolidayModal()">閉じる</button>
@@ -347,7 +364,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
     <table style="margin:4px 0 6px;"><thead><tr><th>氏名</th><th>出勤日（前回分）</th><th></th></tr></thead><tbody id="prev-carry-list"></tbody></table>
     <div class="leave-form" style="margin-bottom:14px;">
       <select id="pc-name"></select>
-      <input type="date" id="pc-date" min="2026-07-01" max="2026-09-30">
+      <input type="date" id="pc-date">
       <button class="btn btn-success btn-sm" onclick="addPrevCarry()">追加</button>
     </div>
     <b style="font-size:12px;">権利の一覧と繰越指定</b>
@@ -454,7 +471,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
   <div class="leave-box" style="max-width:620px;">
     <h3>割り当て参加設定（開始・中断）</h3>
     <div class="hint">既定はA〜Eチーム＝参加、その他・事務＝不参加です。ここで期間を指定して切り替えます。<br>
-      例: 「その他」の長島さんを11/1から夜勤に参加させる → 氏名=長島・種別=夜勤・参加/中断=参加・期間=11/1〜1/11。<br>
+      例: 「その他」の長島さんを11/1から夜勤に参加させる → 氏名=長島・種別=夜勤・参加/中断=参加・期間=11/1〜期間の最終日。<br>
       逆にA〜Eの人を一時中断させることもできます。日直参加のその他は班に属さず補充要員として扱われます。</div>
     <table>
       <thead><tr><th>氏名</th><th>種別</th><th>参加/中断</th><th>開始</th><th>終了</th><th></th></tr></thead>
@@ -464,9 +481,9 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
       <select id="pt-name"></select>
       <select id="pt-type"><option value="nikichoku">日直</option><option value="yakin">夜勤</option><option value="zan">残り当番</option></select>
       <select id="pt-enable"><option value="1">参加(開始)</option><option value="0">中断</option></select>
-      <input type="date" id="pt-from" min="2026-10-01" max="2027-01-11">
+      <input type="date" id="pt-from">
       <span>～</span>
-      <input type="date" id="pt-to" min="2026-10-01" max="2027-01-11">
+      <input type="date" id="pt-to">
       <button class="btn btn-success btn-sm" onclick="addPart()">追加</button>
     </div>
     <button class="btn btn-gray" onclick="closePartModal()">閉じる</button>
@@ -492,6 +509,16 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
       <button class="btn btn-success btn-sm" onclick="addLeave()">追加</button>
     </div>
     <button class="btn btn-gray" onclick="closeLeaveModal()">閉じる</button>
+  </div>
+</div>
+
+<div id="guide-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeGuide()">
+  <div class="leave-box" style="max-width:860px; margin:30px auto; max-height:88vh;">
+    <h3>📖 勤務表の作り方</h3>
+    <div class="hint" id="guide-rev"></div>
+    <div class="guide-tabs" id="guide-tabs"></div>
+    <div class="guide-body" id="guide-body"></div>
+    <div style="margin-top:14px;"><button class="btn btn-gray" onclick="closeGuide()">閉じる</button></div>
   </div>
 </div>
 
@@ -807,6 +834,13 @@ function isWorkingDay(n, iso) {
   return true;
 }
 function inPeriodIso(iso) { return periodDatesCache().set.has(iso); }
+const fmtMD  = iso => iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "-";
+const fmtYMD = iso => iso ? `${iso.slice(0, 4)}/${fmtMD(iso)}` : "-";
+// 日付入力欄の選択範囲を現在の期間に合わせる
+function setPeriodDateRange(...ids) {
+  const c = periodDatesCache();
+  for (const id of ids) { const el = document.getElementById(id); el.min = c.min; el.max = c.max; }
+}
 function backStreak(n, iso) {  // isoの前日までの連続勤務日数
   let c = 0, d = addDaysIso(iso, -1);
   while (inPeriodIso(d) && isWorkingDay(n, d)) { c++; d = addDaysIso(d, -1); }
@@ -1275,7 +1309,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.7";
+const APP_VERSION = "v8.8";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -2255,6 +2289,10 @@ function assignFurikyu() {
 function openCarryModal() {
   const pcSel = document.getElementById("pc-name");
   if (!pcSel.options.length) fillNameSelect(pcSel);
+  // 前回繰越の出勤日は今回の期間より前（前期分）
+  const pcDate = document.getElementById("pc-date");
+  pcDate.removeAttribute("min");
+  pcDate.max = addDaysIso(periodDatesCache().min, -1);
   renderPrevCarry();
   const st = computeFurikyuState();
   const tb = document.getElementById("carry-list");
@@ -2311,7 +2349,7 @@ function addPrevCarry() {
   const name = document.getElementById("pc-name").value;
   const duty = document.getElementById("pc-date").value;
   if (!name || !duty) { alert("氏名と出勤日を入力してください"); return; }
-  if (duty >= allPeriodDates()[0]) { alert("前回繰越の出勤日は今回の期間（10/1）より前の日付です"); return; }
+  if (duty >= periodDatesCache().min) { alert(`前回繰越の出勤日は今回の期間の開始日（${fmtMD(periodDatesCache().min)}）より前の日付です`); return; }
   if (PREV_CARRY.some(x => x.name === name && x.duty === duty)) { alert("同じ繰越がすでに登録されています"); return; }
   pushUndo("前回繰越の追加");
   PREV_CARRY.push({ name, duty });
@@ -3052,6 +3090,7 @@ const PART_TYPE_LABEL = { nikichoku: "日直", yakin: "夜勤", zan: "残り当�
 function openPartModal() {
   const sel = document.getElementById("pt-name");
   if (!sel.options.length) fillNameSelect(sel, true);  // 全チーム（その他・事務含む）
+  setPeriodDateRange("pt-from", "pt-to");
   renderPart();
   document.getElementById("part-modal").style.display = "block";
 }
@@ -3360,7 +3399,7 @@ async function exportExcel() {
     rr++;
   }
   rr += 1;
-  ws2.getCell(rr, 1).value = "期間内の集計（10/1～1/11）";
+  ws2.getCell(rr, 1).value = `期間内の集計（${fmtMD(periodDatesCache().min)}～${fmtMD(periodDatesCache().max)}）`;
   ws2.getCell(rr, 1).font = { ...FONT(12), bold: true };
   rr++;
   const CNT_MARKS = ["○", "入", "残", "有", "夏", "特", "出", "業", "研"];
@@ -3576,6 +3615,7 @@ function openHolidayModal() {
     return `${m}/${d}（${YOBI[dowOf(iso)]}）${HOLIDAYS[iso]}`;
   }).join("、 ");
   renderCustomHolidays();
+  setPeriodDateRange("hol-date");
   document.getElementById("holiday-modal").style.display = "block";
 }
 function closeHolidayModal() { document.getElementById("holiday-modal").style.display = "none"; }
@@ -3602,7 +3642,7 @@ function renderCustomHolidays() {
 function addHolidayFromModal() {
   const v = document.getElementById("hol-date").value;
   if (!v) { alert("日付を選択してください"); return; }
-  if (!allPeriodDates().includes(v)) { alert("期間外の日付です（2026/10/1～2027/1/11）"); return; }
+  if (!inPeriod(v)) { alert(`期間外の日付です（${fmtYMD(periodDatesCache().min)}～${fmtYMD(periodDatesCache().max)}）`); return; }
   if (v in HOLIDAYS) { alert("国民の祝日のためそのまま祝日です"); return; }
   if (CUSTOM_HOLIDAYS.has(v)) { alert("すでに祝日扱いです"); return; }
   pushUndo("祝日扱い設定");
@@ -3643,6 +3683,240 @@ function onMemoInput() {
 }
 
 /* ============================================================
+   作り方ガイド
+   ※ 作り方（手順・ボタン名・ルール）が変わる改修をしたら、
+     GUIDE_UPDATES の先頭に変更点を追加し、guideHtml() の該当説明も必ず書き換えること。
+     GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
+   ============================================================ */
+const GUIDE_UPDATES = [
+  { date: "2026-10-23", ver: "v8.8", items: [
+    "このアプリ内に「作り方」ガイドを追加しました。今の状況と「次にやること」も表示されます。",
+    "「祝日扱い」「振休繰越管理」「割り当て参加」の日付欄が10〜12月に固定されていたのを、今の期間に合わせるように直しました。",
+    "Excel出力の「集計」シートの見出しが「10/1～1/11」固定だったのを直しました。",
+  ]},
+  { date: "2026-10-23", ver: "v8.7", items: [
+    "次の期間の作り方が「① 今期を締めて引き継ぐ → ② 希望休申請Excelを読み込む」になりました（「次の期間の作り方」参照）。",
+    "年をまたぐ期間（例: 12,1,2月）と、途中の日付から／までの期間（例: 1/12〜3/31）に対応しました。",
+    "前の期間の夜勤も含めて、夜勤の間隔（1週間以上）を判定するようにしました。",
+    "2027年3月22日（振替休日）を祝日に追加しました。",
+  ]},
+];
+const GUIDE_REV = `${GUIDE_UPDATES[0].ver}（${GUIDE_UPDATES[0].date}）`;
+const GUIDE_SEEN_KEY = "kinmu_guide_seen";
+const GUIDE_TABS = [
+  ["basic", "基本の作り方"], ["next", "次の期間の作り方"], ["rules", "自動割り当てのルール"],
+  ["trouble", "困ったとき"], ["updates", "更新履歴"],
+];
+let _guideTab = "basic";
+let _guideNew = [];   // 前回ガイドを見てから追加された更新
+
+function updateGuideBadge() {
+  document.getElementById("guide-badge").style.display =
+    localStorage.getItem(GUIDE_SEEN_KEY) === GUIDE_REV ? "none" : "";
+}
+function openGuide(tab) {
+  const seen = localStorage.getItem(GUIDE_SEEN_KEY);
+  const idx = GUIDE_UPDATES.findIndex(u => `${u.ver}（${u.date}）` === seen);
+  _guideNew = idx < 0 ? (seen ? GUIDE_UPDATES.slice() : []) : GUIDE_UPDATES.slice(0, idx);
+  localStorage.setItem(GUIDE_SEEN_KEY, GUIDE_REV);
+  updateGuideBadge();
+  document.getElementById("guide-rev").textContent = `ガイドの内容: ${GUIDE_REV} 時点`;
+  showGuideTab(tab || _guideTab);
+  document.getElementById("guide-modal").style.display = "block";
+}
+function closeGuide() { document.getElementById("guide-modal").style.display = "none"; }
+function showGuideTab(tab) {
+  _guideTab = tab;
+  document.getElementById("guide-tabs").innerHTML = GUIDE_TABS.map(([k, t]) =>
+    `<div class="tab${k === tab ? " active" : ""}" onclick="showGuideTab('${k}')">${t}</div>`).join("");
+  const body = document.getElementById("guide-body");
+  body.innerHTML = guideNewHtml() + guideHtml(tab);
+  body.parentElement.scrollTop = 0;
+}
+// ガイドから各設定画面を開く
+function guideGo(fn) { closeGuide(); window[fn](); }
+const gbtn = (label, fn) => fn
+  ? `<a href="#" class="gb" style="color:var(--blue);" onclick="guideGo('${fn}');return false;">${label}</a>`
+  : `<span class="gb">${label}</span>`;
+
+function guideNewHtml() {
+  if (!_guideNew.length) return "";
+  return `<div class="g-new"><b>🆕 前回ガイドを見てから変わった点</b><ul>` +
+    _guideNew.map(u => u.items.map(t => `<li>${t}<span style="color:#888;">（${u.ver}）</span></li>`).join("")).join("") +
+    `</ul></div>`;
+}
+
+/* 現在のデータから作業の進み具合を調べる */
+function guideState() {
+  const label = periodLabel(PERIOD);
+  const dset = periodDatesCache().set;
+  const c = { req: 0, people: 0, "○": 0, "入": 0, "残": 0, furi: 0 };
+  for (const n of STAFF) {
+    let mine = 0;
+    for (const iso in (DATA[n] || {})) {
+      if (!dset.has(iso)) continue;
+      const v = DATA[n][iso];
+      if (v in c) c[v]++;
+      else if (labelToDuty(v)) c.furi++;
+      else if (!["明", "振"].includes(v)) mine++;
+    }
+    c.req += mine; if (mine) c.people++;
+  }
+  return {
+    label, c,
+    carried: localStorage.getItem("kinmu_carried_from"),
+    saved: loadArchive().some(a => a.label === label),
+    warns: document.getElementById("warn-list").innerHTML.split("<br>").filter(s => s.trim()).length,
+  };
+}
+function guideNextStep(s) {
+  if (s.carried === s.label)
+    return `今期は締め済みです。次は ${gbtn("期間・次期作成", "openPeriodModal")} →「② 希望休申請Excelを読み込む」`;
+  if (!s.c.req) return `希望休申請を取り込んでください（${gbtn("期間・次期作成", "openPeriodModal")} → ②）`;
+  if (!s.c["○"]) return `設定を確認 →「希望休の連休に×」→「1. 日直」`;
+  if (!s.c["入"]) return `「2. 夜勤」`;
+  if (!s.c.furi) return `「3. 振休」`;
+  if (!s.c["残"]) return `「4. 残り当番」`;
+  if (s.warns) return `赤い警告（${s.warns}件）を確認して手で直す → Excel出力 →「この勤務表を保存」`;
+  if (!s.saved) return `Excel出力・印刷 →「この勤務表を保存」`;
+  return `完成しています。次の期間を作るときは「次の期間の作り方」へ`;
+}
+function guideStatusHtml() {
+  const s = guideState(), c = s.c;
+  const mark = (n, unit) => n ? `<span class="ok">✓ ${n}${unit}</span>` : `<span class="ng">まだ</span>`;
+  const carriedTxt = s.carried === s.label ? `<span class="ok">✓ この期間を締めて引き継ぎ済み</span>`
+    : s.carried ? `「${s.carried}」から引き継ぎ済み` : `<span class="ng">なし</span>`;
+  return `<table class="g-status">
+    <tr><th>対象期間</th><td>${s.label}</td></tr>
+    <tr><th>希望休・申請</th><td>${c.req}件（${c.people}名）</td></tr>
+    <tr><th>前の期間からの引き継ぎ</th><td>${carriedTxt}<br>
+      前回繰越の振休 ${PREV_CARRY.length}件／前期最後の夜勤 ${PREV_NIGHT.name || "-"}（${fmtMD(PREV_NIGHT.date)}）／日直の開始班 ${"ABCDE"[CYCLE_START_IDX]}班</td></tr>
+    <tr><th>割り当て</th><td>日直 ${mark(c["○"], "件")}　夜勤 ${mark(c["入"], "回")}　振休 ${mark(c.furi, "件")}　残り当番 ${mark(c["残"], "件")}</td></tr>
+    <tr><th>警告</th><td>${s.warns ? `<span style="color:var(--red);font-weight:bold;">${s.warns}件</span>（表の上の赤字）` : "なし"}</td></tr>
+    <tr><th>過去の勤務表に保存</th><td>${s.saved ? `<span class="ok">✓ 保存済み</span>` : `<span class="ng">まだ</span>`}</td></tr>
+    <tr><th>次にやること</th><td class="g-next">${guideNextStep(s)}</td></tr>
+  </table>`;
+}
+
+function guideHtml(tab) {
+  if (tab === "basic") return `
+    <h4>いまの状況</h4>
+    ${guideStatusHtml()}
+    <h4>勤務表を作る手順</h4>
+    <ol>
+      <li><b>最新版で開く</b> — <b>Cmd+Shift+R</b>（WindowsはCtrl+Shift+R）で再読み込みします。画面左上に「${APP_VERSION}」と出ていれば最新版です。</li>
+      <li><b>期間と申請を確認</b> — 表の上の黄色い帯の「対象期間」「申請○件」が希望休アプリと合っているか確認します。違うところはセルをクリックして直します。申請がまだ入っていなければ「次の期間の作り方」を見てください。</li>
+      <li><b>設定を確認</b>（期間が変わったら毎回）
+        <ul>
+          <li>${gbtn("長期休暇", "openLeaveModal")} … 産休・育休・病欠などの期間（その間は割り当てなし・グレー表示）</li>
+          <li>${gbtn("割り当て参加", "openPartModal")} … 途中から夜勤・日直・残り当番に入る人／中断する人</li>
+          <li>${gbtn("夜勤条件", "openNightModal")} … 夜勤の対象外・できる曜日・月の上限回数</li>
+          <li>${gbtn("残当・NG組み合わせ", "openZanModal")} … 残り当番の対象外、一緒にしない組み合わせ</li>
+          <li>${gbtn("行事設定", "openEventModal")} … 会議などの日程変更・必ず出勤する人</li>
+          <li>${gbtn("勤務条件（グループ・曜日）", "openWorkModal")} … グループの最低出勤人数・必ず出勤する曜日</li>
+          <li>${gbtn("祝日扱い", "openHolidayModal")} … 年末（12/29〜31）など、祝日として扱う日</li>
+          <li>${gbtn("振休繰越管理", "openCarryModal")} … 前回から繰り越された振休</li>
+        </ul></li>
+      <li><b>${gbtn("希望休の連休に×")} を押す</b> — 有・夏・特・振◆ の前後に続く土日祝に「×」を入れて連休にします。取り消すときは「クリア: ×のみ」。</li>
+      <li><b>${gbtn("1. 日直")} → ${gbtn("2. 夜勤")} → ${gbtn("3. 振休")} → ${gbtn("4. 残り当番")} の順に押す</b> — 必ずこの順番で行います。</li>
+      <li><b>赤い警告を確認して手で直す</b> — 警告は表の上に赤字で出ます。セルをクリックすると種類を選び直せます。</li>
+      <li><b>${gbtn("Excel出力")}・${gbtn("印刷（PDF）")}</b> で出力します。</li>
+      <li><b>${gbtn("この勤務表を保存")}</b> — 「過去の勤務表・年間集計」で見返せるようになります。</li>
+      <li><b>${gbtn("JSON書出")}</b> でバックアップ（kinmu_backup.json）を保存しておきます。</li>
+    </ol>
+    <div class="g-warn">⚠ <b>1〜4のボタンは、押すとその種類をいったん全部消してから作り直します。</b>
+      （1. 日直＝○、2. 夜勤＝入・明と自動で置いた振、3. 振休＝日付付きの振、4. 残り当番＝残）<br>
+      手で直すのは<b>1〜4をすべて終えてから</b>にしてください。間違えて押したときは「↩ 元に戻す」で戻せます。</div>`;
+
+  if (tab === "next") return `
+    <h4>いまの状況</h4>
+    ${guideStatusHtml()}
+    <h4>次の期間の勤務表を作る手順</h4>
+    <ol>
+      <li><b>今の勤務表を最終版にしておく</b> — 繰越の振休や最後の夜勤は、今の勤務表から自動で引き継ぎます。</li>
+      <li><b>${gbtn("JSON書出")} でバックアップ</b>を取ります。</li>
+      <li><b>${gbtn("期間・次期作成", "openPeriodModal")} →「① 今期を締めて引き継ぐ」</b><br>
+        <b>今の期間が表示されている状態で、必ず最初に</b>行います。自動で行われること：
+        <ul>
+          <li>今の勤務表を「過去の勤務表」に保存</li>
+          <li>次回へ繰り越す振休 → 次期の「前回繰越」に</li>
+          <li>最後の夜勤入り → 次期初日の「明」と、夜勤の間隔チェックに使用</li>
+          <li>次の日直の開始班（今期最後の休日の次の班）</li>
+        </ul></li>
+      <li><b>希望休申請アプリで申請をExcelに出力</b> — 管理画面の「Excel出力」。GAS版・スタンドアロン版のどちらでもかまいません。</li>
+      <li><b>${gbtn("期間・次期作成", "openPeriodModal")} →「② 希望休申請Excelを読み込む」</b>で、出力したファイルを選びます。<br>
+        期間（年またぎ・途中の日付・追加日程も）、全員の申請、病院独自の休日がまとめて入ります。
+        <ul>
+          <li>ファイル名から年がわからないときは、年を聞かれます。</li>
+          <li>勤務表アプリに登録されていない名前があると警告が出ます（その人の申請は入りません。名簿の追加が必要です）。</li>
+        </ul></li>
+      <li><b>引き継ぎ内容を確認</b> — 上の「いまの状況」の前回繰越・前期最後の夜勤・日直の開始班が正しいか確認します。
+        直すときは ${gbtn("振休繰越管理", "openCarryModal")}（前回繰越）、${gbtn("期間・次期作成", "openPeriodModal")} の③（開始班・前期最後の夜勤）。</li>
+      <li>あとは<b>「基本の作り方」の3〜9</b>と同じです（設定の確認 → ×  → 1〜4 → 警告の確認 → 出力・保存）。</li>
+    </ol>
+    <div class="g-warn">⚠ ①をせずに②を行うと「まだ①を実行していません」と確認が出ます。その場合は「キャンセル」して、①を先に行ってください。</div>
+    <div class="g-tip">💡 <b>期間を自分で決めたいとき</b>：${gbtn("期間・次期作成", "openPeriodModal")} の③で、年・対象月（年をまたぐときは <b>12,1,2</b> のように）・開始日／終了日（月の途中からの場合）・追加日程を入れて「この期間を適用」。
+      申請は「同じブラウザの希望休アプリから取り込む」か「JSON読込」で入れます。</div>`;
+
+  if (tab === "rules") return `
+    <h4>休みの人数</h4>
+    <ul><li>平日の休みは<b>1日5人まで</b>（特・夏・有・業・出・振・振◆ を数えます。×と長期休暇は数えません）。超えた日は「申請数」が赤くなります。</li></ul>
+    <h4>日直（○）</h4>
+    <ul>
+      <li>土日・祝日に、<b>A→B→C→D→E班の順</b>で1本のサイクルで回します（「班」列に表示）。今の期間の開始班は <b>${"ABCDE"[CYCLE_START_IDX]}班</b>。</li>
+      <li>土日4人・祝日5人。課長・係長・主任を最低1人入れます。他・事務は対象外です。</li>
+    </ul>
+    <h4>夜勤（入・明）</h4>
+    <ul>
+      <li>1日1人。「入」の翌日が「明」。同じ人の間隔は<b>1週間以上</b>、<b>明けの翌日は必ず休み</b>（土日祝・特・夏・有・振・振◆）。</li>
+      <li>明けの翌日に振休の権利があれば日付付き「M/D振」、なければ日付なしの「振」（警告が出ます）。</li>
+      <li>前期最後の夜勤（今は ${PREV_NIGHT.name || "-"} ${fmtMD(PREV_NIGHT.date)}）の「明」を期間の初日に自動で置きます。</li>
+      <li>対象外・曜日・月の上限は ${gbtn("夜勤条件", "openNightModal")} で設定します。</li>
+    </ul>
+    <h4>振休（M/D振）</h4>
+    <ul>
+      <li>日直（○）と、土日祝の「業」「入」「明」で1日もらえます（前回からの繰越 ${PREV_CARRY.length}件も含みます）。</li>
+      <li>原則、出勤の<b>直後の週・最長${FURIKYU_AFTER_DAYS}日以内</b>に「M/D振」（M/D＝出勤日）として置きます。無理なら1週間以内の前に置きます。5連休以上にかかる出勤分は期間内ならOK。</li>
+      <li>夜勤明けの「振」があれば振休として使います。2件たまった人は連続して置くことを優先します。</li>
+      <li>振◆（申請の振休）は動かさず、対応する出勤（前14日／後7日以内）と組み合わせて枠内に出勤日を表示します。</li>
+      <li>期間内に置けない分は次回へ繰り越します。${gbtn("振休繰越管理", "openCarryModal")} で一覧の確認と、任意の分の繰越指定ができます。</li>
+    </ul>
+    <h4>残り当番（残）</h4>
+    <ul><li>平日に1日2人。同じ人の間隔は1週間以上で、期間内でなるべく均等にします。対象外と一緒にしない組み合わせは ${gbtn("残当・NG組み合わせ", "openZanModal")}。</li></ul>
+    <h4>そのほか</h4>
+    <ul>
+      <li>連続勤務は<b>6日まで</b>（超えると警告。自動割り当ても6日を超えないように選びます）。</li>
+      <li>事務連絡列：決まった行事（第n曜日など、${gbtn("行事設定", "openEventModal")}）が自動で入ります。セルをクリックすると日ごとに書き足せます。</li>
+      <li>グループの最低出勤人数（調剤1人以上・病棟2人以上など）と必ず出勤する曜日は ${gbtn("勤務条件（グループ・曜日）", "openWorkModal")}。</li>
+      <li>日付のセルをクリックすると、その日を「祝日扱い」にできます（国民の祝日は外せません）。</li>
+    </ul>`;
+
+  if (tab === "trouble") return `
+    <h4>よくあること</h4>
+    <ul>
+      <li><b>間違えてボタンを押した</b> → 「↩ 元に戻す」で1つ前に戻ります。何回か前に戻したいときは「⏮ 履歴から戻る」。</li>
+      <li><b>直したはずなのに画面が変わらない・ボタンがない</b> → <b>Cmd+Shift+R</b> で再読み込みして、左上のバージョン（今は ${APP_VERSION}）を確認してください。</li>
+      <li><b>別のPCで続きをしたい</b> → データはブラウザごとに保存されます。${gbtn("JSON書出")} したファイルを、別のPCで「JSON読込」してください（設定・メモ・過去の勤務表も移ります）。</li>
+      <li><b>データが消えた</b> → 最後に書き出した kinmu_backup.json を「JSON読込」で戻します。アプリ本体はGitHubに保存されています。</li>
+      <li><b>新しいスタッフが入った・辞めた</b> → 勤務表アプリの名簿は固定なので、修正が必要です（Claudeに「名簿に○○さんを追加して」と依頼してください）。</li>
+      <li><b>前回繰越や開始班が違う</b> → ${gbtn("振休繰越管理", "openCarryModal")} で前回繰越を、${gbtn("期間・次期作成", "openPeriodModal")} の③で開始班・前期最後の夜勤を直し、「1. 日直」から実行し直します。</li>
+      <li><b>過去の勤務表を見たい・年間の休みを集計したい</b> → ${gbtn("過去の勤務表・年間集計", "openArchiveModal")}（年度を選ぶと自動で集計）。</li>
+    </ul>
+    <h4>希望休申請アプリ（GAS版）を直したとき</h4>
+    <ol>
+      <li>勤務表フォルダの <b>GAS/index.html</b> の中身をすべてコピー</li>
+      <li>script.google.com のプロジェクトで index.html を開き、Cmd+A → Cmd+V → Cmd+S</li>
+      <li>「デプロイ」→「デプロイを管理」→ 鉛筆アイコン →「バージョン: 新バージョン」→「デプロイ」</li>
+    </ol>`;
+
+  if (tab === "updates") return `
+    <h4>作り方の更新履歴</h4>
+    <div class="hint">作り方が変わる改修をしたときは、ここに追加され、右上の「📖 作り方」に「更新あり」と表示されます。</div>
+    ${GUIDE_UPDATES.map(u => `<b>${u.ver}（${u.date}）</b><ul>${u.items.map(t => `<li>${t}</li>`).join("")}</ul>`).join("")}`;
+  return "";
+}
+
+/* ============================================================
    初期化
    ============================================================ */
 renderLegend();
@@ -3650,6 +3924,7 @@ render();
 loadMemo();
 saveSchedule();
 updateUndoBtn();
+updateGuideBadge();
 </script>
 </body>
 </html>
