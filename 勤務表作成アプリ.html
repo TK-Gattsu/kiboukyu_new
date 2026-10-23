@@ -50,6 +50,8 @@ header .subtitle { font-size: 11px; opacity: 0.8; }
 .btn-danger:hover   { background: #990000; }
 .btn-gray     { background: #888;          color: white; }
 .btn-gray:hover     { background: #666; }
+.btn-orange   { background: var(--orange); color: white; }
+.btn-orange:hover   { background: #8a4000; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .tab-bar {
@@ -168,7 +170,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
 <header>
   <h1>勤務表作成アプリ</h1>
-  <div class="subtitle">2026年10月～12月＋追加日程（2027/1/1～1/11）｜日直・夜勤・振休・残り当番｜v8.6</div>
+  <div class="subtitle" id="app-subtitle"></div>
 </header>
 
 <div class="top-bar">
@@ -215,7 +217,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
 <div class="tab-bar" id="tab-bar"></div>
 
-<div class="notice" id="missing-notice">ℹ 申請データは全42名分・全期間を反映済み（212件・2026/7/14時点）。</div>
+<div class="notice" id="missing-notice"></div>
 
 <div id="memo-box" style="margin:10px 20px 0;">
   <div style="display:flex; align-items:center; gap:8px;">
@@ -399,45 +401,50 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <div id="period-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closePeriodModal()">
   <div class="leave-box" style="max-width:640px;">
     <h3>期間設定・次期作成</h3>
-    <div class="hint">対象の年・月・追加日程を設定します。3か月に限らず任意の月数＋任意の追加日程が指定できます。祝日は内蔵カレンダー（2025〜2027）から自動反映されます。</div>
+    <div class="hint">次期の勤務表は、上から順に <b>① → ② → ③</b> と進めてください。</div>
 
-    <div style="background:#EAF3DE; border:1px solid #C0DD97; border-radius:6px; padding:8px; margin-bottom:12px;">
-      <b style="font-size:12px;">① 希望休アプリと同期</b>
-      <div class="hint" style="margin-top:2px;">同じブラウザで使っている希望休申請アプリから、対象期間・追加日程・チーム・申請をまとめて取り込みます。</div>
-      <button class="btn btn-success btn-sm" onclick="syncFromKiboushu()" style="margin-top:4px;">希望休アプリから取り込む</button>
+    <div style="background:#FFF4E5; border:1px solid #F5C37A; border-radius:6px; padding:8px; margin-bottom:10px;">
+      <b style="font-size:12px;">① 今期を締めて次期へ引き継ぐ（期間を切り替える前に）</b>
+      <div class="hint" style="margin-top:2px;">今の勤務表を「過去の勤務表」に保存し、次回へ繰越す振休・最後の夜勤・次の日直開始班を自動で次期に引き継ぎます。</div>
+      <div id="pd-carry-status" style="font-size:11px; color:#555; margin:2px 0 4px;"></div>
+      <button class="btn btn-orange btn-sm" onclick="carryForwardToNext()">今期を締めて引き継ぐ</button>
+      <button class="btn btn-gray btn-sm" onclick="exportCarryForNext()">繰越をファイルに書き出す（控え）</button>
     </div>
 
-    <b style="font-size:12px;">② 手動で期間を設定</b>
+    <div style="background:#EAF3DE; border:1px solid #C0DD97; border-radius:6px; padding:8px; margin-bottom:10px;">
+      <b style="font-size:12px;">② 次期の希望休申請を取り込む</b>
+      <div class="hint" style="margin-top:2px;">希望休申請アプリ（GAS版・スタンドアロン版どちらも可）の管理画面で「Excel出力」したファイルを選んでください。対象期間と全員の申請がまとめて設定されます。</div>
+      <label class="btn btn-success btn-sm" style="display:inline-block; margin-top:4px;">希望休申請Excelを読み込む<input type="file" accept=".xlsx" style="display:none" onchange="importKiboushuExcel(this)"></label>
+      <button class="btn btn-gray btn-sm" onclick="syncFromKiboushu()" style="margin-top:4px;">同じブラウザの希望休アプリから取り込む</button>
+    </div>
+
+    <b style="font-size:12px;">③ 期間・引き継ぎ内容の確認と手動修正（通常は①②で自動設定されます）</b>
     <div class="leave-form" style="margin:6px 0;">
-      <label>年 <input type="number" id="pd-year" min="2025" max="2028" style="width:70px;"></label>
-      <label>対象月（カンマ区切り） <input type="text" id="pd-months" placeholder="例: 10,11,12" style="width:120px;"></label>
+      <label>年 <input type="number" id="pd-year" min="2025" max="2030" style="width:70px;"></label>
+      <label>対象月（カンマ区切り） <input type="text" id="pd-months" placeholder="例: 1,2,3（年またぎは 12,1,2）" style="width:180px;"></label>
+    </div>
+    <div class="leave-form" style="margin:6px 0;">
+      <label>開始日（任意） <input type="date" id="pd-start"></label>
+      <label>終了日（任意） <input type="date" id="pd-end"></label>
+      <span style="font-size:11px; color:#888;">月の途中から／途中までにする場合のみ</span>
     </div>
     <div class="leave-form" style="margin:6px 0;">
       <label>追加日程の見出し <input type="text" id="pd-extralabel" placeholder="追加日程" style="width:100px;"></label>
-      <label>追加日程 <input type="text" id="pd-from" type="date"></label>
-      <span style="font-size:11px;color:#888;">追加日程は「開始〜終了」で範囲指定 → </span>
       <input type="date" id="pd-extra-from"><span>～</span><input type="date" id="pd-extra-to">
       <button class="btn btn-gray btn-sm" onclick="setExtraRange()">この範囲を追加日程に</button>
+      <button class="btn btn-gray btn-sm" onclick="_pendingExtra = []; renderExtraPreview();">追加日程なし</button>
     </div>
     <div id="pd-extra-preview" style="font-size:11px; color:#555; margin:4px 0;"></div>
     <button class="btn btn-primary btn-sm" onclick="applyPeriod()">この期間を適用</button>
-
-    <hr style="margin:14px 0; border:none; border-top:1px solid #ddd;">
-    <b style="font-size:12px;">③ 前回からの引き継ぎ（起点）</b>
-    <div class="leave-form" style="margin:6px 0;">
+    <div class="leave-form" style="margin:12px 0 4px;">
       <label>日直の開始班
         <select id="pd-cycle"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option><option value="4">E</option></select>
       </label>
-      <label>前回最終の夜勤入り: 氏名 <input type="text" id="pd-pn-name" style="width:70px;"></label>
+      <label>前期最後の夜勤入り: 氏名 <input type="text" id="pd-pn-name" style="width:70px;"></label>
       <label>日 <input type="date" id="pd-pn-date"></label>
       <button class="btn btn-gray btn-sm" onclick="applyStart()">起点を保存</button>
     </div>
-    <div class="hint">日直の開始班＝前回シフト最終休日の次の班（A→B→…→E→A）。前回繰越の振休は「振休繰越管理」で編集できます。</div>
-
-    <hr style="margin:14px 0; border:none; border-top:1px solid #ddd;">
-    <b style="font-size:12px;">④ 今期の繰越を次期へ引き継ぐ</b>
-    <div class="hint" style="margin-top:2px;">今期の「次回へ繰越」振休（振休繰越管理で確認できる分）を、次期の前回繰越として書き出します。次期を作る直前に押してください。</div>
-    <button class="btn btn-gray btn-sm" onclick="exportCarryForNext()" style="margin-top:4px;">今期の繰越を書き出す（次期用）</button>
+    <div class="hint">①を実行すると自動で入ります。前回繰越の振休は「振休繰越管理」で確認・編集できます。</div>
 
     <div style="margin-top:14px;"><button class="btn btn-gray" onclick="closePeriodModal()">閉じる</button></div>
   </div>
@@ -525,7 +532,7 @@ const HOLIDAYS = {
   "2026-01-01":"元日","2026-01-12":"成人の日","2026-02-11":"建国記念の日","2026-02-23":"天皇誕生日","2026-03-20":"春分の日","2026-04-29":"昭和の日",
   "2026-05-03":"憲法記念日","2026-05-04":"みどりの日","2026-05-05":"こどもの日","2026-05-06":"振替休日","2026-07-20":"海の日","2026-08-11":"山の日",
   "2026-09-21":"敬老の日","2026-09-22":"国民の休日","2026-09-23":"秋分の日","2026-10-12":"スポーツの日","2026-11-03":"文化の日","2026-11-23":"勤労感謝の日",
-  "2027-01-01":"元日","2027-01-11":"成人の日","2027-02-11":"建国記念の日","2027-02-23":"天皇誕生日","2027-03-21":"春分の日","2027-04-29":"昭和の日",
+  "2027-01-01":"元日","2027-01-11":"成人の日","2027-02-11":"建国記念の日","2027-02-23":"天皇誕生日","2027-03-21":"春分の日","2027-03-22":"振替休日","2027-04-29":"昭和の日",
   "2027-05-03":"憲法記念日","2027-05-04":"みどりの日","2027-05-05":"こどもの日","2027-07-19":"海の日","2027-08-11":"山の日","2027-09-20":"敬老の日",
   "2027-09-23":"秋分の日","2027-10-11":"スポーツの日","2027-11-03":"文化の日","2027-11-23":"勤労感謝の日",
 };
@@ -576,12 +583,18 @@ function membersOfTeam(tname) {
   const t = TEAMS.find(t => t[0] === tname);
   return t ? t[1] : [];
 }
-function allPeriodDates() {
-  const out = [];
-  for (const m of PERIOD.months) out.push(...datesOfTab(String(m)));
-  out.push(...PERIOD.extraDates);
-  return out;
+let _periodDatesCache = { ref: null, list: [], set: new Set(), min: "", max: "" };
+function periodDatesCache() {
+  if (_periodDatesCache.ref !== PERIOD) {
+    const list = [];
+    for (const m of PERIOD.months) list.push(...datesOfTab(String(m)));
+    for (const iso of (PERIOD.extraDates || [])) if (!list.includes(iso)) list.push(iso);
+    const sorted = list.slice().sort();
+    _periodDatesCache = { ref: PERIOD, list, set: new Set(list), min: sorted[0] || "", max: sorted[sorted.length - 1] || "" };
+  }
+  return _periodDatesCache;
 }
+function allPeriodDates() { return periodDatesCache().list.slice(); }
 function buildDutyTeamMap() {
   const map = {};
   let i = CYCLE_START_IDX;
@@ -667,6 +680,7 @@ function onLeave(name, iso) {
 const NIGHT_CONDS_KEY = "kinmu_night_conds";
 const NIGHT_AUTO_KEY  = "kinmu_night_autorest";  // 明け翌日に自動配置した「振」の記録
 let PREV_NIGHT = loadJson("kinmu_prev_night", { name: "町田", date: "2026-09-30" });  // 前回シフト最終日の夜勤入り
+let PREV_LASTIN = loadJson("kinmu_prev_lastin", {});  // 前期の各人の最終夜勤入り日 {氏名: "YYYY-MM-DD"}（間隔1週間チェック用）
 const NIGHT_REST_MARKS = new Set(["振◆","有","夏","特"]);  // ＋「振」で始まるもの＋休日
 // 初期条件: 7-9月実績より（品川・増田・友松・前原=夜勤なし、北原=金曜のみ月1、皆川=土曜のみ月1）
 const DEFAULT_NIGHT_CONDS = {
@@ -792,7 +806,7 @@ function isWorkingDay(n, iso) {
   if (mk.includes("振") || ["有","夏","特","×","出","業","研"].includes(mk)) return false;
   return true;
 }
-function inPeriodIso(iso) { return allPeriodDates().includes(iso); }
+function inPeriodIso(iso) { return periodDatesCache().set.has(iso); }
 function backStreak(n, iso) {  // isoの前日までの連続勤務日数
   let c = 0, d = addDaysIso(iso, -1);
   while (inPeriodIso(d) && isWorkingDay(n, d)) { c++; d = addDaysIso(d, -1); }
@@ -943,7 +957,8 @@ function dowOf(iso) {
   return new Date(y, m-1, d).getDay();
 }
 function isHoliday(iso) { return (iso in HOLIDAYS) || CUSTOM_HOLIDAYS.has(iso); }
-function holidayName(iso) { return HOLIDAYS[iso] || (CUSTOM_HOLIDAYS.has(iso) ? "祝日扱い" : ""); }
+let CUSTOM_HOLIDAY_NAMES = loadJson("kinmu_custom_holiday_names", {});  // {"YYYY-MM-DD": "病院創立記念日"}
+function holidayName(iso) { return HOLIDAYS[iso] || (CUSTOM_HOLIDAYS.has(iso) ? (CUSTOM_HOLIDAY_NAMES[iso] || "祝日扱い") : ""); }
 function isRestDay(iso) { const w = dowOf(iso); return w === 0 || w === 6 || isHoliday(iso); }
 function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
 function addDaysIso(iso, n) {
@@ -955,11 +970,24 @@ function diffDaysIso(a, b) {
   return Math.round((new Date(b) - new Date(a)) / 86400000);
 }
 
+// 月 m の属する年。先頭月より小さい月は翌年扱い（例: year=2026, months=[12,1,2] → 1月は2027年）
+function yearOfMonth(m) {
+  return m >= PERIOD.months[0] ? PERIOD.year : PERIOD.year + 1;
+}
+// 月 m の対象日 [年, 開始日, 終了日]。日付指定（start/end）の期間では端の月が途中から/途中まで
+function monthDayRange(m) {
+  const y = yearOfMonth(m);
+  let from = 1, to = daysInMonth(y, m);
+  if (PERIOD.start) { const [sy, sm, sd] = PERIOD.start.split("-").map(Number); if (sy === y && sm === m) from = sd; }
+  if (PERIOD.end)   { const [ey, em, ed] = PERIOD.end.split("-").map(Number);   if (ey === y && em === m) to = ed; }
+  return [y, from, to];
+}
 function datesOfTab(tab) {
   if (tab === "extra") return PERIOD.extraDates.slice();
   const m = Number(tab);
+  const [y, from, to] = monthDayRange(m);
   const out = [];
-  for (let d = 1; d <= daysInMonth(PERIOD.year, m); d++) out.push(isoOf(PERIOD.year, m, d));
+  for (let d = from; d <= to; d++) out.push(isoOf(y, m, d));
   return out;
 }
 
@@ -1164,6 +1192,7 @@ function nightWarnings(dates) {
   if (!anyNight) return warns;
   // 直近の入り日（前回シフト分を含む）
   const lastIn = {};
+  Object.assign(lastIn, PREV_LASTIN);
   lastIn[PREV_NIGHT.name] = PREV_NIGHT.date;
   const inTab = new Set(dates);
   for (const iso of allPeriodDates()) {
@@ -1246,8 +1275,26 @@ function renderLegend() {
   }
 }
 
+const APP_VERSION = "v8.7";
+function renderHeaderInfo() {
+  document.getElementById("app-subtitle").textContent =
+    `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
+  const dset = periodDatesCache().set;
+  let cnt = 0, people = 0;
+  for (const n of STAFF) {
+    let c = 0;
+    for (const iso in (DATA[n] || {})) {
+      const v = DATA[n][iso];
+      if (dset.has(iso) && v && !["○","入","明","残","振"].includes(v) && !labelToDuty(v)) c++;
+    }
+    cnt += c; if (c) people++;
+  }
+  document.getElementById("missing-notice").textContent =
+    `ℹ 対象期間: ${periodLabel(PERIOD)}　｜　希望休・申請 ${cnt}件（${people}名）`;
+}
 function render() {
   renderTabs();
+  renderHeaderInfo();
   _FSTATE = computeFurikyuState();
   EVENT_DATES = buildEventDates();
   const dates = datesOfTab(currentTab);
@@ -1499,10 +1546,7 @@ function setMark(name, iso, mk) {
 /* ============================================================
    取り込み / 書き出し
    ============================================================ */
-function inPeriod(iso) {
-  const [y,m] = iso.split("-").map(Number);
-  return (y === PERIOD.year && PERIOD.months.includes(m)) || PERIOD.extraDates.includes(iso);
-}
+function inPeriod(iso) { return periodDatesCache().set.has(iso); }
 
 function importFromKiboushu() {
   let src;
@@ -1539,7 +1583,7 @@ function exportJson() {
       event_moves: EVENT_MOVES, groups: GROUPS, must_days: MUST_DAYS,
       custom_holidays: [...CUSTOM_HOLIDAYS], prev_carryover: PREV_CARRY,
       leaves: LEAVES, carry: [...CARRY_SET],
-      period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT,
+      period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT, prev_lastin: PREV_LASTIN,
     },
   };
   const blob = new Blob([JSON.stringify(backup, null, 1)], {type: "application/json"});
@@ -1582,6 +1626,7 @@ function importJson(input) {
         if (s.period) { PERIOD = s.period; savePeriod(); TABS = buildTabs(); currentTab = String(PERIOD.months[0]); }
         if (s.cycle_start !== undefined) { CYCLE_START_IDX = s.cycle_start; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
         if (s.prev_night) { PREV_NIGHT = s.prev_night; saveJson("kinmu_prev_night", PREV_NIGHT); }
+        if (s.prev_lastin) { PREV_LASTIN = s.prev_lastin; saveJson("kinmu_prev_lastin", PREV_LASTIN); }
         if (Array.isArray(obj.archive)) saveArchive(obj.archive);   // 過去の勤務表も復元
         EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
         saveSchedule(); render();
@@ -1608,6 +1653,10 @@ function importJson(input) {
 }
 
 function resetToSeed() {
+  if (periodLabel(PERIOD) !== periodLabel(DEFAULT_PERIOD)) {
+    alert("「初期データに戻す」は2026年10〜12月＋追加日程の申請データ専用です。\n現在の期間では使えません。申請は「期間・次期作成」から取り込み直してください。");
+    return;
+  }
   if (!confirm("編集内容を破棄して、申請一覧の初期データ（212件）に戻します。よろしいですか？")) return;
   pushUndo("初期データに戻す");
   DATA = JSON.parse(JSON.stringify(SEED_REQUESTS));
@@ -1735,6 +1784,7 @@ function doAssignYakin() {
   doClearYakin();
   const counts = {}, monthCnt = {};
   const lastIn = {};
+  Object.assign(lastIn, PREV_LASTIN);
   lastIn[PREV_NIGHT.name] = PREV_NIGHT.date;
   const dates = allPeriodDates();
   const inPeriodSet = new Set(dates);
@@ -1961,8 +2011,8 @@ function removePlacementFor(name, duty) {
 const PREV_REST_SET = new Set(["2026-09-19","2026-09-20","2026-09-21","2026-09-22","2026-09-23","2026-09-26","2026-09-27"]);
 
 function isRestIso(iso) {
-  if (allPeriodDates().includes(iso)) return isRestDay(iso);
-  if (PREV_REST_SET.has(iso)) return true;
+  if (inPeriodIso(iso)) return isRestDay(iso);
+  if (PREV_REST_SET.has(iso) || (iso in HOLIDAYS) || CUSTOM_HOLIDAYS.has(iso)) return true;
   const w = dowOf(iso);
   return w === 0 || w === 6;
 }
@@ -1970,19 +2020,27 @@ function furikyuLabel(duty) {
   const [y,m,d] = duty.split("-").map(Number);
   return `${m}/${d}振`;
 }
+// 年のない「M/D」を、現在の期間に最も近い年の日付に変換する（例: 1〜3月の期間で「12/27」→前年12/27）
+function inferIsoFromMD(mo, d) {
+  const c = periodDatesCache();
+  let best = null, bestDist = Infinity;
+  for (let y = PERIOD.year - 1; y <= PERIOD.year + 2; y++) {
+    const iso = isoOf(y, mo, d);
+    const dist = iso < c.min ? diffDaysIso(iso, c.min) : (iso > c.max ? diffDaysIso(c.max, iso) : 0);
+    if (dist < bestDist) { bestDist = dist; best = iso; }
+  }
+  return best;
+}
 function kibouExplicitDuty(mk) {
   // 「10/24振◆」のように出勤日を明記した振◆の指定日を返す
   const m = (mk || "").match(/^(\d{1,2})\/(\d{1,2})振◆$/);
   if (!m) return null;
-  const mo = Number(m[1]);
-  return isoOf(mo >= 9 ? 2026 : 2027, mo, Number(m[2]));
+  return inferIsoFromMD(Number(m[1]), Number(m[2]));
 }
 function labelToDuty(label) {
   const fm = label.match(/^(\d{1,2})\/(\d{1,2})振$/);
   if (!fm) return null;
-  const m = Number(fm[1]);
-  const y = (m >= 9) ? 2026 : 2027;
-  return isoOf(y, m, Number(fm[2]));
+  return inferIsoFromMD(Number(fm[1]), Number(fm[2]));
 }
 function dutyStreakInfo(duty) {
   let s = duty, e = duty;
@@ -2542,7 +2600,23 @@ function addMustDay() {
 function loadArchive() { return loadJson("kinmu_archive", []); }
 function saveArchive(a) { saveJson("kinmu_archive", a); }
 function periodLabel(p) {
-  let s = `${p.year}年${p.months.join("・")}月`;
+  let s;
+  if (p.start || p.end) {
+    // 開始日・終了日のどちらかが指定されていれば日付で表示（未指定側は月初・月末）
+    const f = iso => { const [y, m, d] = iso.split("-").map(Number); return `${y}年${m}月${d}日`; };
+    const m0 = p.months[0], m1 = p.months[p.months.length - 1];
+    const y1 = m1 >= m0 ? p.year : p.year + 1;
+    const st = p.start || isoOf(p.year, m0, 1);
+    const en = p.end || isoOf(y1, m1, daysInMonth(y1, m1));
+    s = `${f(st)}〜${f(en)}`;
+  } else {
+    s = ""; let lastY = null;
+    for (const m of p.months) {
+      const y = m >= p.months[0] ? p.year : p.year + 1;
+      s += (s ? "・" : "") + (y !== lastY ? `${y}年` : "") + `${m}月`;
+      lastY = y;
+    }
+  }
   if (p.extraDates && p.extraDates.length) s += `＋${p.extraLabel || "追加日程"}`;
   return s;
 }
@@ -2704,6 +2778,13 @@ function openPeriodModal() {
   document.getElementById("pd-cycle").value = String(CYCLE_START_IDX);
   document.getElementById("pd-pn-name").value = PREV_NIGHT.name;
   document.getElementById("pd-pn-date").value = PREV_NIGHT.date;
+  document.getElementById("pd-start").value = PERIOD.start || "";
+  document.getElementById("pd-end").value = PERIOD.end || "";
+  const done = localStorage.getItem("kinmu_carried_from");
+  document.getElementById("pd-carry-status").innerHTML =
+    (done === periodLabel(PERIOD) ? `<b style="color:#276221;">✓ この期間（${done}）は引き継ぎ済みです。</b>` :
+     done ? `前回の引き継ぎ元: ${done}` : "まだ引き継ぎを行っていません。") +
+    `　現在の前回繰越: ${PREV_CARRY.length}件／前期最後の夜勤: ${PREV_NIGHT.name || "-"}（${PREV_NIGHT.date || "-"}）`;
   document.getElementById("period-modal").style.display = "block";
 }
 function closePeriodModal() { document.getElementById("period-modal").style.display = "none"; }
@@ -2724,9 +2805,15 @@ function applyPeriod() {
   const year = Number(document.getElementById("pd-year").value);
   const months = document.getElementById("pd-months").value.split(/[,、\s]+/).map(Number).filter(m=>m>=1&&m<=12);
   if (!year || !months.length) { alert("年と対象月を正しく入力してください"); return; }
-  if (!confirm("期間を変更すると現在の割り当て内容はこの期間に合わせて再表示されます。\n※先に「JSON書出」でバックアップを取ることをおすすめします。適用しますか？")) return;
+  const st0 = document.getElementById("pd-start").value, en0 = document.getElementById("pd-end").value;
+  if (st0 && en0 && st0 > en0) { alert("開始日が終了日より後になっています"); return; }
+  const np = { year, months, extraDates: _pendingExtra.slice(), extraLabel: document.getElementById("pd-extralabel").value.trim() || "追加日程" };
+  if (st0) np.start = st0;
+  if (en0) np.end = en0;
+  if (periodLabel(np) !== periodLabel(PERIOD) && !carriedForwardOK()) return;
+  if (!confirm(`期間を「${periodLabel(np)}」に変更します。\n※先に「JSON書出」でバックアップを取ることをおすすめします。適用しますか？`)) return;
   pushUndo("期間の変更");
-  PERIOD = { year, months, extraDates: _pendingExtra.slice(), extraLabel: document.getElementById("pd-extralabel").value.trim() || "追加日程" };
+  PERIOD = np;
   savePeriod();
   TABS = buildTabs();
   currentTab = String(PERIOD.months[0]);
@@ -2745,34 +2832,205 @@ function applyStart() {
   render();
   alert("起点を保存しました。「1. 日直」「2. 夜勤」の再実行で反映されます。");
 }
-function syncFromKiboushu() {
-  let period, teams, reqs, extra;
-  try {
-    const ps = localStorage.getItem("kiboushu_period");
-    period = ps ? JSON.parse(ps) : null;
-    teams = JSON.parse(localStorage.getItem("kiboushu_teams_2026") || "null");
-    reqs = JSON.parse(localStorage.getItem("kiboushu_requests") || "{}");
-    extra = JSON.parse(localStorage.getItem("kiboushu_extra_dates") || "[]");
-  } catch (e) { alert("希望休アプリのデータが読めませんでした: " + e.message); return; }
-  if (!period) { alert("希望休アプリの期間データが見つかりません。\n同じブラウザ・同じ配置場所で希望休アプリを使用しているか確認してください。\nGAS版の場合はJSON/Excelで受け渡してください。"); return; }
-  if (!confirm(`希望休アプリから取り込みます:\n・期間 ${period.year}年 ${period.months.join("・")}月${extra.length?"＋追加日程"+extra.length+"日":""}\n・申請 ${Object.keys(reqs).length}名分\n現在の内容を置き換えます。よろしいですか？（先にJSON書出でバックアップ推奨）`)) return;
-  pushUndo("希望休アプリと同期");
-  PERIOD = { year: period.year, months: period.months.slice(), extraDates: extra.slice(), extraLabel: "追加日程" };
-  savePeriod();
-  TABS = buildTabs();
-  currentTab = String(PERIOD.months[0]);
-  // 申請を取り込み（期間内のみ）
-  const inP = new Set(allPeriodDates());
-  const nd = {};
-  for (const name in reqs) {
-    if (!STAFF.includes(name)) continue;
-    for (const iso in reqs[name]) { if (inP.has(iso)) { (nd[name] = nd[name] || {})[iso] = reqs[name][iso]; } }
+/* ---- 次期作成: 引き継ぎ・取り込み ---- */
+function currentPeriodHasWork() {
+  return allPeriodDates().some(iso => STAFF.some(n => ["○","入","明","残"].includes((DATA[n] || {})[iso])));
+}
+function carriedForwardOK() {
+  // 今期に割り当て済みの勤務があるのに引き継ぎ前なら確認する
+  if (!currentPeriodHasWork()) return true;
+  if (localStorage.getItem("kinmu_carried_from") === periodLabel(PERIOD)) return true;
+  return confirm(`今の期間（${periodLabel(PERIOD)}）はまだ「① 今期を締めて引き継ぐ」を実行していません。\nこのまま進むと、今期の繰越振休や最後の夜勤が次期に引き継がれません。\n\n続行しますか？（通常は「キャンセル」して①を先に実行してください）`);
+}
+function carryForwardToNext() {
+  const dates = allPeriodDates().slice().sort();
+  const st = computeFurikyuState();
+  const carry = [...st.carried, ...st.pending].map(p => ({ name: p.name, duty: p.duty }));
+  let lastNight = null;
+  const lastIns = {};
+  for (const iso of dates) for (const n of STAFF) {
+    if ((DATA[n] || {})[iso] === "入") { lastNight = { name: n, date: iso }; lastIns[n] = iso; }
   }
+  const restDays = dates.filter(isRestDay);
+  const lastTeam = restDays.length ? DUTY_TEAM_MAP[restDays[restDays.length - 1]] : null;
+  const nextIdx = lastTeam ? (DUTY_TEAMS.indexOf(lastTeam) + 1) % DUTY_TEAMS.length : CYCLE_START_IDX;
+  const label = periodLabel(PERIOD);
+  if (!currentPeriodHasWork() &&
+      !confirm("今期にはまだ日直・夜勤などが割り当てられていません。それでも引き継ぎますか？")) return;
+  const md = iso => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+  if (!confirm(`「${label}」を締めて次期へ引き継ぎます。\n\n` +
+      `・今期の勤務表を「過去の勤務表」に保存\n` +
+      `・次回へ繰越の振休 ${carry.length}件 → 次期の「前回繰越」に\n` +
+      `・最後の夜勤入り: ${lastNight ? `${lastNight.name}（${md(lastNight.date)}）` : "なし"}\n` +
+      `・次期の日直開始班: ${"ABCDE"[nextIdx]}班（今期最終休日が${lastTeam ? lastTeam[0] + "班" : "不明"}のため）\n\nよろしいですか？`)) return;
+  pushUndo("今期を締めて次期へ引き継ぎ");
+  // 1) 今期を過去の勤務表に保存（同じ期間は上書き）
+  const arch = loadArchive();
+  const entry = { id: Date.now(), label, period: JSON.parse(JSON.stringify(PERIOD)),
+                  data: JSON.parse(JSON.stringify(DATA)), savedAt: new Date().toISOString() };
+  const ai = arch.findIndex(a => a.label === label);
+  if (ai >= 0) { entry.id = arch[ai].id; arch[ai] = entry; } else arch.push(entry);
+  arch.sort((a, b) => a.period.year - b.period.year || (a.period.months[0] - b.period.months[0]));
+  saveArchive(arch);
+  // 2) 次期へ引き継ぐ値
+  PREV_CARRY = carry; saveJson("kinmu_prev_carryover", PREV_CARRY);
+  if (lastNight) { PREV_NIGHT = lastNight; saveJson("kinmu_prev_night", PREV_NIGHT); }
+  PREV_LASTIN = lastIns; saveJson("kinmu_prev_lastin", PREV_LASTIN);
+  CYCLE_START_IDX = nextIdx; saveJson("kinmu_cycle_start", CYCLE_START_IDX);
+  // 3) 今期固有の作業記録をリセット（繰越指定は次期の前回繰越と同じキーになるため必ず消す）
+  CARRY_SET = new Set(); saveCarrySet();
+  FURIKYU_AUTO = []; saveFurikyuAuto();
+  NIGHT_AUTO = []; saveNightAuto();
+  localStorage.setItem("kinmu_carried_from", label);
+  openPeriodModal();
+  alert(`引き継ぎました（繰越振休 ${carry.length}件）。\n続いて「② 次期の希望休申請を取り込む」を行ってください。`);
+}
+/* 新しい期間と申請を適用する（Excel取り込み・同期の共通処理） */
+function applyNewPeriodAndRequests(np, reqList, holidayList, sourceLabel) {
+  // reqList: [{name, iso, type}] / holidayList: [{iso, name}]
+  pushUndo(sourceLabel);
+  PERIOD = np;
+  const inP = periodDatesCache().set;
+  const nd = {}, unknown = {};
+  let n = 0;
+  for (const r of reqList) {
+    if (!inP.has(r.iso)) continue;
+    if (!STAFF.includes(r.name)) { unknown[r.name] = (unknown[r.name] || 0) + 1; continue; }
+    (nd[r.name] = nd[r.name] || {})[r.iso] = r.type;
+    n++;
+  }
+  const addedHol = [];
+  for (const h of holidayList) {
+    if (!inP.has(h.iso) || (h.iso in HOLIDAYS) || CUSTOM_HOLIDAYS.has(h.iso)) continue;
+    CUSTOM_HOLIDAYS.add(h.iso);
+    CUSTOM_HOLIDAY_NAMES[h.iso] = h.name;
+    addedHol.push(`${Number(h.iso.slice(5, 7))}/${Number(h.iso.slice(8, 10))} ${h.name}`);
+  }
+  saveCustomHolidays(); saveJson("kinmu_custom_holiday_names", CUSTOM_HOLIDAY_NAMES);
+  savePeriod();
   DATA = nd;
+  TABS = buildTabs();
+  currentTab = TABS[0][0];
   DUTY_TEAM_MAP = buildDutyTeamMap();
   EVENT_DATES = buildEventDates();
   saveSchedule(); render();
-  alert("希望休アプリから期間・申請を取り込みました。「①希望休の連休に×」→「1〜4」の順で作成してください。");
+  let msg = `「${periodLabel(PERIOD)}」を設定し、申請 ${n}件を取り込みました。`;
+  if (addedHol.length) msg += `\n\n希望休アプリの独自の休日を祝日扱いにしました: ${addedHol.join("、")}`;
+  const un = Object.keys(unknown);
+  if (un.length) msg += `\n\n⚠ 勤務表アプリの職員名簿にいない人の申請は取り込めませんでした:\n${un.map(k => `${k}（${unknown[k]}件）`).join("、")}\n（新任・改姓などの場合はお知らせください。名簿を更新します）`;
+  msg += `\n\n次は「希望休の連休に×」→「1. 日直」〜「4. 残り当番」の順に進めてください。`;
+  alert(msg);
+}
+async function importKiboushuExcel(input) {
+  const file = input.files[0];
+  input.value = "";
+  if (!file) return;
+  if (typeof ExcelJS === "undefined") { alert("Excel読み込み部品（ExcelJS）を読み込めませんでした。ネット接続を確認してください。"); return; }
+  if (!carriedForwardOK()) return;
+  let wb;
+  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer()); }
+  catch (e) { alert("Excelを読み込めませんでした: " + e.message); return; }
+  const txt = v => {
+    if (v == null) return "";
+    if (v instanceof Date) return `${v.getMonth() + 1}/${v.getDate()}`;
+    if (typeof v === "object") {
+      if (v.richText) return v.richText.map(t => t.text).join("").trim();
+      if (v.text != null) return String(v.text).trim();
+      if (v.result != null) return String(v.result).trim();
+    }
+    return String(v).trim();
+  };
+  // 希望休申請アプリの出力形式: 月別シート「◯月」と「追加日程」。1列目=日付(M/D), 3列目=祝日名, 6列目以降=職員（2行目が氏名）
+  const monthSheets = [], raws = [], hols = [];
+  wb.eachSheet(ws => {
+    const mm = ws.name.match(/^(\d{1,2})月$/);
+    const isExtra = !mm && ws.name.includes("追加");
+    if (!mm && !isExtra) return;
+    const names = {};
+    const row2 = ws.getRow(2);
+    for (let c = 6; c <= ws.columnCount; c++) names[c] = txt(row2.getCell(c).value);
+    let firstD = null, lastD = null;
+    ws.eachRow(row => {
+      const a = txt(row.getCell(1).value).match(/^(\d{1,2})\/(\d{1,2})$/);
+      if (!a) return;
+      const mo = Number(a[1]), d = Number(a[2]);
+      if (mm) { if (firstD === null) firstD = d; lastD = d; }
+      const hol = txt(row.getCell(3).value);
+      if (hol) hols.push({ mo, d, name: hol, extra: isExtra });
+      for (let c = 6; c <= ws.columnCount; c++) {
+        const t = txt(row.getCell(c).value);
+        if (t && names[c]) raws.push({ name: names[c], mo, d, type: t, extra: isExtra });
+      }
+      if (isExtra) raws.push({ extraDay: true, mo, d });
+    });
+    if (mm) monthSheets.push({ m: Number(mm[1]), firstD, lastD });
+  });
+  if (!monthSheets.length) { alert("月別のシート（例「1月」）が見つかりません。\n希望休申請アプリの管理画面で「Excel出力」したファイルを選んでください。"); return; }
+  const months = monthSheets.map(s => s.m);
+  // 年: ファイル名から（例「希望休申請_2027年1・2・3月_…」「希望休申請_2027-01-12〜2027-03-31_…」）
+  let year = null, start = null, end = null;
+  const fr = file.name.match(/(\d{4})-(\d{2})-(\d{2})\D+(\d{4})-(\d{2})-(\d{2})/);
+  if (fr) { start = `${fr[1]}-${fr[2]}-${fr[3]}`; end = `${fr[4]}-${fr[5]}-${fr[6]}`; year = Number(fr[1]); }
+  else { const fy = file.name.match(/(\d{4})年/); if (fy) year = Number(fy[1]); }
+  if (!year) {
+    const now = new Date();
+    const guess = months[0] < now.getMonth() + 1 - 2 ? now.getFullYear() + 1 : now.getFullYear();
+    const ans = prompt(`ファイル名から年を判断できませんでした。\n先頭の月（${months[0]}月）は何年ですか？`, String(guess));
+    if (!ans) return;
+    year = Number(ans);
+    if (!year) return;
+  }
+  const yOf = m => m >= months[0] ? year : year + 1;
+  if (!start) {   // 端の月が途中から/途中までなら開始日・終了日を設定
+    const f = monthSheets[0], l = monthSheets[monthSheets.length - 1];
+    if (f.firstD > 1) start = isoOf(yOf(f.m), f.m, f.firstD);
+    if (l.lastD && l.lastD < daysInMonth(yOf(l.m), l.m)) end = isoOf(yOf(l.m), l.m, l.lastD);
+  }
+  const np = { year, months, extraDates: [], extraLabel: "追加日程" };
+  if (start) np.start = start;
+  if (end) np.end = end;
+  // 追加日程の日付（年は期間に近い年）
+  const prevPeriod = PERIOD;
+  PERIOD = np;
+  const extraIsos = [...new Set(raws.filter(r => r.extraDay).map(r => inferIsoFromMD(r.mo, r.d)))].sort();
+  np.extraDates = extraIsos;
+  PERIOD = { ...np };
+  const toIso = r => r.extra ? inferIsoFromMD(r.mo, r.d) : isoOf(yOf(r.mo), r.mo, r.d);
+  const reqList = raws.filter(r => !r.extraDay).map(r => ({ name: r.name, iso: toIso(r), type: r.type }));
+  const holList = hols.map(h => ({ iso: h.extra ? inferIsoFromMD(h.mo, h.d) : isoOf(yOf(h.mo), h.mo, h.d), name: h.name }));
+  const newLabel = periodLabel(PERIOD);
+  const np2 = PERIOD;
+  PERIOD = prevPeriod;
+  if (!confirm(`希望休申請Excelを取り込みます。\n\n・対象期間: ${newLabel}\n・申請 ${reqList.length}件\n\n現在の表示内容は置き換わります（今期の勤務表は①で保存済みであれば「過去の勤務表」から見返せます）。\nよろしいですか？`)) return;
+  applyNewPeriodAndRequests(np2, reqList, holList, "希望休申請Excelの取り込み");
+}
+function syncFromKiboushu() {
+  let period, reqs, extra, chol;
+  try {
+    const ps = localStorage.getItem("kiboushu_period");
+    period = ps ? JSON.parse(ps) : null;
+    reqs = JSON.parse(localStorage.getItem("kiboushu_requests") || "{}");
+    extra = JSON.parse(localStorage.getItem("kiboushu_extra_dates") || "[]");
+    chol = JSON.parse(localStorage.getItem("kiboushu_custom_holidays") || "[]");
+  } catch (e) { alert("希望休アプリのデータが読めませんでした: " + e.message); return; }
+  if (!period) {
+    alert("このブラウザに希望休アプリのデータが見つかりません。\n希望休アプリ（特にGAS版）を使っている場合は、管理画面で「Excel出力」したファイルを「希望休申請Excelを読み込む」で取り込んでください。");
+    return;
+  }
+  if (!carriedForwardOK()) return;
+  const np = { year: period.year, months: period.months.slice(), extraDates: extra.slice().sort(), extraLabel: "追加日程" };
+  if (period.start) np.start = period.start;
+  if (period.end) np.end = period.end;
+  const reqList = [];
+  for (const name in reqs) for (const iso in reqs[name]) reqList.push({ name, iso, type: reqs[name][iso] });
+  const holList = [];
+  for (const h of chol) {
+    if (!h || !h.ds) continue;
+    if (h.yearly) { for (let y = np.year - 1; y <= np.year + 1; y++) holList.push({ iso: `${y}-${h.ds.slice(5)}`, name: h.name }); }
+    else holList.push({ iso: h.ds, name: h.name });
+  }
+  if (!confirm(`このブラウザの希望休アプリから取り込みます。\n・対象期間: ${periodLabel(np)}\n・申請 ${reqList.length}件\n\n現在の表示内容は置き換わります。よろしいですか？`)) return;
+  applyNewPeriodAndRequests(np, reqList, holList, "希望休アプリと同期");
 }
 function exportCarryForNext() {
   const st = computeFurikyuState();
@@ -2784,7 +3042,7 @@ function exportCarryForNext() {
   a.href = URL.createObjectURL(blob);
   a.download = "kinmu_prev_carryover_for_next.json";
   a.click();
-  alert(`今期の繰越 ${next.length}件 を書き出しました。\n次期のセットアップ後、「振休繰越管理」の前回繰越をこの内容に置き換えてください（将来は自動化予定）。`);
+  alert(`今期の繰越 ${next.length}件 を書き出しました（控え用）。\n次期への引き継ぎは「① 今期を締めて引き継ぐ」で自動的に行われます。`);
 }
 
 /* ============================================================
@@ -2911,12 +3169,14 @@ const NOTE_LINES = [
   "④調剤・注射・外ケモ・周術期・緩和・DIは必ず1人以上勤務、各病棟は担当者が必ず2人以上勤務となるよう割り振られております。休みの追加・変更は必ず各部門内で問題無いこと確認した上で行ってください",
 ];
 function blockDefs() {
-  return [
-    { title: "10月", label: "１０月", dates: datesOfTab("10") },
-    { title: "11月", label: "１１月", dates: datesOfTab("11") },
-    { title: "12月", label: "１２月", dates: datesOfTab("12") },
-    { title: "追加日程", label: "追加日程", dates: datesOfTab("extra") },
-  ];
+  const fw = n => String(n).split("").map(c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)).join("");
+  const blks = PERIOD.months.map(m => ({ title: m + "月", label: fw(m) + "月", dates: datesOfTab(String(m)) }));
+  if (PERIOD.extraDates && PERIOD.extraDates.length) {
+    const lb = PERIOD.extraLabel || "追加日程";
+    blks.push({ title: lb, label: lb, dates: datesOfTab("extra") });
+  }
+  blks[blks.length - 1].isLast = true;   // 最終ブロックの下に繰越一覧を出す
+  return blks;
 }
 function cellTextOf(name, iso) {
   const lv = onLeave(name, iso);
@@ -3056,7 +3316,7 @@ async function exportExcel() {
       r++;
     });
     // 最終ブロックの下に「次回へ繰り越し」グリッド（7-9月版の様式）
-    if (blk.title === "追加日程") {
+    if (blk.isLast) {
       r += 1;
       const carryAll = [..._FSTATE.carried, ..._FSTATE.pending];
       const byName = {};
@@ -3120,7 +3380,7 @@ async function exportExcel() {
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "勤務表_2026年10月-12月＋追加日程.xlsx";
+  a.download = `勤務表_${periodLabel(PERIOD)}.xlsx`;
   a.click();
 }
 
@@ -3151,7 +3411,7 @@ th.nm { background: #002060; color: #FFFFFF; }
     teamCols.push(c);
   }
   for (const blk of blockDefs()) {
-    html += `<div class="blk"><h2>${blk.label}　勤務表（2026年度）</h2><table><colgroup>` +
+    html += `<div class="blk"><h2>${blk.label}　勤務表（${periodLabel(PERIOD)}）</h2><table><colgroup>` +
       `<col style="width:34pt"><col style="width:14pt"><col style="width:44pt"><col style="width:26pt">` +
       STAFF.map(() => `<col>`).join("") +
       `<col style="width:20pt"><col style="width:20pt"></colgroup><thead><tr>` +
@@ -3184,7 +3444,7 @@ th.nm { background: #002060; color: #FFFFFF; }
       html += `<td class="tl">${nikichokuCountOf(iso)}</td><td>${furikyuCountOf(iso)}</td></tr>`;
     }
     html += `</tbody></table><div class="notes"><b>【注 意】</b><br>${NOTE_LINES.map(esc).join("<br>")}</div>`;
-    if (blk.title === "追加日程") {
+    if (blk.isLast) {
       const carryAll = [..._FSTATE.carried, ..._FSTATE.pending];
       const byName = {};
       for (const pc of carryAll) (byName[pc.name] = byName[pc.name] || []).push(pc.duty);
@@ -3247,7 +3507,7 @@ function pushUndo(label) {
   UNDO_STACK.push({ label, time: new Date().toLocaleTimeString("ja-JP"), snap: JSON.stringify({
     data: DATA, nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, part: PARTICIPATION,
     holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES,
-    prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION,
+    prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION, prevLastIn: PREV_LASTIN,
   }) });
   if (UNDO_STACK.length > UNDO_MAX) UNDO_STACK.shift();
   updateUndoBtn();
@@ -3262,6 +3522,7 @@ function applySnapshot(snap) {
   if (o.period) { PERIOD = o.period; savePeriod(); TABS = buildTabs(); if (!PERIOD.months.includes(Number(currentTab)) && currentTab !== "extra") currentTab = String(PERIOD.months[0]); }
   if (o.cycle !== undefined) { CYCLE_START_IDX = o.cycle; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
   if (o.prevNight) { PREV_NIGHT = o.prevNight; saveJson("kinmu_prev_night", PREV_NIGHT); }
+  if (o.prevLastIn) { PREV_LASTIN = o.prevLastIn; saveJson("kinmu_prev_lastin", PREV_LASTIN); }
   DUTY_TEAM_MAP = buildDutyTeamMap(); EVENT_DATES = buildEventDates();
   saveSchedule(); saveNightAuto(); saveFurikyuAuto(); saveCustomHolidays(); saveCarrySet(); saveLeaves();
   DUTY_TEAM_MAP = buildDutyTeamMap();

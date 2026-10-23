@@ -439,7 +439,7 @@ const HOLIDAYS_BUILTIN = {
   '2026-10-12':'スポーツの日','2026-11-03':'文化の日','2026-11-23':'勤労感謝の日',
   '2027-01-01':'元日','2027-01-11':'成人の日',
   '2027-02-11':'建国記念の日','2027-02-23':'天皇誕生日',
-  '2027-03-21':'春分の日','2027-04-29':'昭和の日',
+  '2027-03-21':'春分の日','2027-03-22':'振替休日','2027-04-29':'昭和の日',
   '2027-05-03':'憲法記念日','2027-05-04':'みどりの日','2027-05-05':'こどもの日',
   '2027-07-19':'海の日','2027-08-11':'山の日',
   '2027-09-20':'敬老の日','2027-09-23':'秋分の日',
@@ -2865,6 +2865,35 @@ function exportExcel() {
     const nameColCount = allStaff.length;
     ws['!cols'] = [{wch:6},{wch:4},{wch:8},{wch:4},{wch:5},...Array(nameColCount).fill({wch:5})];
     XLSX.utils.book_append_sheet(wb, ws, `${m}月`);
+  }
+
+  // 追加日程（勤務表作成アプリで読み込めるよう、月別シートと同じ形式で出力）
+  const extraDates = loadExtraDates().slice().sort();
+  if (extraDates.length) {
+    const eh1 = ['日付', '曜日', '祝日', '上限', '申請数'];
+    const eh2 = ['', '', '', '', ''];
+    for (const [team, members] of Object.entries(teams)) {
+      members.forEach((name, i) => { eh1.push(i === 0 ? team : ''); eh2.push(name); });
+    }
+    const erows = [eh1, eh2, ['合計', '', '', '-', '-']];
+    const DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+    for (const ds of extraDates) {
+      const [ey, em, ed] = ds.split('-').map(Number);
+      const row = [`${em}/${ed}`, DOW_JA[new Date(ey, em - 1, ed).getDay()], getHolidays()[ds] || '', '', ''];
+      let cnt = 0;
+      for (const [, members] of Object.entries(teams)) {
+        for (const name of members) {
+          const v = (data[name] || {})[ds] || '';
+          if (v) cnt++;
+          row.push(v);
+        }
+      }
+      row[4] = cnt || '';
+      erows.push(row);
+    }
+    const ews = XLSX.utils.aoa_to_sheet(erows);
+    ews['!cols'] = [{wch:6},{wch:4},{wch:8},{wch:4},{wch:5},...Array(allStaff.length).fill({wch:5})];
+    XLSX.utils.book_append_sheet(wb, ews, '追加日程');
   }
 
   // 集計シート（名前×月・種別）
