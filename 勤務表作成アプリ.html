@@ -252,6 +252,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <div class="top-bar" style="border-top:none;">
   <b style="font-size:11px;color:#888;">設定:</b>
   <button class="btn btn-primary btn-sm" onclick="openPeriodModal()">期間・次期作成</button>
+  <button class="btn btn-gray btn-sm" onclick="openRosterModal()">スタッフ・チーム</button>
   <button class="btn btn-gray btn-sm" onclick="openHolidayModal()">祝日扱い</button>
   <button class="btn btn-gray btn-sm" onclick="openNightModal()">夜勤条件</button>
   <button class="btn btn-gray btn-sm" onclick="openZanModal()">残当・NG組み合わせ</button>
@@ -490,7 +491,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
     <div style="background:#EAF3DE; border:1px solid #C0DD97; border-radius:6px; padding:8px; margin-bottom:10px;">
       <b style="font-size:12px;">② 次期の希望休申請を取り込む</b>
-      <div class="hint" style="margin-top:2px;">希望休申請アプリ（GAS版・スタンドアロン版どちらも可）の管理画面で「Excel出力」したファイルを選んでください。対象期間と全員の申請がまとめて設定されます。</div>
+      <div class="hint" style="margin-top:2px;">希望休申請アプリ（GAS版・スタンドアロン版どちらも可）の管理画面で「Excel出力」したファイルを選んでください。対象期間と全員の申請、<b>最新のスタッフ・チーム編成</b>がまとめて設定されます。</div>
       <label class="btn btn-success btn-sm" style="display:inline-block; margin-top:4px;">希望休申請Excelを読み込む<input type="file" accept=".xlsx" style="display:none" onchange="importKiboushuExcel(this)"></label>
       <button class="btn btn-gray btn-sm" onclick="syncFromKiboushu()" style="margin-top:4px;">同じブラウザの希望休アプリから取り込む</button>
     </div>
@@ -572,6 +573,22 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
   </div>
 </div>
 
+<div id="roster-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeRosterModal()">
+  <div class="leave-box" style="max-width:760px;">
+    <h3>スタッフ・チーム</h3>
+    <div class="hint">スタッフとチーム編成は<b>希望休申請アプリから取り込みます</b>。「期間・次期作成」の②で希望休申請Excelを読み込むと自動で最新になります。
+      チームが変わっただけのとき（申請はそのまま）は下のボタンで編成だけ読み込めます。<br>
+      チェック＝課長・係長・主任（日直に最低1人入れる人）。Aチーム〜Eチームが日直の班輪番・夜勤・残り当番の対象です。</div>
+    <div id="roster-source" style="font-size:12px; color:#555; margin-bottom:6px;"></div>
+    <div class="leave-form">
+      <label class="btn btn-success btn-sm" style="display:inline-block;">希望休申請Excelからチーム編成だけ読み込む<input type="file" accept=".xlsx" style="display:none" onchange="importRosterExcel(this)"></label>
+      <button class="btn btn-gray btn-sm" onclick="syncRosterFromKiboushu()">同じブラウザの希望休アプリから読み込む</button>
+    </div>
+    <table><thead><tr><th>チーム</th><th style="text-align:left;">メンバー（☑ 課長・係長・主任）</th></tr></thead><tbody id="roster-list"></tbody></table>
+    <button class="btn btn-gray" onclick="closeRosterModal()">閉じる</button>
+  </div>
+</div>
+
 <div id="guide-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeGuide()">
   <div class="leave-box" style="max-width:860px; margin:30px auto; max-height:88vh;">
     <h3>📖 勤務表の作り方</h3>
@@ -586,7 +603,8 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 /* ============================================================
    マスターデータ（既存アプリと同じ構造・将来は共通化予定）
    ============================================================ */
-const TEAMS = [
+// 職員名簿・チーム編成の初期値。実際の名簿は希望休申請アプリから取り込んで更新する（localStorage: kinmu_teams）
+const DEFAULT_TEAMS = [
   ["Aチーム", ["大澤","品川","木暮","佐藤","堀内","春日"]],
   ["Bチーム", ["髙麗","我妻","友松","廣田","関口","石井"]],
   ["Cチーム", ["齊藤江","上田","伊藤","増田","髙橋","岡田","狩野"]],
@@ -595,7 +613,9 @@ const TEAMS = [
   ["その他",  ["矢島","並木","長島","江田","岩崎","星野","塚田"]],
   ["事務",    ["鎌田","高澤","大井"]],
 ];
-const STAFF = TEAMS.flatMap(t => t[1]);
+// TEAMS・STAFF・DUTY_STAFF・MANAGERS は applyRoster() で中身を入れ替える（参照は固定）
+const TEAMS = [];
+const STAFF = [];
 
 const DEFAULT_PERIOD = {
   year: 2026,
@@ -643,14 +663,32 @@ const COUNT_MARKS = new Set(["特","夏","有","業","出"]); // ＋「振」で
 const MAX_YASUMI_PER_DAY = 5;
 
 /* ---- 日直（ステップ2） ---- */
-const MANAGERS = new Set(["髙麗","齊藤江","三世川","大澤","我妻","町田","丸岡","品川","上田","小見"]); // 課長・係長・主任
+const DEFAULT_MANAGERS = ["髙麗","齊藤江","三世川","大澤","我妻","町田","丸岡","品川","上田","小見"];
+const MANAGERS = new Set(); // 課長・係長・主任（「スタッフ・チーム」で設定。localStorage: kinmu_managers）
 const DUTY_TEAMS = ["Aチーム","Bチーム","Cチーム","Dチーム","Eチーム"]; // 他・事務は日直に入らない
 // 土日・祝日とも1本のサイクルで輪番。前回シフトの最終休日（9/27）＝Eチーム → Aチームから開始
 let CYCLE_START_IDX = loadJson("kinmu_cycle_start", 0);  // 日直輪番の開始班(0=A)
 const DUTY_COUNT_WEEKEND = 4; // 土日は原則4人
 const DUTY_COUNT_HOLIDAY = 5; // 祝日は原則5人（最大5人）
 const DUTY_MAX = 5;
-const DUTY_STAFF = TEAMS.slice(0, 5).flatMap(t => t[1]);
+const DUTY_STAFF = [];
+applyRoster(loadJson("kinmu_teams", DEFAULT_TEAMS), loadJson("kinmu_managers", DEFAULT_MANAGERS));
+
+/* 名簿を入れ替える。A〜Eチームを先頭（A→E順）にし、その他のチームは元の順のまま後ろに並べる */
+function applyRoster(teams, managers) {
+  const duty = DUTY_TEAMS.map(t => teams.find(x => x[0] === t)).filter(Boolean);
+  const rest = teams.filter(x => !DUTY_TEAMS.includes(x[0]));
+  TEAMS.length = 0;
+  TEAMS.push(...[...duty, ...rest].map(([t, ms]) => [t, ms.slice()]));
+  STAFF.length = 0;
+  STAFF.push(...TEAMS.flatMap(t => t[1]));
+  DUTY_STAFF.length = 0;
+  DUTY_STAFF.push(...TEAMS.filter(t => DUTY_TEAMS.includes(t[0])).flatMap(t => t[1]));
+  if (managers) { MANAGERS.clear(); managers.forEach(n => MANAGERS.add(n)); }
+  // 名前の選択欄は開くときに作り直す
+  if (typeof document !== "undefined") document.querySelectorAll("select.name-select").forEach(s => { s.innerHTML = ""; });
+}
+function saveRoster() { saveJson("kinmu_teams", TEAMS); saveJson("kinmu_managers", [...MANAGERS]); }
 
 /* 割り当て参加設定: 期間を指定して日直/夜勤/残当の参加(開始)・中断ができる。
    既定はA〜Eチーム=参加、その他・事務=不参加。オーバーライドで切り替える。 */
@@ -1406,7 +1444,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.10";
+const APP_VERSION = "v8.11";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1716,6 +1754,7 @@ function exportJson() {
       custom_holidays: [...CUSTOM_HOLIDAYS], prev_carryover: PREV_CARRY,
       leaves: LEAVES, carry: [...CARRY_SET],
       period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT, prev_lastin: PREV_LASTIN,
+      teams: TEAMS, managers: [...MANAGERS],
     },
   };
   const blob = new Blob([JSON.stringify(backup, null, 1)], {type: "application/json"});
@@ -1759,6 +1798,7 @@ function importJson(input) {
         if (s.cycle_start !== undefined) { CYCLE_START_IDX = s.cycle_start; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
         if (s.prev_night) { PREV_NIGHT = s.prev_night; saveJson("kinmu_prev_night", PREV_NIGHT); }
         if (s.prev_lastin) { PREV_LASTIN = s.prev_lastin; saveJson("kinmu_prev_lastin", PREV_LASTIN); }
+        if (s.teams) { applyRoster(s.teams, s.managers); saveRoster(); }
         if (Array.isArray(obj.archive)) saveArchive(obj.archive);   // 過去の勤務表も復元
         EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
         saveSchedule(); render();
@@ -2509,7 +2549,8 @@ function clearFurikyu() {
    ============================================================ */
 function fillNameSelect(sel, includeAll) {
   sel.innerHTML = "";
-  for (const [tname, members] of (includeAll ? TEAMS : TEAMS.slice(0, 5))) {
+  sel.classList.add("name-select");
+  for (const [tname, members] of (includeAll ? TEAMS : TEAMS.filter(t => DUTY_TEAMS.includes(t[0])))) {
     const og = document.createElement("optgroup");
     og.label = tname;
     for (const n of members) {
@@ -2921,8 +2962,18 @@ function selectedArchives() {
   const ids = new Set([...document.querySelectorAll(".arch-chk:checked")].map(b => Number(b.dataset.id)));
   return loadArchive().filter(e => ids.has(e.id));
 }
+// 集計の行: 今の名簿の順＋過去の勤務表にだけいる人（退職・異動など）
+function summaryRows(entries) {
+  const rows = TEAMS.flatMap(([t, ms]) => ms.map(n => ({ n, t })));
+  const known = new Set(STAFF);
+  for (const e of entries) for (const n in e.data) {
+    if (!known.has(n) && Object.keys(e.data[n] || {}).length) { known.add(n); rows.push({ n, t: "名簿外" }); }
+  }
+  return rows;
+}
 function computeSummary(entries) {
-  const sum = {}; for (const n of STAFF) { sum[n] = {}; for (const [c] of SUMMARY_COLS) sum[n][c] = 0; }
+  const sum = {};
+  for (const { n } of summaryRows(entries)) { sum[n] = {}; for (const [c] of SUMMARY_COLS) sum[n][c] = 0; }
   for (const e of entries) {
     for (const n in e.data) { if (!sum[n]) continue;
       for (const iso in e.data[n]) { const v = e.data[n][iso];
@@ -2939,11 +2990,9 @@ function renderSummary() {
   let html = `<div style="color:#555;margin-bottom:4px;">対象: ${entries.map(e=>e.label).join("、")}</div>`;
   html += `<table style="border-collapse:collapse;"><thead><tr><th style="position:sticky;left:0;background:#EFEFEF;">氏名</th>` +
     SUMMARY_COLS.map(([c]) => `<th>${c}</th>`).join("") + `</tr></thead><tbody>`;
-  for (const [tname, members] of TEAMS) {
-    for (const n of members) {
-      html += `<tr><td style="position:sticky;left:0;background:white;font-weight:bold;">${n}</td>` +
-        SUMMARY_COLS.map(([c]) => `<td style="text-align:center;">${sum[n][c] || ""}</td>`).join("") + `</tr>`;
-    }
+  for (const { n, t } of summaryRows(entries)) {
+    html += `<tr><td style="position:sticky;left:0;background:white;font-weight:bold;">${n}${t === "名簿外" ? '<span style="font-size:9px;color:#888;">（名簿外）</span>' : ""}</td>` +
+      SUMMARY_COLS.map(([c]) => `<td style="text-align:center;">${sum[n][c] || ""}</td>`).join("") + `</tr>`;
   }
   html += `</tbody></table>`;
   document.getElementById("summary-area").innerHTML = html;
@@ -2961,11 +3010,9 @@ async function exportSummaryExcel() {
   ws.getRow(3).values = header;
   ws.getRow(3).font = { name: "ＭＳ Ｐゴシック", size: 10, bold: true };
   let r = 4;
-  for (const [tname, members] of TEAMS) {
-    for (const n of members) {
-      ws.getRow(r).values = [n, tname, ...SUMMARY_COLS.map(([c]) => sum[n][c] || 0)];
-      r++;
-    }
+  for (const { n, t } of summaryRows(entries)) {
+    ws.getRow(r).values = [n, t, ...SUMMARY_COLS.map(([c]) => sum[n][c] || 0)];
+    r++;
   }
   ws.getColumn(1).width = 10; ws.getColumn(2).width = 9;
   for (let i = 3; i <= header.length; i++) ws.getColumn(i).width = 6;
@@ -3097,9 +3144,10 @@ function carryForwardToNext() {
   alert(`引き継ぎました（繰越振休 ${carry.length}件）。\n続いて「② 次期の希望休申請を取り込む」を行ってください。`);
 }
 /* 新しい期間と申請を適用する（Excel取り込み・同期の共通処理） */
-function applyNewPeriodAndRequests(np, reqList, holidayList, sourceLabel) {
-  // reqList: [{name, iso, type}] / holidayList: [{iso, name}]
+function applyNewPeriodAndRequests(np, reqList, holidayList, sourceLabel, roster) {
+  // reqList: [{name, iso, type}] / holidayList: [{iso, name}] / roster: 希望休アプリのチーム編成（任意）
   pushUndo(sourceLabel);
+  const rosterMsg = roster ? applyKiboushuRoster(roster, sourceLabel) : "";
   PERIOD = np;
   const inP = periodDatesCache().set;
   const nd = {}, unknown = {};
@@ -3126,9 +3174,10 @@ function applyNewPeriodAndRequests(np, reqList, holidayList, sourceLabel) {
   EVENT_DATES = buildEventDates();
   saveSchedule(); render();
   let msg = `「${periodLabel(PERIOD)}」を設定し、申請 ${n}件を取り込みました。`;
+  if (rosterMsg) msg += `\n\n${rosterMsg}`;
   if (addedHol.length) msg += `\n\n希望休アプリの独自の休日を祝日扱いにしました: ${addedHol.join("、")}`;
   const un = Object.keys(unknown);
-  if (un.length) msg += `\n\n⚠ 勤務表アプリの職員名簿にいない人の申請は取り込めませんでした:\n${un.map(k => `${k}（${unknown[k]}件）`).join("、")}\n（新任・改姓などの場合はお知らせください。名簿を更新します）`;
+  if (un.length) msg += `\n\n⚠ 勤務表アプリの職員名簿にいない人の申請は取り込めませんでした:\n${un.map(k => `${k}（${unknown[k]}件）`).join("、")}\n（希望休申請アプリのスタッフ一覧に登録されているか確認してください）`;
   msg += `\n\n次は「希望休の連休に×」→「1. 日直」〜「4. 残り当番」の順に進めてください。`;
   alert(msg);
 }
@@ -3141,16 +3190,8 @@ async function importKiboushuExcel(input) {
   let wb;
   try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer()); }
   catch (e) { alert("Excelを読み込めませんでした: " + e.message); return; }
-  const txt = v => {
-    if (v == null) return "";
-    if (v instanceof Date) return `${v.getMonth() + 1}/${v.getDate()}`;
-    if (typeof v === "object") {
-      if (v.richText) return v.richText.map(t => t.text).join("").trim();
-      if (v.text != null) return String(v.text).trim();
-      if (v.result != null) return String(v.result).trim();
-    }
-    return String(v).trim();
-  };
+  const txt = excelText;
+  let roster = null;
   // 希望休申請アプリの出力形式: 月別シート「◯月」と「追加日程」。1列目=日付(M/D), 3列目=祝日名, 6列目以降=職員（2行目が氏名）
   const monthSheets = [], raws = [], hols = [];
   wb.eachSheet(ws => {
@@ -3175,6 +3216,7 @@ async function importKiboushuExcel(input) {
       if (isExtra) raws.push({ extraDay: true, mo, d });
     });
     if (mm) monthSheets.push({ m: Number(mm[1]), firstD, lastD });
+    if (mm && !roster) roster = rosterFromSheet(ws);   // 1行目=チーム名・2行目=氏名からチーム編成を読む
   });
   if (!monthSheets.length) { alert("月別のシート（例「1月」）が見つかりません。\n希望休申請アプリの管理画面で「Excel出力」したファイルを選んでください。"); return; }
   const months = monthSheets.map(s => s.m);
@@ -3212,12 +3254,13 @@ async function importKiboushuExcel(input) {
   const newLabel = periodLabel(PERIOD);
   const np2 = PERIOD;
   PERIOD = prevPeriod;
-  if (!confirm(`希望休申請Excelを取り込みます。\n\n・対象期間: ${newLabel}\n・申請 ${reqList.length}件\n\n現在の表示内容は置き換わります（今期の勤務表は①で保存済みであれば「過去の勤務表」から見返せます）。\nよろしいですか？`)) return;
-  applyNewPeriodAndRequests(np2, reqList, holList, "希望休申請Excelの取り込み");
+  if (!confirm(`希望休申請Excelを取り込みます。\n\n・対象期間: ${newLabel}\n・申請 ${reqList.length}件\n${rosterConfirmText(roster)}\n現在の表示内容は置き換わります（今期の勤務表は①で保存済みであれば「過去の勤務表」から見返せます）。\nよろしいですか？`)) return;
+  applyNewPeriodAndRequests(np2, reqList, holList, "希望休申請Excelの取り込み", roster);
 }
 function syncFromKiboushu() {
-  let period, reqs, extra, chol;
+  let period, reqs, extra, chol, roster;
   try {
+    roster = kiboushuLocalRoster();
     const ps = localStorage.getItem("kiboushu_period");
     period = ps ? JSON.parse(ps) : null;
     reqs = JSON.parse(localStorage.getItem("kiboushu_requests") || "{}");
@@ -3240,9 +3283,152 @@ function syncFromKiboushu() {
     if (h.yearly) { for (let y = np.year - 1; y <= np.year + 1; y++) holList.push({ iso: `${y}-${h.ds.slice(5)}`, name: h.name }); }
     else holList.push({ iso: h.ds, name: h.name });
   }
-  if (!confirm(`このブラウザの希望休アプリから取り込みます。\n・対象期間: ${periodLabel(np)}\n・申請 ${reqList.length}件\n\n現在の表示内容は置き換わります。よろしいですか？`)) return;
-  applyNewPeriodAndRequests(np, reqList, holList, "希望休アプリと同期");
+  if (!confirm(`このブラウザの希望休アプリから取り込みます。\n・対象期間: ${periodLabel(np)}\n・申請 ${reqList.length}件\n${rosterConfirmText(roster)}\n現在の表示内容は置き換わります。よろしいですか？`)) return;
+  applyNewPeriodAndRequests(np, reqList, holList, "希望休アプリと同期", roster);
 }
+/* ============================================================
+   スタッフ・チーム編成（希望休申請アプリから取り込む）
+   ============================================================ */
+function excelText(v) {
+  if (v == null) return "";
+  if (v instanceof Date) return `${v.getMonth() + 1}/${v.getDate()}`;
+  if (typeof v === "object") {
+    if (v.richText) return v.richText.map(t => t.text).join("").trim();
+    if (v.text != null) return String(v.text).trim();
+    if (v.result != null) return String(v.result).trim();
+  }
+  return String(v).trim();
+}
+// 希望休申請Excelの月別シート: 6列目以降の1行目=チーム名（各チームの先頭列のみ）、2行目=氏名
+function rosterFromSheet(ws) {
+  const r1 = ws.getRow(1), r2 = ws.getRow(2);
+  const teams = [];
+  let cur = null;
+  for (let c = 6; c <= ws.columnCount; c++) {
+    const t = excelText(r1.getCell(c).value), n = excelText(r2.getCell(c).value);
+    if (t) { cur = [t, []]; teams.push(cur); }
+    if (n && cur && !cur[1].includes(n)) cur[1].push(n);
+  }
+  const out = teams.filter(t => t[1].length);
+  return out.length ? out : null;
+}
+// このブラウザの希望休アプリ（スタンドアロン版）のチーム編成
+function kiboushuLocalRoster() {
+  const s = localStorage.getItem("kiboushu_teams_2026");
+  if (!s) return null;
+  const obj = JSON.parse(s);
+  const out = Object.entries(obj).filter(([, ms]) => Array.isArray(ms) && ms.length).map(([t, ms]) => [t, ms.slice()]);
+  return out.length ? out : null;
+}
+function rosterDiff(newTeams) {
+  const oldOf = new Map(), newOf = new Map();
+  TEAMS.forEach(([t, ms]) => ms.forEach(n => oldOf.set(n, t)));
+  newTeams.forEach(([t, ms]) => ms.forEach(n => newOf.set(n, t)));
+  const added   = [...newOf].filter(([n]) => !oldOf.has(n)).map(([n, t]) => ({ n, t }));
+  const removed = [...oldOf].filter(([n]) => !newOf.has(n)).map(([n, t]) => ({ n, t }));
+  const moved   = [...newOf].filter(([n, t]) => oldOf.has(n) && oldOf.get(n) !== t).map(([n, t]) => ({ n, from: oldOf.get(n), to: t }));
+  const order = JSON.stringify(newTeams.map(([t, ms]) => [t, ms])) !== JSON.stringify(TEAMS.map(([t, ms]) => [t, ms]));
+  const missingDuty = DUTY_TEAMS.filter(t => !newTeams.some(x => x[0] === t));
+  return { added, removed, moved, changed: added.length + removed.length + moved.length > 0 || order, missingDuty };
+}
+function rosterDiffLines(d) {
+  const L = [];
+  if (d.added.length)   L.push(`・新しく加わる: ${d.added.map(x => `${x.n}（${x.t}）`).join("、")}`);
+  if (d.moved.length)   L.push(`・チーム異動: ${d.moved.map(x => `${x.n} ${x.from}→${x.to}`).join("、")}`);
+  if (d.removed.length) L.push(`・名簿から外れる: ${d.removed.map(x => `${x.n}（${x.t}）`).join("、")}`);
+  if (d.changed && !L.length) L.push("・並び順の変更");
+  if (d.missingDuty.length) L.push(`⚠ 「${d.missingDuty.join("」「")}」がありません（日直の班輪番はAチーム〜Eチームの名前で行います）`);
+  return L;
+}
+function rosterConfirmText(roster) {
+  if (!roster) return "・スタッフ・チーム編成: ファイルから読み取れませんでした（今の名簿のまま）\n";
+  const d = rosterDiff(roster);
+  if (!d.changed) return "・スタッフ・チーム編成: 変更なし\n";
+  return `・スタッフ・チーム編成を希望休アプリに合わせて更新します:\n${rosterDiffLines(d).join("\n")}\n`;
+}
+/* 希望休アプリのチーム編成を名簿に反映し、結果の説明文を返す（Undoは呼び出し元で記録） */
+function applyKiboushuRoster(roster, sourceLabel) {
+  const d = rosterDiff(roster);
+  saveJson("kinmu_roster_source", { from: sourceLabel, at: new Date().toISOString() });
+  if (!d.changed) return "スタッフ・チーム編成: 変更なし";
+  applyRoster(roster);
+  saveRoster();
+  // 名簿から外れた人の前回繰越の振休は配置できないので外す
+  const gone = new Set(d.removed.map(x => x.n));
+  const dropped = PREV_CARRY.filter(c => gone.has(c.name));
+  if (dropped.length) { PREV_CARRY = PREV_CARRY.filter(c => !gone.has(c.name)); saveJson("kinmu_prev_carryover", PREV_CARRY); }
+  DUTY_TEAM_MAP = buildDutyTeamMap();
+  let msg = `スタッフ・チーム編成を更新しました（${STAFF.length}名）:\n${rosterDiffLines(d).join("\n")}`;
+  if (dropped.length) msg += `\n・名簿から外れた人の前回繰越の振休 ${dropped.length}件を外しました`;
+  if (d.added.length || d.moved.length)
+    msg += `\n※新しく加わった人・異動した人の「課長・係長・主任」は「スタッフ・チーム」、業務グループは「勤務条件」、夜勤の条件は「夜勤条件」で確認してください。`;
+  return msg;
+}
+async function importRosterExcel(input) {
+  const file = input.files[0];
+  input.value = "";
+  if (!file) return;
+  if (typeof ExcelJS === "undefined") { alert("Excel読み込み部品（ExcelJS）を読み込めませんでした。ネット接続を確認してください。"); return; }
+  let wb;
+  try { wb = new ExcelJS.Workbook(); await wb.xlsx.load(await file.arrayBuffer()); }
+  catch (e) { alert("Excelを読み込めませんでした: " + e.message); return; }
+  let roster = null;
+  wb.eachSheet(ws => { if (!roster && /^(\d{1,2})月$/.test(ws.name)) roster = rosterFromSheet(ws); });
+  confirmAndApplyRoster(roster, "希望休申請Excel（チーム編成のみ）");
+}
+function syncRosterFromKiboushu() {
+  let roster;
+  try { roster = kiboushuLocalRoster(); } catch (e) { alert("希望休アプリのデータが読めませんでした: " + e.message); return; }
+  if (!roster) { alert("このブラウザに希望休アプリのスタッフ一覧が見つかりません。\n希望休アプリの管理画面で「Excel出力」したファイルを読み込んでください。"); return; }
+  confirmAndApplyRoster(roster, "希望休アプリ（このブラウザ）");
+}
+function confirmAndApplyRoster(roster, sourceLabel) {
+  if (!roster) { alert("スタッフ・チーム編成を読み取れませんでした。\n希望休申請アプリの管理画面で「Excel出力」したファイルを選んでください。"); return; }
+  const d = rosterDiff(roster);
+  if (!d.changed) { alert("スタッフ・チーム編成は今の名簿と同じです（変更なし）。"); return; }
+  if (!confirm(`スタッフ・チーム編成を希望休アプリに合わせて更新します。\n\n${rosterDiffLines(d).join("\n")}\n\n申請や割り当て済みの勤務はそのままです。よろしいですか？`)) return;
+  pushUndo("スタッフ・チーム編成の取り込み");
+  const msg = applyKiboushuRoster(roster, sourceLabel);
+  render();
+  if (document.getElementById("roster-modal").style.display === "block") renderRoster();
+  alert(msg);
+}
+
+/* ---- スタッフ・チームのモーダル ---- */
+function openRosterModal() { renderRoster(); document.getElementById("roster-modal").style.display = "block"; }
+function closeRosterModal() { document.getElementById("roster-modal").style.display = "none"; }
+function renderRoster() {
+  const src = loadJson("kinmu_roster_source", null);
+  document.getElementById("roster-source").textContent = src
+    ? `最終更新: ${new Date(src.at).toLocaleString("ja-JP")}（${src.from}）　／　${STAFF.length}名`
+    : `希望休アプリからはまだ取り込んでいません（初期の名簿）　／　${STAFF.length}名`;
+  const tb = document.getElementById("roster-list");
+  tb.innerHTML = "";
+  for (const [tname, ms] of TEAMS) {
+    const tr = document.createElement("tr");
+    const duty = DUTY_TEAMS.includes(tname);
+    tr.innerHTML = `<td style="white-space:nowrap;"><b>${tname}</b><br><span style="font-size:10px;color:#888;">${duty ? "日直・夜勤・残当の対象" : "割り当て対象外（参加設定で個別に可）"}</span></td>`;
+    const td = document.createElement("td");
+    td.style.textAlign = "left";
+    for (const n of ms) {
+      const lb = document.createElement("label");
+      lb.style.cssText = "display:inline-flex; align-items:center; gap:2px; margin:2px 10px 2px 0; white-space:nowrap;";
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = MANAGERS.has(n); cb.title = "課長・係長・主任";
+      cb.onchange = () => {
+        pushUndo("責任者の設定");
+        if (cb.checked) MANAGERS.add(n); else MANAGERS.delete(n);
+        saveRoster(); render();
+      };
+      lb.appendChild(cb);
+      lb.appendChild(document.createTextNode(n));
+      td.appendChild(lb);
+    }
+    tr.appendChild(td);
+    tb.appendChild(tr);
+  }
+}
+
 function exportCarryForNext() {
   const st = computeFurikyuState();
   const carryAll = [...st.carried, ...st.pending];
@@ -3726,6 +3912,7 @@ function pushUndo(label) {
   UNDO_STACK.push({ label, time: new Date().toLocaleTimeString("ja-JP"), snap: JSON.stringify({
     data: DATA, nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, part: PARTICIPATION,
     holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES, events: EVENTS_FIXED,
+    teams: TEAMS, managers: [...MANAGERS],
     prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION, prevLastIn: PREV_LASTIN,
   }) });
   if (UNDO_STACK.length > UNDO_MAX) UNDO_STACK.shift();
@@ -3737,6 +3924,7 @@ function applySnapshot(snap) {
   CUSTOM_HOLIDAYS = new Set(o.holidays); CARRY_SET = new Set(o.carry); LEAVES = o.leaves;
   if (o.moves) { EVENT_MOVES = o.moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
   if (o.events) { EVENTS_FIXED = o.events; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
+  if (o.teams) { applyRoster(o.teams, o.managers); saveRoster(); }
   if (o.prevCarry) { PREV_CARRY = o.prevCarry; saveJson("kinmu_prev_carryover", PREV_CARRY); }
   if (o.part) { PARTICIPATION = o.part; saveJson("kinmu_participation", PARTICIPATION); }
   if (o.period) { PERIOD = o.period; savePeriod(); TABS = buildTabs(); if (!PERIOD.months.includes(Number(currentTab)) && currentTab !== "extra") currentTab = String(PERIOD.months[0]); }
@@ -3983,6 +4171,11 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-10-28", ver: "v8.11", items: [
+    "スタッフ一覧とチーム編成を希望休申請アプリから取り込むようにしました。「② 希望休申請Excelを読み込む」で、申請と一緒に最新のチーム編成（新しく加わった人・チーム異動・外れた人）が反映されます。",
+    "設定に「スタッフ・チーム」を追加しました。今の編成の確認、チーム編成だけの読み込み、課長・係長・主任（日直に最低1人入れる人）の設定ができます。",
+    "年間集計に、今の名簿にいない人（退職・異動など）も「名簿外」として表示するようにしました。",
+  ]},
   { date: "2026-10-28", ver: "v8.10", items: [
     "「行事設定」の必須出勤者に「全員」と入力すると、全員が対象になるようにしました。その日は振休を置かず、休みの人をまとめて警告します（夜勤と残り当番は通常どおり割り当てます）。",
   ]},
@@ -4084,6 +4277,7 @@ function guideHtml(tab) {
       <li><b>期間と申請を確認</b> — 表の上の黄色い帯の「対象期間」「申請○件」が希望休アプリと合っているか確認します。違うところはセルをクリックして直します。申請がまだ入っていなければ「次の期間の作り方」を見てください。</li>
       <li><b>設定を確認</b>（期間が変わったら毎回）
         <ul>
+          <li>${gbtn("スタッフ・チーム", "openRosterModal")} … チーム編成（希望休アプリから取り込み済みか）、新しく加わった人の課長・係長・主任のチェック</li>
           <li>${gbtn("長期休暇", "openLeaveModal")} … 産休・育休・病欠などの期間（その間は割り当てなし・グレー表示）</li>
           <li>${gbtn("割り当て参加", "openPartModal")} … 途中から夜勤・日直・残り当番に入る人／中断する人</li>
           <li>${gbtn("夜勤条件", "openNightModal")} … 夜勤の対象外・できる曜日・月の上限回数</li>
@@ -4121,10 +4315,10 @@ function guideHtml(tab) {
         </ul></li>
       <li><b>希望休申請アプリで申請をExcelに出力</b> — 管理画面の「Excel出力」。GAS版・スタンドアロン版のどちらでもかまいません。</li>
       <li><b>${gbtn("期間・次期作成", "openPeriodModal")} →「② 希望休申請Excelを読み込む」</b>で、出力したファイルを選びます。<br>
-        期間（年またぎ・途中の日付・追加日程も）、全員の申請、病院独自の休日がまとめて入ります。
+        期間（年またぎ・途中の日付・追加日程も）、全員の申請、病院独自の休日、<b>最新のスタッフ・チーム編成</b>がまとめて入ります。読み込む前の確認画面に、新しく加わる人・チーム異動・外れる人が表示されます。
         <ul>
           <li>ファイル名から年がわからないときは、年を聞かれます。</li>
-          <li>勤務表アプリに登録されていない名前があると警告が出ます（その人の申請は入りません。名簿の追加が必要です）。</li>
+          <li>新しく加わった人・異動した人は、${gbtn("スタッフ・チーム", "openRosterModal")} で課長・係長・主任のチェック、${gbtn("勤務条件（グループ・曜日）", "openWorkModal")} で業務グループ、${gbtn("夜勤条件", "openNightModal")} を確認してください。</li>
         </ul></li>
       <li><b>引き継ぎ内容を確認</b> — 上の「いまの状況」の前回繰越・前期最後の夜勤・日直の開始班が正しいか確認します。
         直すときは ${gbtn("振休繰越管理", "openCarryModal")}（前回繰越）、${gbtn("期間・次期作成", "openPeriodModal")} の③（開始班・前期最後の夜勤）。</li>
@@ -4180,7 +4374,7 @@ function guideHtml(tab) {
       <li><b>直したはずなのに画面が変わらない・ボタンがない</b> → <b>Cmd+Shift+R</b> で再読み込みして、左上のバージョン（今は ${APP_VERSION}）を確認してください。</li>
       <li><b>別のPCで続きをしたい</b> → データはブラウザごとに保存されます。${gbtn("JSON書出")} したファイルを、別のPCで「JSON読込」してください（設定・メモ・過去の勤務表も移ります）。</li>
       <li><b>データが消えた</b> → 最後に書き出した kinmu_backup.json を「JSON読込」で戻します。アプリ本体はGitHubに保存されています。</li>
-      <li><b>新しいスタッフが入った・辞めた</b> → 勤務表アプリの名簿は固定なので、修正が必要です（Claudeに「名簿に○○さんを追加して」と依頼してください）。</li>
+      <li><b>新しいスタッフが入った・辞めた・チームが変わった</b> → 先に希望休申請アプリのスタッフ一覧を直します。そのあと希望休申請Excelを読み込むと勤務表アプリにも反映されます（申請はそのままで編成だけ直したいときは ${gbtn("スタッフ・チーム", "openRosterModal")} の「チーム編成だけ読み込む」）。</li>
       <li><b>前回繰越や開始班が違う</b> → ${gbtn("振休繰越管理", "openCarryModal")} で前回繰越を、${gbtn("期間・次期作成", "openPeriodModal")} の③で開始班・前期最後の夜勤を直し、「1. 日直」から実行し直します。</li>
       <li><b>過去の勤務表を見たい・年間の休みを集計したい</b> → ${gbtn("過去の勤務表・年間集計", "openArchiveModal")}（年度を選ぶと自動で集計）。</li>
     </ul>
