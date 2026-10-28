@@ -66,6 +66,23 @@ header .subtitle { font-size: 11px; opacity: 0.8; flex: 1; min-width: 0; overflo
   font-weight: bold; font-size: 13px;
 }
 .tab.active { background: var(--blue); color: white; border-color: var(--blue); }
+.tab.tab-total { margin-left: 12px; }
+
+/* 期間の集計タブ */
+.ps-wrap { padding: 0 10px 10px; --ps-bar: rgba(31, 78, 121, 0.16); }
+.ps-head { padding: 8px 2px; font-size: 13px; position: sticky; left: 0; }
+.ps-hint { font-size: 11px; color: #777; margin-top: 2px; }
+table.ps-table td, table.ps-table th { height: 24px; min-width: 30px; padding: 0 4px; cursor: default; white-space: nowrap; }
+table.ps-table thead tr:first-child th { top: 0; height: 24px; }
+table.ps-table thead tr:nth-child(2) th { top: 24px; font-size: 11px; }
+table.ps-table .ps-c1 { position: sticky; left: 0; z-index: 2; min-width: 58px; font-size: 11px; color: #555; }
+table.ps-table .ps-c2 { position: sticky; left: 58px; z-index: 2; min-width: 58px; font-weight: bold; }
+table.ps-table thead .ps-c1, table.ps-table thead .ps-c2 { z-index: 4; }
+table.ps-table .ps-grp { border-left: 2px solid #888; }
+table.ps-table .ps-tot { font-weight: bold; min-width: 36px; }
+table.ps-table thead .ps-tot { background: #DCE6F1; }
+table.ps-table tr.ps-tstart td { border-top: 2px solid #888; }
+table.ps-table tfoot td { background: #F0F0F0; font-weight: bold; }
 
 .notice {
   margin: 10px 20px 0; padding: 8px 12px; border-radius: 6px;
@@ -1430,7 +1447,14 @@ function renderTabs() {
     el.onclick = () => { currentTab = key; render(); };
     bar.appendChild(el);
   }
+  // 期間全体の集計（月のタブの後ろ）
+  const el = document.createElement("div");
+  el.className = "tab tab-total" + (currentTab === "total" ? " active" : "");
+  el.textContent = "📋 期間の集計";
+  el.onclick = showPeriodSummary;
+  bar.appendChild(el);
 }
+function showPeriodSummary() { currentTab = "total"; render(); }
 
 function renderLegend() {
   const lg = document.getElementById("legend");
@@ -1444,7 +1468,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.11";
+const APP_VERSION = "v8.12";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1466,6 +1490,12 @@ function render() {
   renderHeaderInfo();
   _FSTATE = computeFurikyuState();
   EVENT_DATES = buildEventDates();
+  if (currentTab === "total") {
+    renderPeriodSummary();
+    document.getElementById("warn-list").innerHTML = checkWarnings(allPeriodDates()).join("<br>");
+    renderProgress();
+    return;
+  }
   const dates = datesOfTab(currentTab);
   const wrap = document.getElementById("table-wrap");
   const tbl = document.createElement("table");
@@ -1657,6 +1687,92 @@ function render() {
   const warns = checkWarnings(dates);
   document.getElementById("warn-list").innerHTML = warns.join("<br>");
   renderProgress();
+}
+
+/* ============================================================
+   期間の集計（📋 期間の集計タブ）: 期間全体の人別回数と月別の内訳
+   ============================================================ */
+const PS_MONTHLY = [  // 月別の内訳も出す項目（申請＝表の「申請計」と同じ数え方）
+  ["日直", v => v === "○"], ["夜勤", v => v === "入"], ["残当", v => v === "残"],
+  ["申請", v => !["○", "入", "明", "残"].includes(v)],
+];
+function computePeriodSummary() {
+  const groups = PERIOD.months.map(m => [m + "月", new Set(datesOfTab(String(m)))]);
+  if (PERIOD.extraDates && PERIOD.extraDates.length) groups.push([PERIOD.extraLabel || "追加日程", new Set(PERIOD.extraDates)]);
+  const all = periodDatesCache().set;
+  const details = SUMMARY_COLS.slice(3);  // 有給〜研修（日直・夜勤・残当は月別の方に出す）
+  const carryCnt = {};
+  for (const p of [..._FSTATE.carried, ..._FSTATE.pending]) carryCnt[p.name] = (carryCnt[p.name] || 0) + 1;
+  const rows = [];
+  for (const { n, t } of summaryRows([{ data: DATA }])) {
+    const r = { n, t, mon: PS_MONTHLY.map(() => groups.map(() => 0)), tot: PS_MONTHLY.map(() => 0),
+                det: details.map(() => 0), carry: carryCnt[n] || 0, leave: 0 };
+    for (const iso in (DATA[n] || {})) {
+      const v = String(DATA[n][iso] || "").replace("\n", "");
+      if (!v || !all.has(iso)) continue;
+      PS_MONTHLY.forEach(([, test], k) => {
+        if (!test(v)) return;
+        r.tot[k]++;
+        groups.forEach(([, set], g) => { if (set.has(iso)) r.mon[k][g]++; });
+      });
+      const di = details.findIndex(([, test]) => test(v));
+      if (di >= 0) r.det[di]++;
+    }
+    for (const iso of all) if (onLeave(n, iso)) r.leave++;
+    if (t === "名簿外" && !r.tot.some(x => x)) continue;
+    rows.push(r);
+  }
+  return { groups, details, rows };
+}
+function renderPeriodSummary() {
+  const { groups, details, rows } = computePeriodSummary();
+  const showLeave = rows.some(r => r.leave);
+  const pc = periodDatesCache();
+  const maxes = PS_MONTHLY.map((_, k) => Math.max(1, ...rows.map(r => r.tot[k])));
+  const v0 = x => x || "";
+  let h = `<div class="ps-head"><b>📋 期間の集計</b>　${periodLabel(PERIOD)}（${fmtMD(pc.min)}～${fmtMD(pc.max)}）
+    <div class="ps-hint">日直・夜勤・残当・申請は月ごとの回数と期間の計です（申請＝表の「申請計」と同じく ○・入・明・残 以外の記号の数）。「計」の棒の長さで人ごとの偏りがわかります。数字はいまの表から自動で数えます。</div></div>`;
+  h += `<table class="ps-table"><thead><tr><th rowspan="2" class="ps-c1">チーム</th><th rowspan="2" class="ps-c2">氏名</th>`;
+  for (const [c] of PS_MONTHLY) h += `<th colspan="${groups.length + 1}" class="ps-grp">${c}</th>`;
+  h += `<th colspan="${details.length}" class="ps-grp">内訳（期間の計）</th><th rowspan="2" class="ps-grp">次回へ<br>繰越振休</th>`;
+  if (showLeave) h += `<th rowspan="2" class="ps-grp">長期休暇<br>（日）</th>`;
+  h += `</tr><tr>`;
+  for (let k = 0; k < PS_MONTHLY.length; k++) {
+    groups.forEach(([g], i) => { h += `<th class="${i === 0 ? "ps-grp" : ""}">${g}</th>`; });
+    h += `<th class="ps-tot">計</th>`;
+  }
+  details.forEach(([c], i) => { h += `<th class="${i === 0 ? "ps-grp" : ""}">${c}</th>`; });
+  h += `</tr></thead><tbody>`;
+  let prevT = null;
+  for (const r of rows) {
+    const first = r.t !== prevT; prevT = r.t;
+    h += `<tr class="${first ? "ps-tstart" : ""}"><td class="ps-c1">${first ? r.t : ""}</td><td class="ps-c2">${r.n}</td>`;
+    PS_MONTHLY.forEach((_, k) => {
+      r.mon[k].forEach((x, i) => { h += `<td class="${i === 0 ? "ps-grp" : ""}">${v0(x)}</td>`; });
+      const pct = Math.round(r.tot[k] / maxes[k] * 100);
+      h += `<td class="ps-tot" style="background:linear-gradient(90deg, var(--ps-bar) ${pct}%, transparent ${pct}%);">${v0(r.tot[k])}</td>`;
+    });
+    r.det.forEach((x, i) => { h += `<td class="${i === 0 ? "ps-grp" : ""}">${v0(x)}</td>`; });
+    h += `<td class="ps-grp">${v0(r.carry)}</td>`;
+    if (showLeave) h += `<td class="ps-grp">${v0(r.leave)}</td>`;
+    h += `</tr>`;
+  }
+  // 合計・平均
+  const sum = f => rows.reduce((a, r) => a + f(r), 0);
+  h += `</tbody><tfoot><tr class="ps-tstart"><td class="ps-c1"></td><td class="ps-c2">合計</td>`;
+  PS_MONTHLY.forEach((_, k) => {
+    groups.forEach((_, i) => { h += `<td class="${i === 0 ? "ps-grp" : ""}">${sum(r => r.mon[k][i])}</td>`; });
+    h += `<td class="ps-tot">${sum(r => r.tot[k])}</td>`;
+  });
+  details.forEach((_, i) => { h += `<td class="${i === 0 ? "ps-grp" : ""}">${sum(r => r.det[i])}</td>`; });
+  h += `<td class="ps-grp">${sum(r => r.carry)}</td>` + (showLeave ? `<td class="ps-grp">${sum(r => r.leave)}</td>` : "") + `</tr>`;
+  h += `<tr><td class="ps-c1"></td><td class="ps-c2" title="1回以上の人だけで平均">平均<br><span style="font-size:9px;">（1回以上の人）</span></td>`;
+  PS_MONTHLY.forEach((_, k) => {
+    const xs = rows.map(r => r.tot[k]).filter(x => x > 0);
+    h += `<td class="ps-grp" colspan="${groups.length}"></td><td class="ps-tot">${xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : ""}</td>`;
+  });
+  h += `<td class="ps-grp" colspan="${details.length + 1 + (showLeave ? 1 : 0)}"></td></tr></tfoot></table>`;
+  document.getElementById("table-wrap").innerHTML = `<div class="ps-wrap">${h}</div>`;
 }
 
 /* ============================================================
@@ -4171,6 +4287,9 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-10-28", ver: "v8.12", items: [
+    "月のタブの右に「📋 期間の集計」タブを追加しました。勤務表を作っている期間全体で、人ごとの日直・夜勤・残当・申請の回数（月ごとの内訳と計）、有給・夏期・振休などの内訳、次回へ繰り越す振休を一覧で確認できます。",
+  ] },
   { date: "2026-10-28", ver: "v8.11", items: [
     "スタッフ一覧とチーム編成を希望休申請アプリから取り込むようにしました。「② 希望休申請Excelを読み込む」で、申請と一緒に最新のチーム編成（新しく加わった人・チーム異動・外れた人）が反映されます。",
     "設定に「スタッフ・チーム」を追加しました。今の編成の確認、チーム編成だけの読み込み、課長・係長・主任（日直に最低1人入れる人）の設定ができます。",
@@ -4290,6 +4409,7 @@ function guideHtml(tab) {
       <li><b>${gbtn("希望休の連休に×")} を押す</b> — 有・夏・特・振◆ の前後に続く土日祝に「×」を入れて連休にします。取り消すときは「クリア: ×のみ」。</li>
       <li><b>${gbtn("1. 日直")} → ${gbtn("2. 夜勤")} → ${gbtn("3. 振休")} → ${gbtn("4. 残り当番")} の順に押す</b> — 必ずこの順番で行います。</li>
       <li><b>赤い警告を確認して手で直す</b> — 警告は表の上に赤字で出ます。セルをクリックすると種類を選び直せます。</li>
+      <li><b>${gbtn("📋 期間の集計", "showPeriodSummary")} タブで偏りを確認</b> — 期間全体の人ごとの日直・夜勤・残当・申請の回数（月ごとの内訳つき）を一覧で見られます。「計」の棒が長すぎる・短すぎる人がいないか確認します。月のタブの一番下の行は、その月の申請計と期間の日直・夜勤・残当の計です。</li>
       <li><b>${gbtn("Excel出力")}・${gbtn("印刷（PDF）")}</b> で出力します。</li>
       <li><b>${gbtn("この勤務表を保存")}</b> — 「過去の勤務表・年間集計」で見返せるようになります。</li>
       <li><b>${gbtn("JSON書出")}</b> でバックアップ（kinmu_backup.json）を保存しておきます。</li>
