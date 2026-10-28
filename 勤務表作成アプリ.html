@@ -166,6 +166,31 @@ td.hancell { min-width: 24px; cursor: default; font-size: 11px; color: #555; fon
 .warn-list { margin: 6px 20px 0; font-size: 12px; color: var(--red); }
 footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
+/* 作成の進み具合 */
+.pg-box { margin: 10px 20px 0; background: white; border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+.pg-head { display: flex; align-items: center; gap: 10px; font-size: 12px; flex-wrap: wrap; }
+.pg-head b { color: var(--blue); font-size: 13px; }
+.pg-next { color: var(--red); font-weight: bold; }
+.pg-body { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
+.pg-ring { flex-shrink: 0; width: 84px; height: 84px; }
+.pg-main { flex: 1; min-width: 0; }
+.pg-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 8px; }
+.pg-step {
+  font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 12px; white-space: nowrap;
+  background: #EEEEEE; color: #888; border: 1px solid #DDD; cursor: default;
+}
+.pg-step.done    { background: var(--green-light); color: var(--green); border-color: #A9D08E; }
+.pg-step.partial { background: var(--orange-light); color: var(--orange); border-color: #F5C37A; }
+.pg-step.current { box-shadow: 0 0 0 2px var(--blue); }
+.pg-arrow { color: #BBB; font-size: 10px; }
+.pg-bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 18px; }
+.pg-bar-row { display: grid; grid-template-columns: 56px 1fr minmax(84px, auto); align-items: center; gap: 6px; font-size: 11px; }
+.pg-bar-row .lbl { font-weight: bold; color: #555; }
+.pg-bar-row .num { color: #555; text-align: right; white-space: nowrap; }
+.pg-bar { height: 10px; background: #EEE; border-radius: 5px; overflow: hidden; display: flex; }
+.pg-bar span { display: block; height: 100%; }
+.pg-box.mini .pg-body { display: none; }
+
 /* 作り方ガイド */
 .guide-btn {
   margin-left: auto; flex-shrink: 0; background: white; color: var(--blue); border: none; border-radius: 4px;
@@ -251,6 +276,21 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
 <div class="notice" id="missing-notice"></div>
 
+<div class="pg-box" id="progress-box">
+  <div class="pg-head">
+    <b>📊 作成の進み具合</b>
+    <span class="pg-next" id="pg-next"></span>
+    <button class="btn btn-gray btn-sm" id="pg-toggle" onclick="toggleProgress()" style="margin-left:auto;">▲ 小さくする</button>
+  </div>
+  <div class="pg-body" id="pg-body">
+    <div class="pg-ring" id="pg-ring"></div>
+    <div class="pg-main">
+      <div class="pg-steps" id="pg-steps"></div>
+      <div class="pg-bars" id="pg-bars"></div>
+    </div>
+  </div>
+</div>
+
 <div id="memo-box" style="margin:10px 20px 0;">
   <div style="display:flex; align-items:center; gap:8px;">
     <button class="btn btn-gray btn-sm" id="memo-toggle" onclick="toggleMemo()">▶ メモを開く</button>
@@ -316,15 +356,35 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 
 <div id="event-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeEventModal()">
   <div class="leave-box" style="max-width:680px;">
-    <h3>行事設定（毎月固定）</h3>
-    <div class="hint">毎月「第n・曜日」の固定行事を登録すると事務連絡欄に自動表示されます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。日ごとの追記は表の事務連絡セルをクリック。</div>
-    <table><thead><tr><th>行事名</th><th>第n</th><th>曜日</th><th>必須出勤者（、区切り）</th><th></th></tr></thead><tbody id="event-list"></tbody></table>
-    <div class="leave-form">
-      <input type="text" id="ev-name" placeholder="行事名" style="width:130px;">
-      <select id="ev-nth"><option value="1">第1</option><option value="2">第2</option><option value="3">第3</option><option value="4">第4</option><option value="5">第5</option></select>
-      <select id="ev-dow"><option value="1">月</option><option value="2">火</option><option value="3">水</option><option value="4">木</option><option value="5">金</option><option value="6">土</option><option value="0">日</option></select>
-      <input type="text" id="ev-members" placeholder="必須出勤者（任意）" style="width:150px;">
-      <button class="btn btn-success btn-sm" onclick="addEvent()">追加</button>
+    <h3>行事設定</h3>
+    <div class="hint">行事を登録すると事務連絡欄に自動表示されます。「第n曜日」（毎月・数か月ごと）か「日にち指定」で登録できます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。日ごとの追記は表の事務連絡セルをクリック。</div>
+    <table><thead><tr><th>行事名</th><th>開催ルール</th><th>今期の開催日</th><th>必須出勤者（、区切り）</th><th></th></tr></thead><tbody id="event-list"></tbody></table>
+    <div style="background:#F5F5F5; border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:12px;">
+      <b style="font-size:12px;">行事を追加</b>
+      <div class="leave-form" style="margin:6px 0;">
+        <input type="text" id="ev-name" placeholder="行事名" style="width:150px;">
+        <select id="ev-type" onchange="onEvFormChange()">
+          <option value="monthly">第n曜日（毎月・数か月ごと）</option>
+          <option value="date">日にち指定</option>
+        </select>
+      </div>
+      <div class="leave-form" id="ev-monthly-form" style="margin:6px 0;">
+        <select id="ev-every" onchange="onEvFormChange()">
+          <option value="1">毎月</option><option value="2">2か月ごと</option><option value="3">3か月ごと</option>
+          <option value="4">4か月ごと</option><option value="6">6か月ごと</option><option value="12">12か月ごと（年1回）</option>
+        </select>
+        <span id="ev-base-wrap">開始月 <select id="ev-base-y"></select><select id="ev-base-m"></select></span>
+        <select id="ev-nth"><option value="1">第1</option><option value="2">第2</option><option value="3">第3</option><option value="4">第4</option><option value="5">第5</option></select>
+        <select id="ev-dow"><option value="1">月</option><option value="2">火</option><option value="3">水</option><option value="4">木</option><option value="5">金</option><option value="6">土</option><option value="0">日</option></select>
+      </div>
+      <div class="leave-form" id="ev-date-form" style="margin:6px 0; display:none;">
+        <input type="date" id="ev-date">
+        <span style="font-size:11px; color:#888;">同じ行事を別の日にも行うときは、日付を変えてもう一度追加してください</span>
+      </div>
+      <div class="leave-form" style="margin:6px 0 0;">
+        <input type="text" id="ev-members" placeholder="必須出勤者（任意・、区切り）" style="width:200px;">
+        <button class="btn btn-success btn-sm" onclick="addEvent()">追加</button>
+      </div>
     </div>
     <b style="font-size:12px;">開催日の個別変更（祝日と重なった回・人が集まらない回など）</b>
     <div class="hint" style="margin-top:2px;">日付を変えるとその回だけ移動します（事務連絡の表示・必須出勤の扱いも一緒に移動）。</div>
@@ -787,13 +847,31 @@ let GROUPS       = loadJson("kinmu_groups", DEFAULT_GROUPS);
 let MUST_DAYS    = loadJson("kinmu_must_days", {});   // {氏名: [曜日番号(dowOf基準 0=日)]}
 let EVENT_DATES  = {};
 
+// 行事の形式: 第n曜日 {name, nth, dow, every(か月ごと・省略時1), base("YYYY-MM"・every>1の起点月), members}
+//             日にち指定 {name, type:"date", date:"YYYY-MM-DD", members}
+function eventMatches(ev, iso) {
+  if (ev.type === "date") return ev.date === iso;
+  const d = Number(iso.slice(8, 10));
+  if (dowOf(iso) !== ev.dow || Math.ceil(d / 7) !== ev.nth) return false;
+  const every = ev.every || 1;
+  if (every === 1 || !ev.base) return true;
+  const [by, bm] = ev.base.split("-").map(Number);
+  const diff = (Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7))) - (by * 12 + bm);
+  return ((diff % every) + every) % every === 0;
+}
+function eventRuleText(ev) {
+  if (ev.type === "date") return `日にち指定 ${fmtYMD(ev.date)}（${YOBI[dowOf(ev.date)]}）`;
+  const w = `第${ev.nth}${YOBI[ev.dow]}曜`;
+  if ((ev.every || 1) === 1) return `毎月 ${w}`;
+  const [by, bm] = ev.base.split("-").map(Number);
+  return `${ev.every}か月ごと ${w}（${by}年${bm}月から）`;
+}
 function eventOccurrences() {
-  // 固定行事の各開催回（第n曜日から計算した本来の日と、個別変更後の実施日）
+  // 行事の各開催回（ルールから計算した本来の日と、個別変更後の実施日）
   const out = [];
   for (const ev of EVENTS_FIXED) {
     for (const iso of allPeriodDates()) {
-      const d = Number(iso.slice(8, 10));
-      if (dowOf(iso) === ev.dow && Math.ceil(d / 7) === ev.nth) {
+      if (eventMatches(ev, iso)) {
         const key = ev.name + "|" + iso;
         const mv = EVENT_MOVES[key];
         const eff = (mv && allPeriodDates().includes(mv)) ? mv : iso;
@@ -924,11 +1002,10 @@ function assignZan() {
   const s = doAssignZan();
   if (s.length) alert("2人確保できなかった日:\n" + s.map(x => x.slice(5).replace("-","/")).join("、"));
 }
-function fillWeekendX() {
-  // 希望休（有・夏・特・振◆）に隣接する連続した休日（土日祝）の空きセルに「×」を置く。
+// 「希望休の連休に×」で×を置ける空きセルの数（0なら実行済み、または対象なし）
+function weekendXCandidates() {
   const RESTREQ = new Set(["有", "夏", "特", "振◆"]);
-  const period = new Set(allPeriodDates());
-  // まず何件置くか試算
+  const period = periodDatesCache().set;
   let plan = 0;
   for (const n of STAFF) {
     const days = DATA[n]; if (!days) continue;
@@ -943,6 +1020,13 @@ function fillWeekendX() {
       }
     }
   }
+  return plan;
+}
+function fillWeekendX() {
+  // 希望休（有・夏・特・振◆）に隣接する連続した休日（土日祝）の空きセルに「×」を置く。
+  const RESTREQ = new Set(["有", "夏", "特", "振◆"]);
+  const period = new Set(allPeriodDates());
+  const plan = weekendXCandidates();  // まず何件置くか試算
   if (!plan) { alert("希望休（有・夏・特・振◆）に隣接する、空いている連続休日はありません。"); return; }
   if (!confirm(`希望休（有・夏・特・振◆）に隣接する連続した休日（土日祝）の空きセルに「×」を ${plan} 件置きます。\n（1〜4の割り当ての前に実行してください）よろしいですか？`)) return;
   pushUndo("希望休の連休に×");
@@ -1309,7 +1393,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.8";
+const APP_VERSION = "v8.9";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1521,6 +1605,7 @@ function render() {
 
   const warns = checkWarnings(dates);
   document.getElementById("warn-list").innerHTML = warns.join("<br>");
+  renderProgress();
 }
 
 /* ============================================================
@@ -2473,10 +2558,32 @@ function saveZanModal() {
   alert("保存しました。「4. 残り当番」の再実行で反映されます。");
 }
 
-function openEventModal() { renderEvents(); renderEventMoves(); document.getElementById("event-modal").style.display = "block"; }
+function openEventModal() {
+  // 数か月ごとの開始月の選択肢（期間の年の前後）と、日付欄の初期値を期間に合わせる
+  const y0 = PERIOD.year;
+  document.getElementById("ev-base-y").innerHTML =
+    [y0 - 1, y0, y0 + 1, y0 + 2].map(y => `<option value="${y}">${y}年</option>`).join("");
+  document.getElementById("ev-base-m").innerHTML =
+    Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}">${i + 1}月</option>`).join("");
+  const first = periodDatesCache().min;
+  document.getElementById("ev-base-y").value = first.slice(0, 4);
+  document.getElementById("ev-base-m").value = String(Number(first.slice(5, 7)));
+  setPeriodDateRange("ev-date");
+  onEvFormChange();
+  renderEvents(); renderEventMoves();
+  document.getElementById("event-modal").style.display = "block";
+}
+function onEvFormChange() {
+  const isDate = document.getElementById("ev-type").value === "date";
+  document.getElementById("ev-monthly-form").style.display = isDate ? "none" : "";
+  document.getElementById("ev-date-form").style.display = isDate ? "" : "none";
+  document.getElementById("ev-base-wrap").style.display =
+    document.getElementById("ev-every").value === "1" ? "none" : "";
+}
 function renderEventMoves() {
   const tb = document.getElementById("event-move-list");
-  const ocs = eventOccurrences().sort((a, b) => a.orig < b.orig ? -1 : 1);
+  // 日にち指定の行事は一覧で日付を直接変えるので、ここには出さない
+  const ocs = eventOccurrences().filter(oc => oc.ev.type !== "date").sort((a, b) => a.orig < b.orig ? -1 : 1);
   tb.innerHTML = ocs.length ? "" : `<tr><td colspan="4" style="color:#888;">開催回なし</td></tr>`;
   const fmt = iso => {
     const [y, m, d] = iso.split("-").map(Number);
@@ -2518,9 +2625,32 @@ function closeEventModal() { document.getElementById("event-modal").style.displa
 function renderEvents() {
   const tb = document.getElementById("event-list");
   tb.innerHTML = EVENTS_FIXED.length ? "" : `<tr><td colspan="5" style="color:#888;">登録なし</td></tr>`;
+  const ocs = eventOccurrences();
   EVENTS_FIXED.forEach((ev, i) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><b>${ev.name}</b></td><td>第${ev.nth}</td><td>${YOBI[ev.dow]}曜</td>`;
+    const dates = ocs.filter(oc => oc.ev === ev).map(oc => fmtMD(oc.eff) + (oc.moved ? "*" : ""));
+    tr.innerHTML = `<td><b>${ev.name}</b></td>`;
+    const tdR = document.createElement("td");
+    if (ev.type === "date") {
+      // 日にち指定は日付をその場で変更できる
+      const di = document.createElement("input");
+      di.type = "date"; di.value = ev.date;
+      di.onchange = () => {
+        if (!di.value) { di.value = ev.date; return; }
+        pushUndo("行事の日付変更");
+        ev.date = di.value;
+        saveJson("kinmu_events_fixed", EVENTS_FIXED); renderEvents(); render();
+      };
+      tdR.innerHTML = `<span style="font-size:11px;color:#555;">日にち指定</span><br>`;
+      tdR.appendChild(di);
+    } else {
+      tdR.textContent = eventRuleText(ev);
+    }
+    tr.appendChild(tdR);
+    const tdD = document.createElement("td");
+    tdD.style.fontSize = "11px";
+    tdD.textContent = dates.length ? dates.join("、") : "なし";
+    tr.appendChild(tdD);
     const tdM = document.createElement("td");
     const inp = document.createElement("input");
     inp.type = "text"; inp.value = ev.members.join("、"); inp.style.width = "160px";
@@ -2534,20 +2664,43 @@ function renderEvents() {
     const td = document.createElement("td");
     const b = document.createElement("button");
     b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
-    b.onclick = () => { EVENTS_FIXED.splice(i, 1); saveJson("kinmu_events_fixed", EVENTS_FIXED); renderEvents(); render(); };
+    b.onclick = () => {
+      if (!confirm(`行事「${ev.name}」（${eventRuleText(ev)}）を削除しますか？`)) return;
+      pushUndo("行事の削除");
+      EVENTS_FIXED.splice(i, 1); saveJson("kinmu_events_fixed", EVENTS_FIXED);
+      renderEvents(); renderEventMoves(); render();
+    };
     td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
   });
 }
 function addEvent() {
   const name = document.getElementById("ev-name").value.trim();
   if (!name) { alert("行事名を入力してください"); return; }
+  let ev;
+  if (document.getElementById("ev-type").value === "date") {
+    const date = document.getElementById("ev-date").value;
+    if (!date) { alert("日付を選んでください"); return; }
+    if (EVENTS_FIXED.some(e => e.type === "date" && e.name === name && e.date === date)) { alert("同じ行事・日付がすでに登録されています"); return; }
+    ev = { name, type: "date", date };
+  } else {
+    const every = Number(document.getElementById("ev-every").value);
+    ev = { name, nth: Number(document.getElementById("ev-nth").value),
+           dow: Number(document.getElementById("ev-dow").value), every };
+    if (every > 1) {
+      const by = document.getElementById("ev-base-y").value, bm = document.getElementById("ev-base-m").value;
+      ev.base = `${by}-${String(bm).padStart(2, "0")}`;
+    }
+  }
   const p = parseNames(document.getElementById("ev-members").value);
   if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
-  EVENTS_FIXED.push({ name, nth: Number(document.getElementById("ev-nth").value),
-                      dow: Number(document.getElementById("ev-dow").value), members: p.ok });
+  ev.members = p.ok;
+  pushUndo("行事の追加");
+  EVENTS_FIXED.push(ev);
   saveJson("kinmu_events_fixed", EVENTS_FIXED);
+  EVENT_DATES = buildEventDates();
   document.getElementById("ev-name").value = ""; document.getElementById("ev-members").value = "";
-  renderEvents(); render();
+  document.getElementById("ev-date").value = "";
+  renderEvents(); renderEventMoves(); render();
 }
 
 function openWorkModal() {
@@ -2670,6 +2823,7 @@ function saveCurrentSchedule() {
   } else arch.push(entry);
   arch.sort((a, b) => a.period.year - b.period.year || (a.period.months[0] - b.period.months[0]));
   saveArchive(arch);
+  renderProgress();
   alert(`「${label}」を保存しました（過去の勤務表・年間集計から見返せます）。`);
 }
 function fiscalYearOf(p) {
@@ -2920,6 +3074,7 @@ function carryForwardToNext() {
   FURIKYU_AUTO = []; saveFurikyuAuto();
   NIGHT_AUTO = []; saveNightAuto();
   localStorage.setItem("kinmu_carried_from", label);
+  render();
   openPeriodModal();
   alert(`引き継ぎました（繰越振休 ${carry.length}件）。\n続いて「② 次期の希望休申請を取り込む」を行ってください。`);
 }
@@ -3421,6 +3576,12 @@ async function exportExcel() {
   a.href = URL.createObjectURL(blob);
   a.download = `勤務表_${periodLabel(PERIOD)}.xlsx`;
   a.click();
+  markExported();
+}
+// 進み具合の「出力」用に、この期間を出力したことを記録する
+function markExported() {
+  localStorage.setItem("kinmu_exported", periodLabel(PERIOD));
+  renderProgress();
 }
 
 function buildPrintHtml() {
@@ -3535,6 +3696,7 @@ function exportPrint() {
   w.document.write(buildPrintHtml());
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
+  markExported();
 }
 
 /* ============================================================
@@ -3545,7 +3707,7 @@ const UNDO_MAX = 30;
 function pushUndo(label) {
   UNDO_STACK.push({ label, time: new Date().toLocaleTimeString("ja-JP"), snap: JSON.stringify({
     data: DATA, nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, part: PARTICIPATION,
-    holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES,
+    holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES, events: EVENTS_FIXED,
     prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION, prevLastIn: PREV_LASTIN,
   }) });
   if (UNDO_STACK.length > UNDO_MAX) UNDO_STACK.shift();
@@ -3556,6 +3718,7 @@ function applySnapshot(snap) {
   DATA = o.data; NIGHT_AUTO = o.nightAuto; FURIKYU_AUTO = o.furiAuto;
   CUSTOM_HOLIDAYS = new Set(o.holidays); CARRY_SET = new Set(o.carry); LEAVES = o.leaves;
   if (o.moves) { EVENT_MOVES = o.moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
+  if (o.events) { EVENTS_FIXED = o.events; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
   if (o.prevCarry) { PREV_CARRY = o.prevCarry; saveJson("kinmu_prev_carryover", PREV_CARRY); }
   if (o.part) { PARTICIPATION = o.part; saveJson("kinmu_participation", PARTICIPATION); }
   if (o.period) { PERIOD = o.period; savePeriod(); TABS = buildTabs(); if (!PERIOD.months.includes(Number(currentTab)) && currentTab !== "extra") currentTab = String(PERIOD.months[0]); }
@@ -3683,12 +3846,130 @@ function onMemoInput() {
 }
 
 /* ============================================================
+   作成の進み具合（グラフ表示）
+   ============================================================ */
+function computeProgress() {
+  const dates = allPeriodDates(), label = periodLabel(PERIOD);
+  const dset = periodDatesCache().set;
+  let req = 0;
+  for (const n of STAFF) for (const iso in (DATA[n] || {})) {
+    const v = DATA[n][iso];
+    if (dset.has(iso) && v && !["○","入","明","残","振"].includes(v) && !labelToDuty(v)) req++;
+  }
+  // 日直・残り当番は必要人数に対する充足、夜勤は「入」がある日の割合
+  const duty = { have: 0, need: 0 }, night = { have: 0, need: dates.length }, zan = { have: 0, need: 0 };
+  for (const iso of dates) {
+    if (isRestDay(iso)) {
+      const t = isHoliday(iso) ? DUTY_COUNT_HOLIDAY : DUTY_COUNT_WEEKEND;
+      duty.need += t; duty.have += Math.min(t, dutyMembersOf(iso).length);
+    } else {
+      zan.need += ZAN_PER_DAY;
+      zan.have += Math.min(ZAN_PER_DAY, STAFF.filter(n => (DATA[n] || {})[iso] === "残").length);
+    }
+    if (STAFF.some(n => (DATA[n] || {})[iso] === "入")) night.have++;
+  }
+  const st = _FSTATE || computeFurikyuState();
+  const furi = { total: st.duties.length, carried: st.carried.length, pending: st.pending.length };
+  furi.placed = furi.total - furi.carried - furi.pending;
+  const xCand = weekendXCandidates();
+  const warnN = checkWarnings(dates).filter(w => w.startsWith("⚠")).length;
+  const exported = localStorage.getItem("kinmu_exported") === label;
+  const saved = loadArchive().some(a => a.label === label);
+  const carried = localStorage.getItem("kinmu_carried_from");
+
+  const pct = o => o.need ? Math.min(1, o.have / o.need) : 0;
+  const byPct = p => p >= 1 ? "done" : p > 0 ? "partial" : "todo";
+  const furiRun = duty.have > 0 && (FURIKYU_AUTO.length > 0 || (furi.total > 0 && furi.pending === 0));
+  const assigned = duty.have + night.have + zan.have > 0;
+  const steps = [
+    { key: "req",   label: "申請の取り込み", state: req ? "done" : "todo", tip: `希望休・申請 ${req}件` },
+    { key: "x",     label: "連休に×", state: req && !xCand ? "done" : "todo",
+      tip: xCand ? `×を置ける休日があと${xCand}件` : "完了（または対象なし）" },
+    { key: "duty",  label: "1. 日直", state: byPct(pct(duty)), p: pct(duty), tip: `${duty.have}/${duty.need}人` },
+    { key: "night", label: "2. 夜勤", state: byPct(pct(night)), p: pct(night), tip: `${night.have}/${night.need}日` },
+    { key: "furi",  label: "3. 振休", state: furiRun ? "done" : furi.placed > 0 ? "partial" : "todo",
+      tip: `配置 ${furi.placed}件・繰越 ${furi.carried + furi.pending}件／権利 ${furi.total}件` },
+    { key: "zan",   label: "4. 残り当番", state: byPct(pct(zan)), p: pct(zan), tip: `${zan.have}/${zan.need}人` },
+    { key: "warn",  label: warnN ? `警告 ${warnN}件` : "警告の確認", state: !assigned ? "todo" : warnN ? "partial" : "done",
+      tip: warnN ? `⚠の警告が${warnN}件あります（表の上の赤字）` : "⚠の警告はありません" },
+    { key: "out",   label: "出力", state: exported ? "done" : "todo", tip: "Excel出力 または 印刷（PDF）" },
+    { key: "save",  label: "保存", state: saved ? "done" : "todo", tip: "この勤務表を保存" },
+  ];
+  const val = s => s.state === "done" ? 1 : s.state === "partial" ? (s.p !== undefined ? s.p : 0.5) : 0;
+  const overall = steps.reduce((a, s) => a + val(s), 0) / steps.length;
+  const nextIdx = steps.findIndex(s => s.state !== "done");
+  let next;
+  if (carried === label) next = "今期は締め済み → 期間・次期作成の「② 希望休申請Excelを読み込む」";
+  else if (nextIdx < 0) next = "✓ 完成しています";
+  else {
+    const s = steps[nextIdx];
+    next = s.key === "req" ? "希望休申請を取り込む（期間・次期作成 → ②）"
+         : s.key === "x" ? "設定を確認 →「希望休の連休に×」"
+         : s.key === "warn" ? "赤い警告を確認して手で直す"
+         : s.key === "out" ? "Excel出力・印刷（PDF）"
+         : s.key === "save" ? "「この勤務表を保存」"
+         : `「${s.label}」`;
+    if (s.state === "partial" && ["duty", "night", "zan"].includes(s.key)) next += `（足りない日があります: ${s.tip}）`;
+  }
+  return { label, req, duty, night, zan, furi, xCand, warnN, exported, saved, carried, steps, nextIdx, overall, next };
+}
+
+function progressRing(p) {
+  const r = 34, c = 2 * Math.PI * r, v = Math.round(p * 100);
+  const col = v >= 100 ? "var(--green)" : "var(--blue)";
+  const arc = p > 0 ? `<circle cx="42" cy="42" r="${r}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round"
+      stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 42 42)"/>` : "";
+  return `<svg viewBox="0 0 84 84" width="84" height="84" role="img" aria-label="全体の進み具合 ${v}%">
+    <circle cx="42" cy="42" r="${r}" fill="none" stroke="#EEE" stroke-width="9"/>${arc}
+    <text x="42" y="44" text-anchor="middle" font-size="17" font-weight="bold" fill="#333">${v}%</text>
+    <text x="42" y="58" text-anchor="middle" font-size="9" fill="#888">全体</text></svg>`;
+}
+function progressBar(label, segs, total, num) {
+  const w = v => total ? (100 * v / total).toFixed(1) : 0;
+  return `<div class="pg-bar-row"><span class="lbl">${label}</span>
+    <div class="pg-bar">${segs.map(([v, col, t]) => `<span style="width:${w(v)}%; background:${col};" title="${t}"></span>`).join("")}</div>
+    <span class="num">${num}</span></div>`;
+}
+function renderProgress() {
+  const box = document.getElementById("progress-box");
+  if (!box) return;
+  const pg = computeProgress();
+  let mini = false;
+  try { mini = localStorage.getItem("kinmu_progress_mini") === "1"; } catch (e) {}
+  box.classList.toggle("mini", mini);
+  document.getElementById("pg-toggle").textContent = mini ? "▼ グラフを表示" : "▲ 小さくする";
+  document.getElementById("pg-next").textContent = `全体 ${Math.round(pg.overall * 100)}%　次は: ${pg.next}`;
+  document.getElementById("pg-ring").innerHTML = progressRing(pg.overall);
+  document.getElementById("pg-steps").innerHTML = pg.steps.map((s, i) =>
+    `${i ? '<span class="pg-arrow">▶</span>' : ""}<span class="pg-step ${s.state}${i === pg.nextIdx ? " current" : ""}" title="${s.tip}">` +
+    `${s.state === "done" ? "✓ " : ""}${s.label}</span>`).join("");
+  const f = pg.furi;
+  document.getElementById("pg-bars").innerHTML = [
+    progressBar("日直", [[pg.duty.have, "#5B9BD5", "割り当て済み"]], pg.duty.need, `${pg.duty.have} / ${pg.duty.need}人`),
+    progressBar("夜勤", [[pg.night.have, "#1F4E79", "入りのある日"]], pg.night.need, `${pg.night.have} / ${pg.night.need}日`),
+    progressBar("振休", [[f.placed, "#7B5EA7", "配置済み"], [f.carried + f.pending, "#CDB8E6", "次回へ繰越"]], f.total,
+      `${f.placed} / ${f.total}件` + (f.carried + f.pending ? `（繰越${f.carried + f.pending}）` : "")),
+    progressBar("残り当番", [[pg.zan.have, "#2E8B57", "割り当て済み"]], pg.zan.need, `${pg.zan.have} / ${pg.zan.need}人`),
+  ].join("");
+}
+function toggleProgress() {
+  const mini = !document.getElementById("progress-box").classList.contains("mini");
+  try { localStorage.setItem("kinmu_progress_mini", mini ? "1" : "0"); } catch (e) {}
+  renderProgress();
+}
+
+/* ============================================================
    作り方ガイド
    ※ 作り方（手順・ボタン名・ルール）が変わる改修をしたら、
      GUIDE_UPDATES の先頭に変更点を追加し、guideHtml() の該当説明も必ず書き換えること。
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-10-28", ver: "v8.9", items: [
+    "表の上に「📊 作成の進み具合」を追加しました。全体の％、手順ごとの済み／途中／まだ、日直・夜勤・振休・残り当番の埋まり具合をグラフで表示します。「▲ 小さくする」で1行にたためます。",
+    "「行事設定」で、第n曜日の行事を「2か月ごと」「3か月ごと」など数か月おきにできるようにしました（開始月を指定）。",
+    "「行事設定」で、日にちを指定して行事を登録できるようにしました（年1回の行事や臨時の会議など）。",
+  ]},
   { date: "2026-10-23", ver: "v8.8", items: [
     "このアプリ内に「作り方」ガイドを追加しました。今の状況と「次にやること」も表示されます。",
     "「祝日扱い」「振休繰越管理」「割り当て参加」の日付欄が10〜12月に固定されていたのを、今の期間に合わせるように直しました。",
@@ -3746,55 +4027,28 @@ function guideNewHtml() {
     `</ul></div>`;
 }
 
-/* 現在のデータから作業の進み具合を調べる */
-function guideState() {
-  const label = periodLabel(PERIOD);
-  const dset = periodDatesCache().set;
-  const c = { req: 0, people: 0, "○": 0, "入": 0, "残": 0, furi: 0 };
-  for (const n of STAFF) {
-    let mine = 0;
-    for (const iso in (DATA[n] || {})) {
-      if (!dset.has(iso)) continue;
-      const v = DATA[n][iso];
-      if (v in c) c[v]++;
-      else if (labelToDuty(v)) c.furi++;
-      else if (!["明", "振"].includes(v)) mine++;
-    }
-    c.req += mine; if (mine) c.people++;
-  }
-  return {
-    label, c,
-    carried: localStorage.getItem("kinmu_carried_from"),
-    saved: loadArchive().some(a => a.label === label),
-    warns: document.getElementById("warn-list").innerHTML.split("<br>").filter(s => s.trim()).length,
-  };
-}
-function guideNextStep(s) {
-  if (s.carried === s.label)
-    return `今期は締め済みです。次は ${gbtn("期間・次期作成", "openPeriodModal")} →「② 希望休申請Excelを読み込む」`;
-  if (!s.c.req) return `希望休申請を取り込んでください（${gbtn("期間・次期作成", "openPeriodModal")} → ②）`;
-  if (!s.c["○"]) return `設定を確認 →「希望休の連休に×」→「1. 日直」`;
-  if (!s.c["入"]) return `「2. 夜勤」`;
-  if (!s.c.furi) return `「3. 振休」`;
-  if (!s.c["残"]) return `「4. 残り当番」`;
-  if (s.warns) return `赤い警告（${s.warns}件）を確認して手で直す → Excel出力 →「この勤務表を保存」`;
-  if (!s.saved) return `Excel出力・印刷 →「この勤務表を保存」`;
-  return `完成しています。次の期間を作るときは「次の期間の作り方」へ`;
-}
+/* いまの状況（作成の進み具合と同じ集計を使う） */
 function guideStatusHtml() {
-  const s = guideState(), c = s.c;
-  const mark = (n, unit) => n ? `<span class="ok">✓ ${n}${unit}</span>` : `<span class="ng">まだ</span>`;
-  const carriedTxt = s.carried === s.label ? `<span class="ok">✓ この期間を締めて引き継ぎ済み</span>`
-    : s.carried ? `「${s.carried}」から引き継ぎ済み` : `<span class="ng">なし</span>`;
+  const pg = computeProgress();
+  const st = k => pg.steps.find(s => s.key === k);
+  const mark = k => { const s = st(k);
+    return s.state === "done" ? `<span class="ok">✓ ${s.tip}</span>`
+         : s.state === "partial" ? `<span style="color:var(--orange);font-weight:bold;">△ ${s.tip}</span>`
+         : `<span class="ng">まだ</span>`; };
+  const carriedTxt = pg.carried === pg.label ? `<span class="ok">✓ この期間を締めて引き継ぎ済み</span>`
+    : pg.carried ? `「${pg.carried}」から引き継ぎ済み` : `<span class="ng">なし</span>`;
+  const next = pg.carried === pg.label || pg.steps[pg.nextIdx]?.key === "req"
+    ? `${pg.next.replace(/期間・次期作成.*$/, "")}${gbtn("期間・次期作成", "openPeriodModal")} →「② 希望休申請Excelを読み込む」`
+    : pg.next;
   return `<table class="g-status">
-    <tr><th>対象期間</th><td>${s.label}</td></tr>
-    <tr><th>希望休・申請</th><td>${c.req}件（${c.people}名）</td></tr>
+    <tr><th>対象期間</th><td>${pg.label}</td></tr>
+    <tr><th>希望休・申請</th><td>${pg.req}件</td></tr>
     <tr><th>前の期間からの引き継ぎ</th><td>${carriedTxt}<br>
       前回繰越の振休 ${PREV_CARRY.length}件／前期最後の夜勤 ${PREV_NIGHT.name || "-"}（${fmtMD(PREV_NIGHT.date)}）／日直の開始班 ${"ABCDE"[CYCLE_START_IDX]}班</td></tr>
-    <tr><th>割り当て</th><td>日直 ${mark(c["○"], "件")}　夜勤 ${mark(c["入"], "回")}　振休 ${mark(c.furi, "件")}　残り当番 ${mark(c["残"], "件")}</td></tr>
-    <tr><th>警告</th><td>${s.warns ? `<span style="color:var(--red);font-weight:bold;">${s.warns}件</span>（表の上の赤字）` : "なし"}</td></tr>
-    <tr><th>過去の勤務表に保存</th><td>${s.saved ? `<span class="ok">✓ 保存済み</span>` : `<span class="ng">まだ</span>`}</td></tr>
-    <tr><th>次にやること</th><td class="g-next">${guideNextStep(s)}</td></tr>
+    <tr><th>割り当て</th><td>日直 ${mark("duty")}<br>夜勤 ${mark("night")}<br>振休 ${mark("furi")}<br>残り当番 ${mark("zan")}</td></tr>
+    <tr><th>警告</th><td>${pg.warnN ? `<span style="color:var(--red);font-weight:bold;">${pg.warnN}件</span>（表の上の赤字）` : "なし"}</td></tr>
+    <tr><th>出力・保存</th><td>出力 ${pg.exported ? `<span class="ok">✓</span>` : `<span class="ng">まだ</span>`}　過去の勤務表に保存 ${pg.saved ? `<span class="ok">✓</span>` : `<span class="ng">まだ</span>`}</td></tr>
+    <tr><th>次にやること</th><td class="g-next">${next}</td></tr>
   </table>`;
 }
 
@@ -3802,6 +4056,7 @@ function guideHtml(tab) {
   if (tab === "basic") return `
     <h4>いまの状況</h4>
     ${guideStatusHtml()}
+    <div class="g-tip">💡 表の上の <b>「📊 作成の進み具合」</b> で、全体の％と、どこまで済んだか（緑＝済み・オレンジ＝途中・灰色＝まだ・青枠＝次にやること）をいつでも確認できます。</div>
     <h4>勤務表を作る手順</h4>
     <ol>
       <li><b>最新版で開く</b> — <b>Cmd+Shift+R</b>（WindowsはCtrl+Shift+R）で再読み込みします。画面左上に「${APP_VERSION}」と出ていれば最新版です。</li>
@@ -3812,7 +4067,7 @@ function guideHtml(tab) {
           <li>${gbtn("割り当て参加", "openPartModal")} … 途中から夜勤・日直・残り当番に入る人／中断する人</li>
           <li>${gbtn("夜勤条件", "openNightModal")} … 夜勤の対象外・できる曜日・月の上限回数</li>
           <li>${gbtn("残当・NG組み合わせ", "openZanModal")} … 残り当番の対象外、一緒にしない組み合わせ</li>
-          <li>${gbtn("行事設定", "openEventModal")} … 会議などの日程変更・必ず出勤する人</li>
+          <li>${gbtn("行事設定", "openEventModal")} … 会議などの行事（毎月／数か月ごとの第n曜日、または日にち指定）・その回だけの日程変更・必ず出勤する人</li>
           <li>${gbtn("勤務条件（グループ・曜日）", "openWorkModal")} … グループの最低出勤人数・必ず出勤する曜日</li>
           <li>${gbtn("祝日扱い", "openHolidayModal")} … 年末（12/29〜31）など、祝日として扱う日</li>
           <li>${gbtn("振休繰越管理", "openCarryModal")} … 前回から繰り越された振休</li>
@@ -3886,7 +4141,12 @@ function guideHtml(tab) {
     <h4>そのほか</h4>
     <ul>
       <li>連続勤務は<b>6日まで</b>（超えると警告。自動割り当ても6日を超えないように選びます）。</li>
-      <li>事務連絡列：決まった行事（第n曜日など、${gbtn("行事設定", "openEventModal")}）が自動で入ります。セルをクリックすると日ごとに書き足せます。</li>
+      <li>事務連絡列：${gbtn("行事設定", "openEventModal")} で登録した行事が自動で入ります。セルをクリックすると日ごとに書き足せます。
+        <ul>
+          <li><b>第n曜日</b>：「毎月」のほか「2か月ごと」「3か月ごと」…「12か月ごと」。毎月以外は<b>開始月</b>（最初に行う月）を選びます。例：開始月 1月・3か月ごと → 1月・4月・7月・10月。</li>
+          <li><b>日にち指定</b>：その日だけ行う行事。別の日にも行うときは、日付を変えてもう一度追加します。登録後も一覧で日付を変えられます。</li>
+          <li>祝日と重なった回などは「開催日の個別変更」でその回だけ移動できます。</li>
+        </ul></li>
       <li>グループの最低出勤人数（調剤1人以上・病棟2人以上など）と必ず出勤する曜日は ${gbtn("勤務条件（グループ・曜日）", "openWorkModal")}。</li>
       <li>日付のセルをクリックすると、その日を「祝日扱い」にできます（国民の祝日は外せません）。</li>
     </ul>`;
