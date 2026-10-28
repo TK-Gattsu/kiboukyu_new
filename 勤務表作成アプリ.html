@@ -357,7 +357,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <div id="event-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeEventModal()">
   <div class="leave-box" style="max-width:680px;">
     <h3>行事設定</h3>
-    <div class="hint">行事を登録すると事務連絡欄に自動表示されます。「第n曜日」（毎月・数か月ごと）か「日にち指定」で登録できます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。日ごとの追記は表の事務連絡セルをクリック。</div>
+    <div class="hint">行事を登録すると事務連絡欄に自動表示されます。「第n曜日」（毎月・数か月ごと）か「日にち指定」で登録できます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。「全員」と入力すると全員が対象です（休みの人を警告。夜勤・残り当番は通常どおり）。日ごとの追記は表の事務連絡セルをクリック。</div>
     <table><thead><tr><th>行事名</th><th>開催ルール</th><th>今期の開催日</th><th>必須出勤者（、区切り）</th><th></th></tr></thead><tbody id="event-list"></tbody></table>
     <div style="background:#F5F5F5; border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:12px;">
       <b style="font-size:12px;">行事を追加</b>
@@ -382,7 +382,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
         <span style="font-size:11px; color:#888;">同じ行事を別の日にも行うときは、日付を変えてもう一度追加してください</span>
       </div>
       <div class="leave-form" style="margin:6px 0 0;">
-        <input type="text" id="ev-members" placeholder="必須出勤者（任意・、区切り）" style="width:200px;">
+        <input type="text" id="ev-members" placeholder="必須出勤者（任意・、区切り／全員）" style="width:230px;">
         <button class="btn btn-success btn-sm" onclick="addEvent()">追加</button>
       </div>
     </div>
@@ -964,6 +964,12 @@ function groupShortIfAbsent(n, iso) {
   return null;
 }
 function restBlocked(n, iso) { return mustWork(n, iso) || groupBlocked(n, iso); }
+// 必須出勤者が「全員」の行事: 振休は置かず、休みの人を警告する（夜勤・残り当番は通常どおり割り当てる）
+function allHandsEvent(n, iso) {
+  if (onLeave(n, iso)) return null;
+  const ev = (EVENT_DATES[iso] || []).find(e => e.all);
+  return ev ? ev.name : null;
+}
 
 /* ---- 残り当番の自動割り当て ---- */
 function doAssignZan() {
@@ -1204,6 +1210,13 @@ function extraWarnings(dates) {
               warns.push(`⚠ ${lbl} ${n} は「${req}」のため通常勤務が必要ですが「${cur}」になっています`);
           }
         }
+        // 必須出勤「全員」の行事
+        const allEv = (EVENT_DATES[iso] || []).filter(e => e.all);
+        if (allEv.length) {
+          const off = STAFF.filter(n => !onLeave(n, iso) && !isWorkingDay(n, iso))
+            .map(n => `${n}（${(DATA[n] || {})[iso] || "休"}）`);
+          if (off.length) warns.push(`⚠ ${lbl}「${allEv.map(e => e.name).join("・")}」は全員出勤ですが休み: ${off.join("、")}`);
+        }
       }
     }
     // 残り当番の間隔
@@ -1393,7 +1406,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.9";
+const APP_VERSION = "v8.10";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -2292,7 +2305,7 @@ function doAssignFurikyu() {
     // 2) 充当先が無ければ空きセルに新規配置
     for (let t = 0; t < tiers.length && !placed; t++) {
       for (const iso of sortTier(tiers[t])) {
-        if (freeCell(it.name, iso) && !restBlocked(it.name, iso) && countYasumi(iso) < MAX_YASUMI_PER_DAY) {
+        if (freeCell(it.name, iso) && !restBlocked(it.name, iso) && !allHandsEvent(it.name, iso) && countYasumi(iso) < MAX_YASUMI_PER_DAY) {
           placed = iso;
           if (!it.long && tiers[t] === late) isLate = true;
           break;
@@ -2512,6 +2525,15 @@ function parseNames(text) {
   return { ok: names.filter(n => STAFF.includes(n)), bad: names.filter(n => !STAFF.includes(n)) };
 }
 
+// 行事の必須出勤者の入力を反映する（「全員」と書くと全員が対象）
+function setEventMembers(ev, text) {
+  if (text.split(/[、,\s]+/).includes("全員")) { ev.all = true; ev.members = []; return; }
+  const p = parseNames(text);
+  if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
+  ev.members = p.ok;
+  delete ev.all;
+}
+
 function openZanModal() {
   const box = document.getElementById("zan-ng-boxes");
   box.innerHTML = "";
@@ -2653,11 +2675,9 @@ function renderEvents() {
     tr.appendChild(tdD);
     const tdM = document.createElement("td");
     const inp = document.createElement("input");
-    inp.type = "text"; inp.value = ev.members.join("、"); inp.style.width = "160px";
+    inp.type = "text"; inp.value = ev.all ? "全員" : ev.members.join("、"); inp.style.width = "160px";
     inp.onchange = () => {
-      const p = parseNames(inp.value);
-      if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
-      ev.members = p.ok;
+      setEventMembers(ev, inp.value);
       saveJson("kinmu_events_fixed", EVENTS_FIXED); render();
     };
     tdM.appendChild(inp); tr.appendChild(tdM);
@@ -2691,9 +2711,7 @@ function addEvent() {
       ev.base = `${by}-${String(bm).padStart(2, "0")}`;
     }
   }
-  const p = parseNames(document.getElementById("ev-members").value);
-  if (p.bad.length) alert("不明な名前をスキップ: " + p.bad.join("、"));
-  ev.members = p.ok;
+  setEventMembers(ev, document.getElementById("ev-members").value);
   pushUndo("行事の追加");
   EVENTS_FIXED.push(ev);
   saveJson("kinmu_events_fixed", EVENTS_FIXED);
@@ -3965,6 +3983,9 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-10-28", ver: "v8.10", items: [
+    "「行事設定」の必須出勤者に「全員」と入力すると、全員が対象になるようにしました。その日は振休を置かず、休みの人をまとめて警告します（夜勤と残り当番は通常どおり割り当てます）。",
+  ]},
   { date: "2026-10-28", ver: "v8.9", items: [
     "表の上に「📊 作成の進み具合」を追加しました。全体の％、手順ごとの済み／途中／まだ、日直・夜勤・振休・残り当番の埋まり具合をグラフで表示します。「▲ 小さくする」で1行にたためます。",
     "「行事設定」で、第n曜日の行事を「2か月ごと」「3か月ごと」など数か月おきにできるようにしました（開始月を指定）。",
@@ -4145,6 +4166,7 @@ function guideHtml(tab) {
         <ul>
           <li><b>第n曜日</b>：「毎月」のほか「2か月ごと」「3か月ごと」…「12か月ごと」。毎月以外は<b>開始月</b>（最初に行う月）を選びます。例：開始月 1月・3か月ごと → 1月・4月・7月・10月。</li>
           <li><b>日にち指定</b>：その日だけ行う行事。別の日にも行うときは、日付を変えてもう一度追加します。登録後も一覧で日付を変えられます。</li>
+          <li><b>必須出勤者</b>：名前を「、」区切りで入れると、その人はその日必ず勤務（振休・夜勤・残り当番を置かない）。<b>「全員」</b>と入れると全員が対象になり、振休を置かず、休みの人をまとめて警告します（夜勤と残り当番は通常どおり）。</li>
           <li>祝日と重なった回などは「開催日の個別変更」でその回だけ移動できます。</li>
         </ul></li>
       <li>グループの最低出勤人数（調剤1人以上・病棟2人以上など）と必ず出勤する曜日は ${gbtn("勤務条件（グループ・曜日）", "openWorkModal")}。</li>
