@@ -375,8 +375,8 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <div id="event-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:200;" onclick="if(event.target===this)closeEventModal()">
   <div class="leave-box" style="max-width:680px;">
     <h3>行事設定</h3>
-    <div class="hint">行事を登録すると事務連絡欄に自動表示されます。「第n曜日」（毎月・数か月ごと）か「日にち指定」で登録できます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。「全員」と入力すると全員が対象です（休みの人を警告。夜勤・残り当番は通常どおり）。日ごとの追記は表の事務連絡セルをクリック。</div>
-    <table><thead><tr><th>行事名</th><th>開催ルール</th><th>今期の開催日</th><th>必須出勤者（、区切り）</th><th></th></tr></thead><tbody id="event-list"></tbody></table>
+    <div class="hint">行事を登録すると事務連絡欄に自動表示されます。「第n曜日」（毎月・数か月ごと）か「日にち指定」で登録できます。必須出勤者を指定すると、その人はその日必ず勤務（振休などを置きません。既存の休みがあれば警告）。「全員」と入力すると全員が対象です（休みの人を警告。夜勤・残り当番は通常どおり）。「事務連絡に表示」のチェックを外すと、事務連絡欄（画面・Excel・印刷）には出さず、必須出勤などの扱いだけ残ります。日ごとの追記は表の事務連絡セルをクリック。</div>
+    <table><thead><tr><th>行事名</th><th>開催ルール</th><th>今期の開催日</th><th>必須出勤者（、区切り）</th><th>事務連絡<br>に表示</th><th></th></tr></thead><tbody id="event-list"></tbody></table>
     <div style="background:#F5F5F5; border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:12px;">
       <b style="font-size:12px;">行事を追加</b>
       <div class="leave-form" style="margin:6px 0;">
@@ -401,6 +401,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
       </div>
       <div class="leave-form" style="margin:6px 0 0;">
         <input type="text" id="ev-members" placeholder="必須出勤者（任意・、区切り／全員）" style="width:230px;">
+        <label style="font-size:12px;"><input type="checkbox" id="ev-show" checked> 事務連絡に表示</label>
         <button class="btn btn-success btn-sm" onclick="addEvent()">追加</button>
       </div>
     </div>
@@ -904,6 +905,7 @@ let EVENT_DATES  = {};
 
 // 行事の形式: 第n曜日 {name, nth, dow, every(か月ごと・省略時1), base("YYYY-MM"・every>1の起点月), members}
 //             日にち指定 {name, type:"date", date:"YYYY-MM-DD", members}
+//             共通: all(全員出勤), hidden(事務連絡に表示しない)
 function eventMatches(ev, iso) {
   if (ev.type === "date") return ev.date === iso;
   const d = Number(iso.slice(8, 10));
@@ -942,7 +944,7 @@ function buildEventDates() {
   return map;
 }
 function eventsTextOf(iso) {
-  const parts = (EVENT_DATES[iso] || []).map(e => e.name);
+  const parts = (EVENT_DATES[iso] || []).filter(e => !e.hidden).map(e => e.name);  // 「事務連絡に表示」を外した行事は出さない
   if (EVENTS_TEXT[iso]) parts.push(EVENTS_TEXT[iso]);
   return parts.join("・");
 }
@@ -1468,7 +1470,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.12";
+const APP_VERSION = "v8.13";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -2803,7 +2805,7 @@ function renderEventMoves() {
 function closeEventModal() { document.getElementById("event-modal").style.display = "none"; }
 function renderEvents() {
   const tb = document.getElementById("event-list");
-  tb.innerHTML = EVENTS_FIXED.length ? "" : `<tr><td colspan="5" style="color:#888;">登録なし</td></tr>`;
+  tb.innerHTML = EVENTS_FIXED.length ? "" : `<tr><td colspan="6" style="color:#888;">登録なし</td></tr>`;
   const ocs = eventOccurrences();
   EVENTS_FIXED.forEach((ev, i) => {
     const tr = document.createElement("tr");
@@ -2838,6 +2840,18 @@ function renderEvents() {
       saveJson("kinmu_events_fixed", EVENTS_FIXED); render();
     };
     tdM.appendChild(inp); tr.appendChild(tdM);
+    const tdS = document.createElement("td");
+    tdS.style.textAlign = "center";
+    const show = document.createElement("input");
+    show.type = "checkbox"; show.checked = !ev.hidden;
+    show.title = "外すと事務連絡欄に表示しません（必須出勤などの扱いはそのまま）";
+    show.onchange = () => {
+      pushUndo("行事の表示切り替え");
+      if (show.checked) delete ev.hidden; else ev.hidden = true;
+      saveJson("kinmu_events_fixed", EVENTS_FIXED); renderEvents(); render();
+    };
+    tdS.appendChild(show); tr.appendChild(tdS);
+    if (ev.hidden) tr.style.color = "#999";
     const td = document.createElement("td");
     const b = document.createElement("button");
     b.className = "btn btn-danger btn-sm"; b.textContent = "削除";
@@ -2869,12 +2883,13 @@ function addEvent() {
     }
   }
   setEventMembers(ev, document.getElementById("ev-members").value);
+  if (!document.getElementById("ev-show").checked) ev.hidden = true;
   pushUndo("行事の追加");
   EVENTS_FIXED.push(ev);
   saveJson("kinmu_events_fixed", EVENTS_FIXED);
   EVENT_DATES = buildEventDates();
   document.getElementById("ev-name").value = ""; document.getElementById("ev-members").value = "";
-  document.getElementById("ev-date").value = "";
+  document.getElementById("ev-date").value = ""; document.getElementById("ev-show").checked = true;
   renderEvents(); renderEventMoves(); render();
 }
 
@@ -4287,6 +4302,9 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-10-29", ver: "v8.13", items: [
+    "行事設定に「事務連絡に表示」のチェックを追加しました。チェックを外した行事は、事務連絡欄（画面・Excel出力・印刷）に出なくなります。必須出勤者・全員出勤の扱いはそのまま残ります。",
+  ] },
   { date: "2026-10-28", ver: "v8.12", items: [
     "月のタブの右に「📋 期間の集計」タブを追加しました。勤務表を作っている期間全体で、人ごとの日直・夜勤・残当・申請の回数（月ごとの内訳と計）、有給・夏期・振休などの内訳、次回へ繰り越す振休を一覧で確認できます。",
   ] },
@@ -4401,7 +4419,7 @@ function guideHtml(tab) {
           <li>${gbtn("割り当て参加", "openPartModal")} … 途中から夜勤・日直・残り当番に入る人／中断する人</li>
           <li>${gbtn("夜勤条件", "openNightModal")} … 夜勤の対象外・できる曜日・月の上限回数</li>
           <li>${gbtn("残当・NG組み合わせ", "openZanModal")} … 残り当番の対象外、一緒にしない組み合わせ</li>
-          <li>${gbtn("行事設定", "openEventModal")} … 会議などの行事（毎月／数か月ごとの第n曜日、または日にち指定）・その回だけの日程変更・必ず出勤する人</li>
+          <li>${gbtn("行事設定", "openEventModal")} … 会議などの行事（毎月／数か月ごとの第n曜日、または日にち指定）・その回だけの日程変更・必ず出勤する人。事務連絡欄に出したくない行事は「事務連絡に表示」のチェックを外します</li>
           <li>${gbtn("勤務条件（グループ・曜日）", "openWorkModal")} … グループの最低出勤人数・必ず出勤する曜日</li>
           <li>${gbtn("祝日扱い", "openHolidayModal")} … 年末（12/29〜31）など、祝日として扱う日</li>
           <li>${gbtn("振休繰越管理", "openCarryModal")} … 前回から繰り越された振休</li>
