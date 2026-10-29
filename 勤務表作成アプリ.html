@@ -1475,7 +1475,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.14";
+const APP_VERSION = "v8.15";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -2508,8 +2508,11 @@ function doAssignFurikyu() {
     if (it.src === "前回繰越") continue;
     if (!tryPlaceItem(it, false)) lateQueue.push(it);
   }
-  // 2) 前回繰越を最優先で配置（期限はすでに過ぎているので、今期のうちに必ず消化する）
-  //    期限内に置ける今期分の邪魔はしないが、期限超過で置く今期分や次回繰越より先に枠を取る
+  // 2) 期限内に置けなかった今期分は、期間内の後ろ（期限超過）へ
+  for (const it of lateQueue) {
+    if (!tryPlaceItem(it)) carryNext.push(it);
+  }
+  // 3) 前回繰越を配置（期限超過の今期分のあと。今期のうちに必ず消化し、次回繰越にはしない）
   const prevPlaced = [], overCap = [];
   const firstWeeks = new Set(dates.filter(iso => diffDaysIso(dates[0], iso) < 14));
   const placePrevCarry = (it) => {
@@ -2541,10 +2544,6 @@ function doAssignFurikyu() {
   };
   const prevItems = items.filter(it => it.src === "前回繰越").sort((a, b) => a.duty < b.duty ? -1 : 1);
   const prevFailed = prevItems.filter(it => !placePrevCarry(it));
-  // 3) 期限内に置けなかった今期分は、期間内の後ろ（期限超過）へ
-  for (const it of lateQueue) {
-    if (!tryPlaceItem(it)) carryNext.push(it);
-  }
   carryNext.push(...prevFailed);
   // 4) 後処理スワップ: 残った日付なし振に、同じ人の配置済み振休（ウィンドウ内）のラベルを
   //    付け替え、元の新規配置セルを解放する（休み枠の節約＋日付なし振の解消）
@@ -4360,6 +4359,9 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-10-29", ver: "v8.15", items: [
+    "「3. 振休」の配置の順番を「今回の分（期限内）→ 今回の分（期限超過）→ 前回繰越」に変えました。前回繰越は引き続き、今回の期間内に必ず置きます。",
+  ] },
   { date: "2026-10-29", ver: "v8.14", items: [
     "「3. 振休」で、前回繰越の振休を最優先でその人に割り振り、今回の期間内に必ず消化するようにしました（夜勤明けの「振」→ 期間の最初の2週間の順。空きがなければ休みの上限を超えてでも置いてお知らせします）。",
     "前回繰越の振休は、振休繰越管理でもう一度繰越にできなくなりました。期間内に置かれていないときは赤い警告が出ます。前回繰越分は「期限超過」の表示から外しました。",
@@ -4546,9 +4548,9 @@ function guideHtml(tab) {
     <h4>振休（M/D振）</h4>
     <ul>
       <li>日直（○）と、土日祝の「業」「入」「明」で1日もらえます（前回からの繰越 ${PREV_CARRY.length}件も含みます）。</li>
-      <li><b>前回繰越の分は優先</b>して、その人の今回の期間内に必ず置きます。
+      <li><b>前回繰越の分</b>（「振休繰越管理」の「前回からの繰越分」）は、次回へ繰り越す今回の分より優先して、その人の今回の期間内に必ず置きます。
         <ul>
-          <li>順番：今回の期間の分を期限内に置く → <b>前回繰越</b> → 期限を超えて置く今回の分 → 次回へ繰越。</li>
+          <li>順番：今回の期間の分を期限内に置く → 期限を超えて置く今回の分 → <b>前回繰越</b> → 置けなかった今回の分は次回へ繰越。</li>
           <li>置く日：夜勤明けの「振」があればそこに充当、なければ期間の最初の2週間を優先します。</li>
           <li>空きがなければ休みの上限（${MAX_YASUMI_PER_DAY}人）を超えてでも置き、その日をお知らせします。必須出勤・全員出勤の日には置きません。</li>
           <li>前回繰越はもう一度繰り越すことはできません。</li>
