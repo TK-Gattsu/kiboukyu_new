@@ -1475,7 +1475,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.15";
+const APP_VERSION = "v8.16";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -2257,7 +2257,6 @@ function saveNightModal() {
 const FURIKYU_AUTO_KEY = "kinmu_furikyu_auto";
 let FURIKYU_AFTER_DAYS = 14;   // 振休の付与期限: 出勤後○日以内
 let FURIKYU_BEFORE_DAYS = 7;   // 前付与の許容: 出勤の○日前まで
-let FURIKYU_LATE_FALLBACK = true;  // 期限内に置けない場合、繰越にせず期間内の後ろへ配置（期限超過表示）
 let FURIKYU_AUTO = loadFurikyuAuto();  // [{name, iso, duty, night}]
 let _FSTATE = null;                    // render時に計算する振休の現況キャッシュ
 const CARRY_KEY = "kinmu_furikyu_carry";
@@ -2421,161 +2420,52 @@ function doAssignFurikyu() {
     }
   }
   const st = computeFurikyuState();
-  // 締切（出勤日+期限日数）の早い順に処理。長期連休分は配置範囲のみ期間内全体に広げる
-  const items = st.pending.map(d => {
-    const long = dutyStreakInfo(d.duty).long;
-    return { ...d, long, deadline: addDaysIso(d.duty, FURIKYU_AFTER_DAYS) };
-  });
-  items.sort((a, b) => a.deadline < b.deadline ? -1 : a.deadline > b.deadline ? 1 : (a.duty < b.duty ? -1 : 1));
-
+  // 出勤日の古い順（先着順）に、期間の頭から1日ずつ休み枠を埋めていく。
+  // 古い出勤分が残ったまま新しい出勤分だけ置かれることがなく、待ち日数がスタッフ間でそろう。
+  // 前回繰越はいちばん古いので最初に置かれる。1日の休みは MAX_YASUMI_PER_DAY 人を超えない。
+  const items = st.pending.map(d => ({ ...d, at: null })).sort((a, b) =>
+    a.duty < b.duty ? -1 : a.duty > b.duty ? 1 : STAFF.indexOf(a.name) - STAFF.indexOf(b.name));
   const freeCell = (n, iso) => !(DATA[n] || {})[iso] && !onLeave(n, iso);
-  const adjacentFuri = (n, iso) => {
-    const p = (DATA[n] || {})[addDaysIso(iso, -1)] || "", q = (DATA[n] || {})[addDaysIso(iso, 1)] || "";
-    return p.includes("振") || q.includes("振");
-  };
-  const lateViolations = [];
-  let carryNext = [];
-  const inWindow = (duty, iso, long) => {
-    const diff = diffDaysIso(duty, iso);
-    return (diff >= 1 && diff <= FURIKYU_AFTER_DAYS) || (diff <= -1 && diff >= -FURIKYU_BEFORE_DAYS) || (long && diff >= 1);
-  };
-  const tryPlaceItem = (it, allowLate = true) => {
-    // 候補日を優先順に: 直後の週 → 期限内 → （長期連休は期間内どこでも）→ 前付与
-    const after1 = [], after2 = [], before = [], late = [];
-    for (const iso of dates) {
-      if (isRestDay(iso)) continue;
-      const diff = diffDaysIso(it.duty, iso);
-      if (diff >= 1 && diff <= 7) after1.push(iso);
-      else if (diff >= 8 && diff <= FURIKYU_AFTER_DAYS) after2.push(iso);
-      else if (diff >= -FURIKYU_BEFORE_DAYS && diff <= -1) before.push(iso);
-      else if (diff > FURIKYU_AFTER_DAYS) late.push(iso);
-    }
-    // 通常分は期限内＋前付与まで。FURIKYU_LATE_FALLBACK時は期間内の後ろも許容（繰越より優先）
-    const tiers = it.long ? [after1, after2, late, before]
-      : (FURIKYU_LATE_FALLBACK && allowLate ? [after1, after2, before, late] : [after1, after2, before]);
-    const sortTier = arr => arr.slice().sort((a, b) =>
-      (adjacentFuri(it.name, a) ? 0 : 1) - (adjacentFuri(it.name, b) ? 0 : 1) || (a < b ? -1 : 1));
-    let placed = null, viaNight = false, isLate = false;
-    // 1) まず全ウィンドウで、夜勤明けの自動振（日付なしの「振」）への充当を探す
-    for (let t = 0; t < tiers.length && !placed; t++) {
-      for (const iso of sortTier(tiers[t])) {
-        if ((DATA[it.name] || {})[iso] === "振" && NIGHT_AUTO.includes(it.name + "|" + iso)) {
-          placed = iso; viaNight = true;
-          if (!it.long && tiers[t] === late) isLate = true;
-          break;
-        }
-      }
-    }
-    // 2) 充当先が無ければ空きセルに新規配置
-    for (let t = 0; t < tiers.length && !placed; t++) {
-      for (const iso of sortTier(tiers[t])) {
-        if (freeCell(it.name, iso) && !restBlocked(it.name, iso) && !allHandsEvent(it.name, iso) && countYasumi(iso) < MAX_YASUMI_PER_DAY) {
-          placed = iso;
-          if (!it.long && tiers[t] === late) isLate = true;
-          break;
-        }
-      }
-    }
-    if (!placed) return false;
-    if (viaNight) NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== it.name + "|" + placed);
+  // 置ける権利: 出勤日の翌日以降、または前付与（出勤の FURIKYU_BEFORE_DAYS 日前まで）
+  const usable = (it, iso) => !it.at && iso !== it.duty && diffDaysIso(it.duty, iso) >= -FURIKYU_BEFORE_DAYS;
+  const put = (it, iso, night) => {
     if (!DATA[it.name]) DATA[it.name] = {};
-    DATA[it.name][placed] = furikyuLabel(it.duty);
-    FURIKYU_AUTO.push({ name: it.name, iso: placed, duty: it.duty, night: viaNight });
-    if (isLate) lateViolations.push(`${it.name}（出勤${it.duty.slice(5).replace("-","/")}→付与${placed.slice(5).replace("-","/")}）`);
-    return true;
+    DATA[it.name][iso] = furikyuLabel(it.duty);
+    FURIKYU_AUTO.push({ name: it.name, iso, duty: it.duty, night });
+    it.at = iso;
   };
-  // 0) 夜勤明けの「振」に、その夜勤（休日の入・明）で発生した権利を最優先で充当する
-  //    （明け翌日の休みは、その夜勤自体の代休として使うのが自然）
-  for (const key of NIGHT_AUTO.slice()) {
-    const [n, iso] = key.split("|");  // iso = 明け翌日
-    if ((DATA[n] || {})[iso] !== "振") continue;
-    const inIso = addDaysIso(iso, -2), akeIso = addDaysIso(iso, -1);
-    let dutyIso = null;
-    if ((DATA[n] || {})[inIso] === "入" && isRestDay(inIso)) dutyIso = inIso;
-    else if ((DATA[n] || {})[akeIso] === "明" && isRestDay(akeIso)) dutyIso = akeIso;
-    if (!dutyIso) continue;
-    const idx = items.findIndex(it => it.name === n && it.duty === dutyIso);
-    if (idx < 0) continue;  // その権利が既に対象外（振◆充当・繰越指定など）
-    items.splice(idx, 1);
-    NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== key);
-    if (!DATA[n]) DATA[n] = {};
-    DATA[n][iso] = furikyuLabel(dutyIso);
-    FURIKYU_AUTO.push({ name: n, iso, duty: dutyIso, night: true });
-  }
-  // 1) 今期に発生した権利を、まず期限内（＋前付与）だけで配置
-  const lateQueue = [];
-  for (const it of items) {
-    if (it.src === "前回繰越") continue;
-    if (!tryPlaceItem(it, false)) lateQueue.push(it);
-  }
-  // 2) 期限内に置けなかった今期分は、期間内の後ろ（期限超過）へ
-  for (const it of lateQueue) {
-    if (!tryPlaceItem(it)) carryNext.push(it);
-  }
-  // 3) 前回繰越を配置（期限超過の今期分のあと。今期のうちに必ず消化し、次回繰越にはしない）
-  const prevPlaced = [], overCap = [];
-  const firstWeeks = new Set(dates.filter(iso => diffDaysIso(dates[0], iso) < 14));
-  const placePrevCarry = (it) => {
-    const weekdays = dates.filter(iso => !isRestDay(iso));
-    let placed = null, viaNight = false;
-    // a) 夜勤明けの日付なし「振」に充当（休み枠を使わない）
-    placed = weekdays.find(iso => (DATA[it.name] || {})[iso] === "振" && NIGHT_AUTO.includes(it.name + "|" + iso)) || null;
-    if (placed) viaNight = true;
-    // b) 空きセル: 期間の最初の2週間 → それ以降。同じ人の振の隣・休みの少ない日・早い日の順
-    const ok = iso => freeCell(it.name, iso) && !restBlocked(it.name, iso) && !allHandsEvent(it.name, iso) && countYasumi(iso) < MAX_YASUMI_PER_DAY;
-    const order = (a, b) => (firstWeeks.has(a) ? 0 : 1) - (firstWeeks.has(b) ? 0 : 1) ||
-      (adjacentFuri(it.name, a) ? 0 : 1) - (adjacentFuri(it.name, b) ? 0 : 1) ||
-      countYasumi(a) - countYasumi(b) || (a < b ? -1 : 1);
-    if (!placed) placed = weekdays.filter(ok).sort(order)[0] || null;
-    // c) それでも置けなければ、1日の休み上限（MAX_YASUMI_PER_DAY）・グループ最低人数を超えてでも置く（必須出勤・全員出勤の日は除く）
-    if (!placed) {
-      placed = weekdays.filter(iso => freeCell(it.name, iso) && !mustWork(it.name, iso) && !allHandsEvent(it.name, iso))
-        .sort((a, b) => (groupBlocked(it.name, a) ? 1 : 0) - (groupBlocked(it.name, b) ? 1 : 0) ||
-                        countYasumi(a) - countYasumi(b) || (a < b ? -1 : 1))[0] || null;
-      if (placed) overCap.push(`${it.name} ${fmtMD(placed)}（${fmtMD(it.duty)}出勤分）`);
-    }
-    if (!placed) return false;
-    if (viaNight) NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== it.name + "|" + placed);
-    if (!DATA[it.name]) DATA[it.name] = {};
-    DATA[it.name][placed] = furikyuLabel(it.duty);
-    FURIKYU_AUTO.push({ name: it.name, iso: placed, duty: it.duty, night: viaNight });
-    prevPlaced.push(it);
-    return true;
-  };
-  const prevItems = items.filter(it => it.src === "前回繰越").sort((a, b) => a.duty < b.duty ? -1 : 1);
-  const prevFailed = prevItems.filter(it => !placePrevCarry(it));
-  carryNext.push(...prevFailed);
-  // 4) 後処理スワップ: 残った日付なし振に、同じ人の配置済み振休（ウィンドウ内）のラベルを
-  //    付け替え、元の新規配置セルを解放する（休み枠の節約＋日付なし振の解消）
-  let movedAny = true;
-  while (movedAny) {
-    movedAny = false;
+  for (const iso of dates) {
+    // 1) 夜勤明けの日付なし「振」に、その人のいちばん古い権利を充当（休み枠を使わない）
     for (const key of NIGHT_AUTO.slice()) {
-      const [n, plainIso] = key.split("|");
-      if ((DATA[n] || {})[plainIso] !== "振") continue;
-      const fi = FURIKYU_AUTO.findIndex(f =>
-        f.name === n && !f.night && inWindow(f.duty, plainIso, dutyStreakInfo(f.duty).long));
-      if (fi < 0) continue;
-      const f = FURIKYU_AUTO[fi];
-      delete DATA[n][f.iso];
-      DATA[n][plainIso] = furikyuLabel(f.duty);
+      const [n, rest] = key.split("|");
+      if (rest !== iso || (DATA[n] || {})[iso] !== "振") continue;
+      const it = items.find(x => x.name === n && usable(x, iso));
+      if (!it) continue;
       NIGHT_AUTO = NIGHT_AUTO.filter(k => k !== key);
-      FURIKYU_AUTO[fi] = { name: n, iso: plainIso, duty: f.duty, night: true };
-      movedAny = true;
+      put(it, iso, true);
+    }
+    // 2) 平日の空き枠に、古い出勤分から順に置く
+    if (isRestDay(iso)) continue;
+    let room = MAX_YASUMI_PER_DAY - countYasumi(iso);
+    for (const it of items) {
+      if (room <= 0) break;
+      if (!usable(it, iso) || !freeCell(it.name, iso) || restBlocked(it.name, iso) || allHandsEvent(it.name, iso)) continue;
+      put(it, iso, false);
+      room--;
     }
   }
-  // 5) スワップで空いた枠に、未配置分をもう一度配置
-  const still = [];
-  for (const it of carryNext) {
-    const ok = it.src === "前回繰越" ? placePrevCarry(it) : tryPlaceItem(it);
-    if (!ok) still.push(it);
-    else if (it.src === "前回繰越") prevFailed.splice(prevFailed.indexOf(it), 1);
-  }
-  carryNext = still;
-  // 6) 権利で充当できなかった夜勤明けの「振」は日付なしのまま残す
+  // 3) 権利で充当できなかった夜勤明けの「振」は日付なしのまま残す
   //    （明け翌日の休みとして成立。日付が付かないことは警告欄で可視化する）
+  const lateViolations = items.filter(it => it.at && it.src !== "前回繰越" &&
+      diffDaysIso(it.duty, it.at) > FURIKYU_AFTER_DAYS && !dutyStreakInfo(it.duty).long)
+    .map(it => `${it.name}（出勤${fmtMD(it.duty)}→付与${fmtMD(it.at)}）`);
+  const carryNext = items.filter(it => !it.at);
+  const prevPlaced = items.filter(it => it.at && it.src === "前回繰越");
+  const prevFailed = carryNext.filter(it => it.src === "前回繰越");
+  const placedNow = items.filter(it => it.at && it.src !== "前回繰越").map(it => diffDaysIso(it.duty, it.at));
+  const wait = placedNow.length ? { avg: Math.round(placedNow.reduce((a, b) => a + b, 0) / placedNow.length), max: Math.max(...placedNow) } : null;
   saveNightAuto(); saveFurikyuAuto(); saveSchedule(); render();
-  return { lateViolations, carryNext, unmatchedKibou: st.unmatchedKibou, prevPlaced, prevFailed, overCap };
+  return { lateViolations, carryNext, unmatchedKibou: st.unmatchedKibou, prevPlaced, prevFailed, wait };
 }
 function assignFurikyu() {
   if (!confirm("配置済みの振休（ラベル付き振）をクリアして配置し直します。よろしいですか？\n（振◆・申請・日直・夜勤・繰越指定は変更されません）")) return;
@@ -2587,12 +2477,12 @@ function assignFurikyu() {
     msg += r.prevFailed.length
       ? `⚠ 前回繰越の振休 ${nPrev}件のうち ${r.prevFailed.length}件は期間内に置けませんでした（長期休暇中・空き日なしなど）。手で置いてください:\n` +
         r.prevFailed.map(c => `${c.name}（${fmtMD(c.duty)}出勤分）`).join("、") + "\n\n"
-      : `前回繰越の振休 ${nPrev}件は、すべて優先して期間内に配置しました。\n\n`;
+      : `前回繰越の振休 ${nPrev}件は、すべて期間内に配置しました。\n\n`;
   }
-  if (r.overCap.length) msg += `前回繰越を消化するため、休みの上限（${MAX_YASUMI_PER_DAY}人）またはグループの最低人数を超えて置いた日があります（確認してください）:\n` + r.overCap.join("、") + "\n\n";
+  if (r.wait) msg += `今回の期間の振休は出勤日の古い順に置きました（出勤日から振休までの日数: 平均${r.wait.avg}日・最長${r.wait.max}日）。1日の休みは${MAX_YASUMI_PER_DAY}人を超えないようにしています。\n\n`;
   if (r.unmatchedKibou.length) msg += "対応する出勤が見つからない振◆:\n" + r.unmatchedKibou.map(k => `${k.name} ${k.iso.slice(5).replace("-","/")}`).join("、") + "\n\n";
   if (r.lateViolations.length) msg += `期限（出勤後${FURIKYU_AFTER_DAYS}日）を超えて付与: ${r.lateViolations.length}件（詳細は警告欄）\n\n`;
-  if (r.carryNext.length) msg += "期間内に付与できず次回へ繰越（自動）:\n" + r.carryNext.map(c => `${c.name}（${c.duty.slice(5).replace("-","/")}出勤分）`).join("、") + "\n\n";
+  if (r.carryNext.length) msg += `休みの枠が足りず、次回へ繰越（自動・出勤日の新しい分）: ${r.carryNext.length}件\n` + r.carryNext.map(c => `${c.name}（${c.duty.slice(5).replace("-","/")}出勤分）`).join("、") + "\n\n";
   if (CARRY_SET.size) msg += `繰越指定済み: ${CARRY_SET.size}件（「振休繰越管理」で確認できます）`;
   alert(msg || "すべての振休を配置できました（繰越なし）");
 }
@@ -4359,6 +4249,10 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-11-02", ver: "v8.16", items: [
+    "「3. 振休」の置き方を「出勤日の古い順（先着順）」に変えました。古い出勤分が次回繰越になり、新しい出勤分が置かれる、ということがなくなり、振休までの日数がスタッフ間でそろいます。前回繰越はいちばん古いので最初に置かれます。",
+    "振休を置くときは、1日の休みが5人を超えないようにしました（前回繰越のために上限を超えて置くことはしません）。枠が足りない分は、出勤日の新しい分から次回へ繰り越します。",
+  ] },
   { date: "2026-10-29", ver: "v8.15", items: [
     "「3. 振休」の配置の順番を「今回の分（期限内）→ 今回の分（期限超過）→ 前回繰越」に変えました。前回繰越は引き続き、今回の期間内に必ず置きます。",
   ] },
@@ -4548,17 +4442,14 @@ function guideHtml(tab) {
     <h4>振休（M/D振）</h4>
     <ul>
       <li>日直（○）と、土日祝の「業」「入」「明」で1日もらえます（前回からの繰越 ${PREV_CARRY.length}件も含みます）。</li>
-      <li><b>前回繰越の分</b>（「振休繰越管理」の「前回からの繰越分」）は、次回へ繰り越す今回の分より優先して、その人の今回の期間内に必ず置きます。
-        <ul>
-          <li>順番：今回の期間の分を期限内に置く → 期限を超えて置く今回の分 → <b>前回繰越</b> → 置けなかった今回の分は次回へ繰越。</li>
-          <li>置く日：夜勤明けの「振」があればそこに充当、なければ期間の最初の2週間を優先します。</li>
-          <li>空きがなければ休みの上限（${MAX_YASUMI_PER_DAY}人）を超えてでも置き、その日をお知らせします。必須出勤・全員出勤の日には置きません。</li>
-          <li>前回繰越はもう一度繰り越すことはできません。</li>
-        </ul></li>
-      <li>原則、出勤の<b>直後の週・最長${FURIKYU_AFTER_DAYS}日以内</b>に「M/D振」（M/D＝出勤日）として置きます。無理なら1週間以内の前に置きます。5連休以上にかかる出勤分は期間内ならOK。</li>
-      <li>夜勤明けの「振」があれば振休として使います。2件たまった人は連続して置くことを優先します。</li>
+      <li><b>出勤日の古い順（先着順）</b>に置きます。期間の最初の平日から1日ずつ、休みが${MAX_YASUMI_PER_DAY}人になるまで、古い出勤分から順に入れていきます。
+        古い出勤分が残ったまま新しい出勤分だけ置かれることがないので、出勤日から振休までの日数がスタッフ間でそろいます。</li>
+      <li><b>前回繰越の分</b>（「振休繰越管理」の「前回からの繰越分」）はいちばん古いので、期間の最初に置かれます。もう一度繰り越すことはできません。</li>
+      <li>1日の休み（有・夏・特・出・業・振など）は<b>${MAX_YASUMI_PER_DAY}人を超えないように</b>します。申請だけ、または夜勤明けの休みで${MAX_YASUMI_PER_DAY}人を超える日は、振休は置きません。</li>
+      <li>夜勤明けの日付なし「振」は、その人のいちばん古い権利に充当します（休みの枠を使いません）。</li>
+      <li>出勤の${FURIKYU_BEFORE_DAYS}日前までなら、前に置くこともあります。休みの枠が足りないときは、出勤後${FURIKYU_AFTER_DAYS}日の期限を超えて置きます（警告欄に件数が出ます）。</li>
       <li>振◆（申請の振休）は動かさず、対応する出勤（前14日／後7日以内）と組み合わせて枠内に出勤日を表示します。</li>
-      <li>今回の期間に発生した分で期間内に置けないものは次回へ繰り越します。${gbtn("振休繰越管理", "openCarryModal")} で一覧の確認と、任意の分の繰越指定ができます（前回繰越の分は除く）。</li>
+      <li>枠が足りず期間内に置けない分（出勤日の新しい分）は次回へ繰り越します。${gbtn("振休繰越管理", "openCarryModal")} で一覧の確認と、任意の分の繰越指定ができます（前回繰越の分は除く）。</li>
     </ul>
     <h4>残り当番（残）</h4>
     <ul><li>平日に1日2人。同じ人の間隔は1週間以上で、期間内でなるべく均等にします。対象外と一緒にしない組み合わせは ${gbtn("残当・NG組み合わせ", "openZanModal")}。</li></ul>
