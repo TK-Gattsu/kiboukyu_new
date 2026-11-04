@@ -405,8 +405,8 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
         <button class="btn btn-success btn-sm" onclick="addEvent()">追加</button>
       </div>
     </div>
-    <b style="font-size:12px;">開催日の個別変更（祝日と重なった回・人が集まらない回など）</b>
-    <div class="hint" style="margin-top:2px;">日付を変えるとその回だけ移動します（事務連絡の表示・必須出勤の扱いも一緒に移動）。</div>
+    <b style="font-size:12px;">開催日の個別変更・中止（祝日と重なった回・人が集まらない回・中止になった回など）</b>
+    <div class="hint" style="margin-top:2px;">日付を変えるとその回だけ移動します（事務連絡の表示・必須出勤の扱いも一緒に移動）。「この回を削除」でその回だけ中止にでき（事務連絡の表示と必須出勤の扱いがなくなります）、「元に戻す」で復活できます。日にち指定の行事は上の一覧の「削除」で消してください。</div>
     <table style="margin:4px 0 10px;"><thead><tr><th>行事名</th><th>本来の日</th><th>実施日</th><th></th></tr></thead><tbody id="event-move-list"></tbody></table>
     <button class="btn btn-gray" onclick="closeEventModal()">閉じる</button>
   </div>
@@ -899,6 +899,7 @@ const DEFAULT_GROUPS = [
 let EVENTS_FIXED = loadJson("kinmu_events_fixed", DEFAULT_EVENTS_FIXED);
 let EVENTS_TEXT  = loadJson("kinmu_events_text", {});
 let EVENT_MOVES  = loadJson("kinmu_event_moves", {});   // {"行事名|本来の日": "変更後の日"}
+let EVENT_CANCELS = loadJson("kinmu_event_cancels", {});  // {"行事名|本来の日": true} その回だけ中止（削除）
 let GROUPS       = loadJson("kinmu_groups", DEFAULT_GROUPS);
 let MUST_DAYS    = loadJson("kinmu_must_days", {});   // {氏名: [曜日番号(dowOf基準 0=日)]}
 let EVENT_DATES  = {};
@@ -932,7 +933,7 @@ function eventOccurrences() {
         const key = ev.name + "|" + iso;
         const mv = EVENT_MOVES[key];
         const eff = (mv && allPeriodDates().includes(mv)) ? mv : iso;
-        out.push({ ev, key, orig: iso, eff, moved: eff !== iso });
+        out.push({ ev, key, orig: iso, eff, moved: eff !== iso, cancelled: !!EVENT_CANCELS[key] });
       }
     }
   }
@@ -940,7 +941,7 @@ function eventOccurrences() {
 }
 function buildEventDates() {
   const map = {};
-  for (const oc of eventOccurrences()) (map[oc.eff] = map[oc.eff] || []).push(oc.ev);
+  for (const oc of eventOccurrences()) if (!oc.cancelled) (map[oc.eff] = map[oc.eff] || []).push(oc.ev);
   return map;
 }
 function eventsTextOf(iso) {
@@ -1475,7 +1476,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.16";
+const APP_VERSION = "v8.17";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1873,7 +1874,7 @@ function exportJson() {
     settings: {
       participation: PARTICIPATION, night_conds: NIGHT_CONDS, zan_conds: ZAN_CONDS,
       ng_pairs: NG_PAIRS, events_fixed: EVENTS_FIXED, events_text: EVENTS_TEXT,
-      event_moves: EVENT_MOVES, groups: GROUPS, must_days: MUST_DAYS,
+      event_moves: EVENT_MOVES, event_cancels: EVENT_CANCELS, groups: GROUPS, must_days: MUST_DAYS,
       custom_holidays: [...CUSTOM_HOLIDAYS], prev_carryover: PREV_CARRY,
       leaves: LEAVES, carry: [...CARRY_SET],
       period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT, prev_lastin: PREV_LASTIN,
@@ -1911,6 +1912,7 @@ function importJson(input) {
         if (s.events_fixed) { EVENTS_FIXED = s.events_fixed; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
         if (s.events_text) { EVENTS_TEXT = s.events_text; saveJson("kinmu_events_text", EVENTS_TEXT); }
         if (s.event_moves) { EVENT_MOVES = s.event_moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
+        if (s.event_cancels) { EVENT_CANCELS = s.event_cancels; saveJson("kinmu_event_cancels", EVENT_CANCELS); }
         if (s.groups) { GROUPS = s.groups; saveJson("kinmu_groups", GROUPS); }
         if (s.must_days) { MUST_DAYS = s.must_days; saveJson("kinmu_must_days", MUST_DAYS); }
         if (s.custom_holidays) { CUSTOM_HOLIDAYS = new Set(s.custom_holidays); saveCustomHolidays(); }
@@ -2721,6 +2723,24 @@ function renderEventMoves() {
     const tr = document.createElement("tr");
     const holMark = isRestDay(oc.orig) ? ` <span style="color:#CC0000;font-size:10px;">祝日/休日</span>` : "";
     tr.innerHTML = `<td><b>${oc.ev.name}</b></td><td>${fmt(oc.orig)}${holMark}</td>`;
+    const setCancel = (on) => {
+      pushUndo(on ? "行事の回の削除" : "行事の回の復元");
+      if (on) EVENT_CANCELS[oc.key] = true; else delete EVENT_CANCELS[oc.key];
+      saveJson("kinmu_event_cancels", EVENT_CANCELS);
+      renderEvents(); renderEventMoves(); render();
+    };
+    if (oc.cancelled) {
+      tr.style.color = "#999";
+      const tdC = document.createElement("td");
+      tdC.innerHTML = `<b style="color:#CC0000;">中止（削除済み）</b>`;
+      tr.appendChild(tdC);
+      const tdR = document.createElement("td");
+      const rb = document.createElement("button");
+      rb.className = "btn btn-gray btn-sm"; rb.textContent = "元に戻す";
+      rb.onclick = () => setCancel(false);
+      tdR.appendChild(rb); tr.appendChild(tdR); tb.appendChild(tr);
+      continue;
+    }
     const tdD = document.createElement("td");
     const inp = document.createElement("input");
     inp.type = "date"; inp.value = oc.eff;
@@ -2746,6 +2766,11 @@ function renderEventMoves() {
       };
       td.appendChild(b);
     }
+    const del = document.createElement("button");
+    del.className = "btn btn-danger btn-sm"; del.textContent = "この回を削除";
+    del.style.marginLeft = "4px";
+    del.onclick = () => setCancel(true);
+    td.appendChild(del);
     tr.appendChild(td); tb.appendChild(tr);
   }
 }
@@ -2756,7 +2781,7 @@ function renderEvents() {
   const ocs = eventOccurrences();
   EVENTS_FIXED.forEach((ev, i) => {
     const tr = document.createElement("tr");
-    const dates = ocs.filter(oc => oc.ev === ev).map(oc => fmtMD(oc.eff) + (oc.moved ? "*" : ""));
+    const dates = ocs.filter(oc => oc.ev === ev).map(oc => oc.cancelled ? `${fmtMD(oc.orig)}中止` : fmtMD(oc.eff) + (oc.moved ? "*" : ""));
     tr.innerHTML = `<td><b>${ev.name}</b></td>`;
     const tdR = document.createElement("td");
     if (ev.type === "date") {
@@ -3989,7 +4014,7 @@ const UNDO_MAX = 30;
 function pushUndo(label) {
   UNDO_STACK.push({ label, time: new Date().toLocaleTimeString("ja-JP"), snap: JSON.stringify({
     data: DATA, nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, part: PARTICIPATION,
-    holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES, events: EVENTS_FIXED,
+    holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES, cancels: EVENT_CANCELS, events: EVENTS_FIXED,
     teams: TEAMS, managers: [...MANAGERS],
     prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION, prevLastIn: PREV_LASTIN,
   }) });
@@ -4001,6 +4026,7 @@ function applySnapshot(snap) {
   DATA = o.data; NIGHT_AUTO = o.nightAuto; FURIKYU_AUTO = o.furiAuto;
   CUSTOM_HOLIDAYS = new Set(o.holidays); CARRY_SET = new Set(o.carry); LEAVES = o.leaves;
   if (o.moves) { EVENT_MOVES = o.moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
+  if (o.cancels) { EVENT_CANCELS = o.cancels; saveJson("kinmu_event_cancels", EVENT_CANCELS); }
   if (o.events) { EVENTS_FIXED = o.events; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
   if (o.teams) { applyRoster(o.teams, o.managers); saveRoster(); }
   if (o.prevCarry) { PREV_CARRY = o.prevCarry; saveJson("kinmu_prev_carryover", PREV_CARRY); }
@@ -4249,6 +4275,9 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-11-04", ver: "v8.17", items: [
+    "行事設定の「開催日の個別変更」に「この回を削除」を追加しました。中止になった回だけを消せます（事務連絡の表示と必須出勤の扱いがなくなります）。「元に戻す」で復活できます。",
+  ] },
   { date: "2026-11-02", ver: "v8.16", items: [
     "「3. 振休」の置き方を「出勤日の古い順（先着順）」に変えました。古い出勤分が次回繰越になり、新しい出勤分が置かれる、ということがなくなり、振休までの日数がスタッフ間でそろいます。前回繰越はいちばん古いので最初に置かれます。",
     "振休を置くときは、1日の休みが5人を超えないようにしました（前回繰越のために上限を超えて置くことはしません）。枠が足りない分は、出勤日の新しい分から次回へ繰り越します。",
@@ -4461,7 +4490,7 @@ function guideHtml(tab) {
           <li><b>第n曜日</b>：「毎月」のほか「2か月ごと」「3か月ごと」…「12か月ごと」。毎月以外は<b>開始月</b>（最初に行う月）を選びます。例：開始月 1月・3か月ごと → 1月・4月・7月・10月。</li>
           <li><b>日にち指定</b>：その日だけ行う行事。別の日にも行うときは、日付を変えてもう一度追加します。登録後も一覧で日付を変えられます。</li>
           <li><b>必須出勤者</b>：名前を「、」区切りで入れると、その人はその日必ず勤務（振休・夜勤・残り当番を置かない）。<b>「全員」</b>と入れると全員が対象になり、振休を置かず、休みの人をまとめて警告します（夜勤と残り当番は通常どおり）。</li>
-          <li>祝日と重なった回などは「開催日の個別変更」でその回だけ移動できます。</li>
+          <li>祝日と重なった回などは「開催日の個別変更」でその回だけ移動できます。中止になった回は「この回を削除」で消せます（「元に戻す」で復活）。すでに割り当てた日直・夜勤・振休などは自動では変わらないので、必須出勤者がいた行事は必要に応じて割り当てをやり直してください。</li>
         </ul></li>
       <li>グループの最低出勤人数（調剤1人以上・病棟2人以上など）と必ず出勤する曜日は ${gbtn("勤務条件（グループ・曜日）", "openWorkModal")}。</li>
       <li>日付のセルをクリックすると、その日を「祝日扱い」にできます（国民の祝日は外せません）。</li>
