@@ -377,7 +377,7 @@ const ACTIONS = {
   // 勤務表作成アプリの「JSON書出」ファイルを読み込む（移行用・第2段階の後半までの橋渡し）
   stateImport: { role: 'sysadmin', run: (me, p) => withLock_(() => {
     const b = p.backup;
-    if (!b || !b.__kinmu_backup__) throw new Error('勤務表作成アプリの「JSON書出」で作ったファイル（kinmu_backup.json）を選んでください。');
+    if (!b || !b.isKinmuBackup) throw new Error('勤務表作成アプリの「JSON書出」で作ったファイル（kinmu_backup.json）を選んでください。');
     const old = docGet_('state');
     saveState_({ schedule: b.schedule || {}, settings: b.settings || {}, memo: b.memo || '', rev: old ? old.rev || 0 : 0 });
     if (Array.isArray(b.archive)) docPut_('archive', b.archive, 'archives');
@@ -390,14 +390,15 @@ const ACTIONS = {
   stateExport: { role: 'sysadmin', run: (me, p) => {
     const state = docGet_('state') || { schedule: {}, settings: {}, memo: '' };
     if (p.forDownload) log_(me, '勤務表データの書き出し', '');
-    return { __kinmu_backup__: 1, schedule: state.schedule || {}, memo: state.memo || '', archive: docGet_('archive', 'archives') || [],
+    // GASは名前が「__」で終わる項目を画面と受け渡しできないため、目印は isKinmuBackup で送る（画面側で __kinmu_backup__ に戻す）
+    return { isKinmuBackup: true, schedule: state.schedule || {}, memo: state.memo || '', archive: docGet_('archive', 'archives') || [],
              settings: state.settings || {}, rev: state.rev || 0 };
   } },
 
   // 勤務表の作成画面（勤務表作成アプリ）からの自動保存。読み込んだときの版（rev）と違えば保存しない
   stateSave: { role: 'sysadmin', run: (me, p) => withLock_(() => {
     const b = p.backup;
-    if (!b || !b.__kinmu_backup__) throw new Error('保存する内容が正しくありません。');
+    if (!b || !b.isKinmuBackup) throw new Error('保存する内容が正しくありません。');
     const cur = docGet_('state');
     if ((cur ? cur.rev || 0 : 0) !== Number(p.rev))
       throw new Error('【更新の衝突】勤務表がほかの操作（申請の取り込み・期間の変更など）で更新されました。最新の内容を読み込み直します（直前に行った変更は保存されていないので、もう一度行ってください）。');

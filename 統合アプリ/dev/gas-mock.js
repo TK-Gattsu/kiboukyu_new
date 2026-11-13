@@ -124,6 +124,15 @@
   window.__sha256 = sha256;   // 動作確認用
 
   // ---- google.script.run（引数・戻り値はJSONで受け渡し、_ で終わる関数は呼べない）----
+  // 本物のGASと同じく、名前が「__」で終わる項目を含む引数・戻り値はエラーにする
+  function checkKeys(v) {
+    if (v && typeof v === 'object') {
+      for (const k of Object.keys(v)) {
+        if (/__$/.test(k)) throw new Error('User properties cannot end with "__". Failed on property: ' + k);
+        checkKeys(v[k]);
+      }
+    }
+  }
   function runner(ok, ng) {
     return new Proxy({}, {
       get(_, prop) {
@@ -133,7 +142,9 @@
           try {
             const fn = String(prop).endsWith('_') ? null : (window.__gas || {})[prop];
             if (typeof fn !== 'function') throw new Error('Script function not found: ' + String(prop));
+            checkKeys(args);
             const res = fn(...JSON.parse(JSON.stringify(args)));
+            checkKeys(res);
             if (ok) ok(res === undefined ? undefined : JSON.parse(JSON.stringify(res)));
           } catch (e) { if (ng) ng(e); else console.error(e); }
         }, 80);

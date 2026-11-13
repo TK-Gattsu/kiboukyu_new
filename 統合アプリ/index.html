@@ -952,7 +952,7 @@ function importState(input) {
     if (!b.__kinmu_backup__) { alert('勤務表作成アプリの「JSON書出」で作ったファイル（kinmu_backup.json）を選んでください。'); return; }
     if (!confirm('このファイルの内容で、勤務表のデータ（期間・チーム編成・勤務表・設定・過去の勤務表）を置き換えます。取り込み前の申請はそのまま残ります。よろしいですか？')) return;
     try {
-      const r = await call('stateImport', { backup: b });
+      const r = await call('stateImport', { backup: backupToServer(b) });
       alert('読み込みました: ' + r.period.label + '・名簿' + r.staff + '人・入力済み' + r.cells + 'マス・過去の勤務表' + r.archive + '件');
       await loadWf();
     } catch (e) { alert(e.message); }
@@ -961,8 +961,7 @@ function importState(input) {
 }
 async function exportState() {
   try {
-    const b = await call('stateExport', { forDownload: true });
-    delete b.rev;
+    const b = backupFromServer(await call('stateExport', { forDownload: true }));
     const blob = new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -1045,6 +1044,19 @@ async function importRequests() {
   } catch (e) { alert(e.message); }
 }
 
+// 勤務表作成アプリのバックアップの目印（__kinmu_backup__）は、GASが名前の最後の「__」を受け付けないため、
+// サーバーとの受け渡しのときだけ isKinmuBackup に置き換える
+function backupToServer(b) {
+  const o = Object.assign({}, b);
+  delete o.__kinmu_backup__; o.isKinmuBackup = true;
+  return o;
+}
+function backupFromServer(b) {
+  const o = Object.assign({}, b);
+  delete o.isKinmuBackup; delete o.rev; o.__kinmu_backup__ = 1;
+  return o;
+}
+
 /* ============================================================
    勤務表の作成（システム管理者）: 勤務表作成アプリを中で動かし、保存先をサーバーにする
    ============================================================ */
@@ -1068,8 +1080,8 @@ async function kinmuLoad() {
   kmStatus('最新の内容を読み込み中…');
   try {
     const b = await call('stateExport', {});
-    KM.rev = b.rev; delete b.rev;
-    kmFrame().contentWindow.postMessage({ type: 'kinmu-load', backup: b }, KINMU_ORIGIN);
+    KM.rev = b.rev;
+    kmFrame().contentWindow.postMessage({ type: 'kinmu-load', backup: backupFromServer(b) }, KINMU_ORIGIN);
   } catch (e) { kmStatus('読み込めませんでした: ' + e.message, true); }
 }
 function kinmuFlush() {
@@ -1129,7 +1141,7 @@ window.addEventListener('message', ev => {
   const m = ev.data;
   if (m.type === 'kinmu-ready') kinmuLoad();
   else if (m.type === 'kinmu-loaded') { KM.loaded = true; kmStatus('最新の内容を表示しています。変更は自動で保存されます。'); }
-  else if (m.type === 'kinmu-save') kinmuQueueSave(m.backup);
+  else if (m.type === 'kinmu-save') kinmuQueueSave(backupToServer(m.backup));
   else if (m.type === 'kinmu-publish') confirmPublish(m.payload);
 });
 window.addEventListener('beforeunload', e => { if (KM.saving || KM.pending) { e.preventDefault(); e.returnValue = ''; } });
