@@ -13,6 +13,8 @@
   // 初回は初期設定を実行し、管理者の仮パスワードを画面の隅に出す
   let first = null;
   if (!window.__gas.rows_('users').length) first = window.__gas.初期設定();
+  // 勤務表作成アプリは、本番では GitHub Pages の公開版を、開発中は手元のファイルを使う
+  window.KINMU_APP_URL_OVERRIDE = '../../' + encodeURIComponent('勤務表作成アプリ') + '.html?embed=1';
   const html = await fetch('../index.html', { cache: 'no-store' }).then(r => r.text());
   document.open(); document.write(html); document.close();
   const note = document.createElement('div');

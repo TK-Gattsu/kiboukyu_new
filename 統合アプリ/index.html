@@ -106,6 +106,13 @@ table.list tr.inactive td { color: #AAA; }
 .grid td.over { background: var(--red-light) !important; color: var(--red); }
 .grid .dm { color: #888; }
 .radio-list label { display: block; margin: 6px 0; font-size: 14px; }
+.kinmu-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px; background: white; border-bottom: 1px solid var(--border); }
+#kinmu-frame { width: 100%; border: none; display: block; height: calc(100vh - 110px); background: white; }
+.seg { display: inline-flex; border: 1px solid var(--blue); border-radius: 6px; overflow: hidden; }
+.seg button { border: none; background: white; color: var(--blue); padding: 6px 14px; font-weight: bold; cursor: pointer; font-family: inherit; }
+.seg button.on { background: var(--blue); color: white; }
+.grid td.lv { background: #E8E8E8; color: #777; }
+.grid td.mine-row, .grid tr.mine td.nm { background: #FFFBE6; }
 .round-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .round-dates { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; align-items: center; }
 @media (max-width: 600px) {
@@ -281,6 +288,36 @@ table.list tr.inactive td { color: #AAA; }
   </section>
 </main>
 
+<!-- 勤務表の作成（システム管理者）: 勤務表作成アプリを中で動かす -->
+<section id="v-kinmu" style="display:none;">
+  <div class="kinmu-bar">
+    <button class="back" style="margin:0;" onclick="show('home')">← メニューに戻る</button>
+    <b>勤務表の作成</b>
+    <span class="hint" id="km-status">読み込み中…</span>
+    <span style="margin-left:auto; display:flex; gap:6px; flex-wrap:wrap;">
+      <button class="btn btn-gray btn-sm" onclick="reloadKinmu()">最新の内容を読み込み直す</button>
+      <button class="btn btn-green btn-sm" onclick="requestPublish()">確定してスタッフに配布</button>
+    </span>
+  </div>
+  <iframe id="kinmu-frame" title="勤務表の作成"></iframe>
+</section>
+
+<!-- 勤務表を見る（全員） -->
+<section id="v-schedule" style="display:none;">
+  <div style="max-width:1000px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>勤務表</h2>
+      <div id="sc-head"></div>
+      <div class="toolbar" style="margin-top:8px;">
+        <span class="seg"><button id="sc-mode-me" onclick="setScMode('me')">自分の勤務</button><button id="sc-mode-all" onclick="setScMode('all')">全員</button></span>
+      </div>
+      <div class="tabs" id="sc-tabs"></div>
+      <div id="sc-body"></div>
+    </div>
+  </div>
+</section>
+
 <!-- 申請する種類を選ぶ -->
 <div class="modal" id="pick-modal" onclick="if(event.target===this)closeModal('pick-modal')">
   <div class="box">
@@ -392,8 +429,12 @@ const isApprover = () => ME && (ME.roles.indexOf('approver') >= 0 || isAdmin());
 /* ============================================================
    画面の切り替え
    ============================================================ */
-const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin'];
+const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule'];
+let CUR_VIEW = null;
 function show(v) {
+  if (CUR_VIEW === 'kinmu' && v !== 'kinmu') kinmuFlush();   // 作成画面を離れるときは保存を急がせる
+  CUR_VIEW = v;
+  document.querySelector('main').style.display = v === 'kinmu' || v === 'schedule' ? 'none' : '';
   for (const x of VIEWS) document.getElementById('v-' + x).style.display = x === v ? '' : 'none';
   document.getElementById('logout-btn').style.display = v === 'login' ? 'none' : '';
   document.getElementById('who').innerHTML = ME && v !== 'login'
@@ -405,6 +446,8 @@ function show(v) {
   if (v === 'req') loadReq();
   if (v === 'wf') loadWf();
   if (v === 'reqadmin') loadReqAdmin();
+  if (v === 'kinmu') openKinmu();
+  if (v === 'schedule') loadScheduleView();
   if (v === 'password') {
     for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
     document.getElementById('pw-err').textContent = '';
@@ -416,6 +459,7 @@ function show(v) {
 }
 function forceLogin(msg) {
   TOKEN = null; ME = null; storeSet('kinmu_token', null);
+  closeKinmu();   // 作成画面の内容をページに残さない（次にログインする人に見えないように）
   show('login');
   document.getElementById('li-err').textContent = msg || '';
 }
@@ -438,6 +482,11 @@ async function doLogin() {
   } catch (e) { err.textContent = e.message; }
 }
 async function logout() {
+  // 作成画面の保存が終わってからログアウトする
+  if (KM.loaded) {
+    kinmuFlush();
+    for (let i = 0; i < 40 && (KM.saving || KM.pending || i < 3); i++) await new Promise(r => setTimeout(r, 250));
+  }
   try { if (TOKEN) await call('logout'); } catch (e) {}
   forceLogin('ログアウトしました。');
 }
@@ -460,7 +509,7 @@ async function doChangePassword() {
 function renderMenu() {
   const items = [
     { title: '希望休の申請', desc: '希望休（有・夏・特・×など）を申請します。日ごとの残り人数を見ながら申請できます。', go: 'req' },
-    { title: '勤務表を見る', desc: '確定した勤務表と、勤務変更を反映した実績を見ます。', soon: '第2段階の後半' },
+    { title: '勤務表を見る', desc: '確定して配布された勤務表を見ます（自分の勤務・全員）。', go: 'schedule' },
     { title: '勤務変更・追加の申請', desc: '勤務の交代（振休は振休同士）や、時間単位の有給などを申請します。', soon: '第3段階' },
     { title: '自分あての承認', desc: '交代を頼まれた勤務変更を承認します。', soon: '第3段階' },
   ];
@@ -468,7 +517,7 @@ function renderMenu() {
   if (isAdmin()) {
     items.push({ title: '期間・流れ・受付の設定', desc: '期間、作成の流れ（希望休が先／当番が先）、申請の受付開始・締め切り、勤務表作成アプリとの受け渡し。', go: 'wf' });
     items.push({ title: '申請の一覧・取り込み', desc: '全員の申請を日ごとに確認し、代わりに入力したり、勤務表に取り込んだりします。', go: 'reqadmin' });
-    items.push({ title: '勤務表の作成', desc: '日直・夜勤・振休の自動作成・確定・配布を行います。', soon: '第2段階の後半' });
+    items.push({ title: '勤務表の作成', desc: '勤務表作成アプリで日直・夜勤・振休・残り当番を作り、確定してスタッフに配布します。', go: 'kinmu' });
     items.push({ title: 'スタッフ・権限の管理', desc: 'スタッフのID登録、仮パスワードの発行、承認者・システム管理者の指名。', go: 'users' });
     items.push({ title: '操作記録', desc: 'ログインや権限変更などの記録を確認します。', go: 'log' });
   }
@@ -912,7 +961,8 @@ function importState(input) {
 }
 async function exportState() {
   try {
-    const b = await call('stateExport');
+    const b = await call('stateExport', { forDownload: true });
+    delete b.rev;
     const blob = new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -993,6 +1043,167 @@ async function importRequests() {
     alert('取り込みました: 希望休 ' + r.leave + '件・振休の移動 ' + r.moved + '件' + (r.skipped.length ? '\n\n取り込めなかった申請（勤務表と重なっているため。申請はそのまま残っています）:\n' + r.skipped.join('\n') : ''));
     await loadReqAdmin();
   } catch (e) { alert(e.message); }
+}
+
+/* ============================================================
+   勤務表の作成（システム管理者）: 勤務表作成アプリを中で動かし、保存先をサーバーにする
+   ============================================================ */
+// 勤務表作成アプリは GitHub Pages の公開版を使う（アプリを直すとそのまま反映される）
+const KINMU_APP_URL = window.KINMU_APP_URL_OVERRIDE ||
+  ('https:\/\/tk-gattsu.github.io/kiboukyu_new/' + encodeURIComponent('勤務表作成アプリ') + '.html?embed=1');
+const KINMU_ORIGIN = new URL(KINMU_APP_URL, location.href).origin;
+const KM = { rev: 0, loaded: false, frameSet: false, saving: false, pending: null };
+const kmFrame = () => document.getElementById('kinmu-frame');
+function kmStatus(t, bad) {
+  const el = document.getElementById('km-status');
+  el.textContent = t; el.style.color = bad ? 'var(--red)' : '';
+}
+function openKinmu() {
+  if (!KM.frameSet) { KM.frameSet = true; kmStatus('勤務表作成アプリを開いています…'); kmFrame().src = KINMU_APP_URL; }
+  else kinmuLoad();   // 戻ってきたときは最新の内容（申請の取り込みなど）を読み直す
+}
+async function kinmuLoad() {
+  if (KM.saving || KM.pending) { setTimeout(kinmuLoad, 500); return; }
+  KM.loaded = false;
+  kmStatus('最新の内容を読み込み中…');
+  try {
+    const b = await call('stateExport', {});
+    KM.rev = b.rev; delete b.rev;
+    kmFrame().contentWindow.postMessage({ type: 'kinmu-load', backup: b }, KINMU_ORIGIN);
+  } catch (e) { kmStatus('読み込めませんでした: ' + e.message, true); }
+}
+function kinmuFlush() {
+  if (KM.loaded && kmFrame().contentWindow) kmFrame().contentWindow.postMessage({ type: 'kinmu-flush' }, KINMU_ORIGIN);
+}
+function closeKinmu() {
+  const f = kmFrame();
+  if (f && KM.frameSet) f.src = 'about:blank';
+  Object.assign(KM, { rev: 0, loaded: false, frameSet: false, saving: false, pending: null });
+}
+function kinmuQueueSave(backup) {
+  if (!TOKEN || !KM.loaded) return;
+  KM.pending = backup;
+  if (!KM.saving) kinmuSaveLoop();
+}
+async function kinmuSaveLoop() {
+  KM.saving = true;
+  while (KM.pending) {
+    const b = KM.pending; KM.pending = null;
+    kmStatus('保存中…');
+    try {
+      const r = await call('stateSave', { backup: b, rev: KM.rev });
+      KM.rev = r.rev;
+      kmStatus('保存済み ' + fmtDateTime(new Date().toISOString()).slice(11));
+    } catch (e) {
+      KM.saving = false;
+      if (e.message.indexOf('【更新の衝突】') === 0) { KM.pending = null; alert(e.message.replace('【更新の衝突】', '')); kinmuLoad(); return; }
+      KM.pending = KM.pending || b;
+      kmStatus('保存できませんでした（10秒後にもう一度試します）: ' + e.message, true);
+      setTimeout(() => { if (!KM.saving && KM.pending) kinmuSaveLoop(); }, 10000);
+      return;
+    }
+  }
+  KM.saving = false;
+}
+function reloadKinmu() {
+  if ((KM.saving || KM.pending) && !confirm('保存中の変更があります。読み込み直すと、まだ保存されていない変更は失われることがあります。読み込み直しますか？')) return;
+  KM.pending = null;
+  kinmuLoad();
+}
+function requestPublish() {
+  if (!KM.loaded) { alert('勤務表の読み込みが終わってから押してください。'); return; }
+  kinmuFlush();
+  kmFrame().contentWindow.postMessage({ type: 'kinmu-publish-request' }, KINMU_ORIGIN);
+}
+async function confirmPublish(pl) {
+  if (!confirm('「' + pl.label + '」をこの内容で確定し、スタッフに配布します。\n\n・スタッフは「勤務表を見る」で確認できるようになります。\n・あとで直して、もう一度配布することもできます（第2版・第3版として残ります）。' +
+    (pl.warnings ? '\n\n⚠ 赤い警告が ' + pl.warnings + '件残っています。' : '') + '\n\nよろしいですか？')) return;
+  try {
+    const r = await call('scheduleConfirm', { payload: pl });
+    alert('「' + r.label + '」を第' + r.rev + '版として確定し、配布しました。');
+  } catch (e) { alert(e.message); }
+}
+window.addEventListener('message', ev => {
+  const f = kmFrame();
+  if (ev.origin !== KINMU_ORIGIN || !f || ev.source !== f.contentWindow || !ev.data) return;
+  const m = ev.data;
+  if (m.type === 'kinmu-ready') kinmuLoad();
+  else if (m.type === 'kinmu-loaded') { KM.loaded = true; kmStatus('最新の内容を表示しています。変更は自動で保存されます。'); }
+  else if (m.type === 'kinmu-save') kinmuQueueSave(m.backup);
+  else if (m.type === 'kinmu-publish') confirmPublish(m.payload);
+});
+window.addEventListener('beforeunload', e => { if (KM.saving || KM.pending) { e.preventDefault(); e.returnValue = ''; } });
+
+/* ============================================================
+   勤務表を見る（確定版）
+   ============================================================ */
+let SV = null, SC_MONTH = null, SC_MODE = 'me';
+async function loadScheduleView() {
+  document.getElementById('sc-head').innerHTML = '<p class="hint">読み込み中…</p>';
+  try { SV = await call('scheduleView'); renderSchedule(); }
+  catch (e) { document.getElementById('sc-head').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+function setScMode(m) { SC_MODE = m; renderSchedule(); }
+function leaveOf(c, name, d) { const l = (c.leaves || []).find(x => x.name === name && x.from <= d && d <= x.to); return l ? l.type : ''; }
+function markChip(mk) {
+  if (TYPE_STYLE[mk]) return chip(mk);
+  return '<span class="chip mark" title="' + esc(markText(mk)) + '">' + esc(markShort(mk)) + '</span>';
+}
+function renderSchedule() {
+  const head = document.getElementById('sc-head'), body = document.getElementById('sc-body');
+  document.getElementById('sc-mode-me').className = SC_MODE === 'me' ? 'on' : '';
+  document.getElementById('sc-mode-all').className = SC_MODE === 'all' ? 'on' : '';
+  if (!SV.confirmed) {
+    head.innerHTML = '<p class="notice">まだ確定・配布された勤務表はありません。</p>';
+    body.innerHTML = ''; document.getElementById('sc-tabs').innerHTML = '';
+    return;
+  }
+  const c = SV.confirmed;
+  head.innerHTML = '<p><b>' + esc(c.label) + '</b>　第' + c.rev + '版 <span class="hint">（' + esc(fmtDateTime(c.confirmedAt)) + ' 確定）</span></p>';
+  const keys = monthKeys(SV.dates);
+  if (!SC_MONTH || keys.indexOf(SC_MONTH) < 0) SC_MONTH = keys[0];
+  monthTabs('sc-tabs', keys, SC_MONTH, k => { SC_MONTH = k; renderSchedule(); });
+  const days = SV.dates.filter(d => d.date.slice(0, 7) === SC_MONTH);
+  if (SC_MODE === 'me') {
+    const mine = c.data[ME.name] || {};
+    const y = Number(SC_MONTH.slice(0, 4)), m = Number(SC_MONTH.slice(5));
+    const first = new Date(y, m - 1, 1).getDay(), last = new Date(y, m, 0).getDate();
+    const byDate = {}; days.forEach(d => { byDate[d.date] = d; });
+    let h = '<div class="cal">' + YOBI.map(w => '<div class="dow">' + w + '</div>').join('');
+    for (let i = 0; i < first; i++) h += '<div class="day out"></div>';
+    for (let d = 1; d <= last; d++) {
+      const iso = SC_MONTH + '-' + String(d).padStart(2, '0');
+      const info = byDate[iso];
+      if (!info) { h += '<div class="day closed outp"><span class="dn">' + d + '</span></div>'; continue; }
+      const mk = mine[iso], lv = leaveOf(c, ME.name, iso);
+      h += '<div class="day' + (info.rest ? ' rest' : '') + '" style="cursor:default;"><span class="dn">' + d + '</span>' +
+        (info.holiday ? '<span class="hn">' + esc(info.holiday) + '</span>' : '') +
+        (lv ? '<span class="chip mark">' + esc(lv) + '</span>' : mk ? markChip(mk) : '') +
+        (c.jimu[iso] ? '<span class="hint" style="font-size:9px; line-height:1.2;">' + esc(c.jimu[iso]) + '</span>' : '') + '</div>';
+    }
+    h += '</div>';
+    if (!c.teams.some(t => t[1].indexOf(ME.name) >= 0)) h = '<p class="notice">あなたの名前（' + esc(ME.name) + '）が勤務表の名簿にありません。「全員」で確認してください。</p>' + h;
+    body.innerHTML = h;
+    return;
+  }
+  // 全員
+  let h = '<div class="scroll" style="max-height:70vh;"><table class="grid"><thead><tr><th class="nm">日付</th>' +
+    days.map(d => '<th class="' + (d.rest ? 'rest' : '') + '" title="' + esc(d.holiday) + '">' + Number(d.date.slice(8)) + '<br>' + YOBI[d.dow] + '</th>').join('') + '</tr></thead><tbody>';
+  h += '<tr><td class="nm">班</td>' + days.map(d => '<td class="' + (d.rest ? 'rest' : '') + '">' + esc((c.dutyTeam[d.date] || '').slice(0, 1)) + '</td>').join('') + '</tr>';
+  h += '<tr><td class="nm">事務連絡</td>' + days.map(d => '<td class="' + (d.rest ? 'rest' : '') + '" title="' + esc(c.jimu[d.date] || '') + '">' + (c.jimu[d.date] ? '●' : '') + '</td>').join('') + '</tr>';
+  c.teams.forEach(t => {
+    h += '<tr class="team"><td class="nm" colspan="' + (days.length + 1) + '">' + esc(t[0]) + '</td></tr>';
+    t[1].forEach(n => {
+      h += '<tr class="' + (n === ME.name ? 'mine' : '') + '"><td class="nm">' + esc(n) + '</td>' + days.map(d => {
+        const lv = leaveOf(c, n, d.date), mk = (c.data[n] || {})[d.date] || '';
+        if (lv) return '<td class="lv" title="' + esc(lv) + '">' + esc(lv.slice(0, 1)) + '</td>';
+        const st = TYPE_STYLE[mk];
+        return '<td class="' + (d.rest ? 'rest' : '') + '" title="' + esc(markText(mk)) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + esc(mk.length > 3 ? '振' : mk) + '</td>';
+      }).join('') + '</tr>';
+    });
+  });
+  h += '</tbody></table></div><p class="hint">事務連絡の「●」は、マスにカーソルを合わせると内容が出ます（スマホは「自分の勤務」で確認できます）。</p>';
+  body.innerHTML = h;
 }
 
 /* ============================================================

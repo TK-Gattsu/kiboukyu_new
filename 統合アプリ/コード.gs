@@ -369,7 +369,7 @@ const ACTIONS = {
     const old = state.settings.period || {};
     state.settings.period = { year: sy, months: months, extraDates: old.extraDates || [], extraLabel: old.extraLabel || '追加日程',
       start: start.slice(8) === '01' ? null : start, end: ed === lastDay ? null : end };
-    docPut_('state', state);
+    saveState_(state);
     log_(me, '期間の設定', start + '〜' + end);
     return periodInfo_(ctx_());
   }) },
@@ -378,7 +378,8 @@ const ACTIONS = {
   stateImport: { role: 'sysadmin', run: (me, p) => withLock_(() => {
     const b = p.backup;
     if (!b || !b.__kinmu_backup__) throw new Error('勤務表作成アプリの「JSON書出」で作ったファイル（kinmu_backup.json）を選んでください。');
-    docPut_('state', { schedule: b.schedule || {}, settings: b.settings || {}, memo: b.memo || '' });
+    const old = docGet_('state');
+    saveState_({ schedule: b.schedule || {}, settings: b.settings || {}, memo: b.memo || '', rev: old ? old.rev || 0 : 0 });
     if (Array.isArray(b.archive)) docPut_('archive', b.archive, 'archives');
     const c = ctx_();
     const cells = Object.keys(c.data).reduce((a, n) => a + Object.keys(c.data[n] || {}).length, 0);
@@ -386,10 +387,51 @@ const ACTIONS = {
     return { period: periodInfo_(c), cells: cells, archive: (b.archive || []).length, staff: rosterNames_(c).length };
   }) },
 
-  stateExport: { role: 'sysadmin', run: me => {
+  stateExport: { role: 'sysadmin', run: (me, p) => {
     const state = docGet_('state') || { schedule: {}, settings: {}, memo: '' };
-    log_(me, '勤務表データの書き出し', '');
-    return { __kinmu_backup__: 1, schedule: state.schedule || {}, memo: state.memo || '', archive: docGet_('archive', 'archives') || [], settings: state.settings || {} };
+    if (p.forDownload) log_(me, '勤務表データの書き出し', '');
+    return { __kinmu_backup__: 1, schedule: state.schedule || {}, memo: state.memo || '', archive: docGet_('archive', 'archives') || [],
+             settings: state.settings || {}, rev: state.rev || 0 };
+  } },
+
+  // 勤務表の作成画面（勤務表作成アプリ）からの自動保存。読み込んだときの版（rev）と違えば保存しない
+  stateSave: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const b = p.backup;
+    if (!b || !b.__kinmu_backup__) throw new Error('保存する内容が正しくありません。');
+    const cur = docGet_('state');
+    if ((cur ? cur.rev || 0 : 0) !== Number(p.rev))
+      throw new Error('【更新の衝突】勤務表がほかの操作（申請の取り込み・期間の変更など）で更新されました。最新の内容を読み込み直します（直前に行った変更は保存されていないので、もう一度行ってください）。');
+    const rev = saveState_({ schedule: b.schedule || {}, settings: b.settings || {}, memo: b.memo || '', rev: cur ? cur.rev || 0 : 0 });
+    if (Array.isArray(b.archive)) docPut_('archive', b.archive, 'archives');
+    // 操作記録は30分に1回まで（自動保存のたびに記録しない）
+    const cache = CacheService.getScriptCache();
+    if (!cache.get('statesave_' + me.id)) { cache.put('statesave_' + me.id, '1', 1800); log_(me, '勤務表の編集', '勤務表の作成画面で変更'); }
+    return { rev: rev };
+  }) },
+
+  // ---- 確定・配布 ----
+  scheduleConfirm: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const pl = p.payload;
+    if (!pl || !pl.period || !pl.data || !Array.isArray(pl.teams)) throw new Error('確定する内容が正しくありません。');
+    const old = docGet_('confirmed');
+    const sameLabel = old && old.label === pl.label;
+    const doc = { rev: sameLabel ? (old.rev || 1) + 1 : 1, label: String(pl.label), confirmedAt: new Date().toISOString(), by: me.name,
+      period: pl.period, teams: pl.teams, data: pl.data, jimu: pl.jimu || {}, holidays: pl.holidays || {}, dutyTeam: pl.dutyTeam || {},
+      leaves: pl.leaves || [] };
+    docPut_('confirmed', doc);
+    docPut_('confirmed:' + doc.label + ':' + doc.rev, doc, 'archives');   // 確定した版はすべて残す（実績の比較用）
+    log_(me, '勤務表の確定・配布', doc.label + ' 第' + doc.rev + '版' + (pl.warnings ? '（警告' + pl.warnings + '件が残った状態）' : ''));
+    return { rev: doc.rev, label: doc.label, confirmedAt: doc.confirmedAt };
+  }) },
+
+  scheduleView: { run: () => {
+    const doc = docGet_('confirmed');
+    if (!doc) return { confirmed: null };
+    const dates = periodDates_(doc.period).map(d => {
+      const w = dowOf_(d);
+      return { date: d, dow: w, rest: w === 0 || w === 6 || !!doc.holidays[d], holiday: doc.holidays[d] || '' };
+    });
+    return { confirmed: doc, dates: dates };
   } },
 
   // ---- システム管理者: 申請の一覧・代理入力・取り込み ----
@@ -423,7 +465,7 @@ const ACTIONS = {
       r.status = 'imported'; r.updatedAt = now; r.by = me.id;
       writeRow_('requests', r);
     });
-    docPut_('state', state);
+    saveState_(state);
     log_(me, '申請を勤務表に取り込み', '希望休' + leave + '件・振休移動' + moved + '件' + (skipped.length ? '・取り込めず' + skipped.length + '件' : ''));
     return { leave: leave, moved: moved, skipped: skipped };
   }) },
@@ -556,6 +598,12 @@ function withLock_(fn) {
   lock.waitLock(15000);
   LOCK_DEPTH++;
   try { return fn(); } finally { LOCK_DEPTH--; lock.releaseLock(); }
+}
+// 勤務表（state）を保存するたびに版（rev）を1つ上げる。作成画面の自動保存が古い内容で上書きしないための目印
+function saveState_(state) {
+  state.rev = (state.rev || 0) + 1;
+  docPut_('state', state);
+  return state.rev;
 }
 function findUser_(id) {
   id = String(id || '');

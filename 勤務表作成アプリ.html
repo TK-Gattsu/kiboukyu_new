@@ -209,6 +209,10 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 .pg-box.mini .pg-body { display: none; }
 
 /* 作り方ガイド */
+.standalone-only {}
+.embedded-only { display: none; }
+body.embedded .standalone-only { display: none !important; }
+body.embedded .embedded-only { display: inline; }
 .guide-btn {
   margin-left: auto; flex-shrink: 0; background: white; color: var(--blue); border: none; border-radius: 4px;
   padding: 6px 14px; font-size: 13px; font-weight: bold; cursor: pointer; position: relative;
@@ -284,7 +288,7 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
   <button class="btn btn-primary btn-sm" onclick="saveCurrentSchedule()">この勤務表を保存</button>
   <button class="btn btn-gray btn-sm" onclick="openArchiveModal()">過去の勤務表・年間集計</button>
   <b style="font-size:11px;color:#888;margin-left:8px;">データ:</b>
-  <button class="btn btn-gray btn-sm" onclick="importFromKiboushu()">希望休取込</button>
+  <button class="btn btn-gray btn-sm standalone-only" onclick="importFromKiboushu()">希望休取込</button>
   <button class="btn btn-success btn-sm" onclick="exportJson()">JSON書出</button>
   <label class="btn btn-gray btn-sm" style="display:inline-block;">JSON読込<input type="file" accept=".json" style="display:none" onchange="importJson(this)"></label>
   <button class="btn btn-danger btn-sm" onclick="resetToSeed()">初期データに戻す</button>
@@ -323,7 +327,8 @@ footer { margin: 0 20px 30px; font-size: 11px; color: #888; }
 <div class="table-wrap" id="table-wrap"></div>
 
 <footer>
-  データはこのブラウザ（localStorage）に保存されています。別のPCで続きを行うときは「JSON書出」→ 別のPCで「JSON読込」で移してください。<br>
+  <span class="standalone-only">データはこのブラウザ（localStorage）に保存されています。別のPCで続きを行うときは「JSON書出」→ 別のPCで「JSON読込」で移してください。<br></span>
+  <span class="embedded-only">統合アプリの中で開いています。変更は自動で統合アプリに保存されます。確定・配布は統合アプリの画面上部のボタンで行います。<br></span>
   セルをクリックすると編集できます。作り方・自動割り当てのルールは右上の「📖 作り方」をご覧ください。
 </footer>
 
@@ -1476,7 +1481,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.18";
+const APP_VERSION = "v8.19";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1874,6 +1879,10 @@ function collectSettings() {
     leaves: LEAVES, carry: [...CARRY_SET],
     period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT, prev_lastin: PREV_LASTIN,
     teams: TEAMS, managers: [...MANAGERS],
+    // 振休の自動配置の記録・祝日扱いの名前・次期引き継ぎ済み・名簿の取り込み元・出力済み
+    night_auto: NIGHT_AUTO, furi_auto: FURIKYU_AUTO, custom_holiday_names: CUSTOM_HOLIDAY_NAMES,
+    carried_from: localStorage.getItem("kinmu_carried_from") || "", roster_source: loadJson("kinmu_roster_source", null),
+    exported: localStorage.getItem("kinmu_exported") || "",
   };
 }
 function applySettings(s) {
@@ -1896,6 +1905,26 @@ function applySettings(s) {
   if (s.prev_night) { PREV_NIGHT = s.prev_night; saveJson("kinmu_prev_night", PREV_NIGHT); }
   if (s.prev_lastin) { PREV_LASTIN = s.prev_lastin; saveJson("kinmu_prev_lastin", PREV_LASTIN); }
   if (s.teams) { applyRoster(s.teams, s.managers); saveRoster(); }
+  if (s.night_auto) { NIGHT_AUTO = s.night_auto.slice(); saveNightAuto(); }
+  if (s.furi_auto) { FURIKYU_AUTO = JSON.parse(JSON.stringify(s.furi_auto)); saveFurikyuAuto(); }
+  if (s.custom_holiday_names) { CUSTOM_HOLIDAY_NAMES = s.custom_holiday_names; saveJson("kinmu_custom_holiday_names", CUSTOM_HOLIDAY_NAMES); }
+  if (s.carried_from !== undefined) localStorage.setItem("kinmu_carried_from", s.carried_from);
+  if (s.roster_source !== undefined) saveJson("kinmu_roster_source", s.roster_source);
+  if (s.exported !== undefined) localStorage.setItem("kinmu_exported", s.exported);
+}
+
+// 完全バックアップ（JSON書出の形）を読み込んで画面に反映する
+function applyBackup(obj) {
+  DATA = obj.schedule || {};
+  if (typeof obj.memo === "string") {
+    localStorage.setItem("kinmu_memo", obj.memo);
+    const ta = document.getElementById("memo-area");
+    if (ta) { ta.value = obj.memo; if (obj.memo.trim()) openMemo(true); }
+  }
+  applySettings(obj.settings || {});
+  if (Array.isArray(obj.archive)) saveArchive(obj.archive);   // 過去の勤務表も復元
+  EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
+  saveSchedule(); render();
 }
 
 function exportJson() {
@@ -1924,16 +1953,7 @@ function importJson(input) {
       pushUndo("JSON読み込み");
       if (obj.__kinmu_backup__) {
         // 完全バックアップ形式: 勤務データ・メモ・全設定を復元
-        DATA = obj.schedule || {};
-        if (typeof obj.memo === "string") {
-          localStorage.setItem("kinmu_memo", obj.memo);
-          const ta = document.getElementById("memo-area");
-          if (ta) { ta.value = obj.memo; if (obj.memo.trim()) openMemo(true); }
-        }
-        applySettings(obj.settings || {});
-        if (Array.isArray(obj.archive)) saveArchive(obj.archive);   // 過去の勤務表も復元
-        EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
-        saveSchedule(); render();
+        applyBackup(obj);
         alert(`バックアップを読み込みました（勤務データ・メモ・全設定${Array.isArray(obj.archive)?"・過去の勤務表"+obj.archive.length+"件":""}）。`);
       } else {
         // 旧形式（勤務データのみ）
@@ -4297,6 +4317,10 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-11-13", ver: "v8.19", items: [
+    "統合アプリ（希望休申請・勤務表・勤務変更をまとめたアプリ）の中でも使えるようにしました。統合アプリの「勤務表の作成」から開くと、変更は自動で統合アプリに保存され、確定・配布も統合アプリで行います。",
+    "JSON書出のバックアップに、振休の自動配置の記録・祝日扱いの名前なども含めるようにしました（別のPCで読み込んだあとに「3. 振休」をやり直しても重複しません）。",
+  ] },
   { date: "2026-11-13", ver: "v8.18", items: [
     "「この勤務表を保存」で、表の内容に加えて行事・長期休暇・前回繰越・チーム編成・夜勤条件などの設定も保存するようにしました（次期作成で今期を締めるときの自動保存も同じ）。",
     "「過去の勤務表・年間集計」から読み込むと、設定も保存時の状態に戻ります。一覧に「表＋設定」「表のみ（設定なし）」と表示します。以前に保存した分は表のみなので、必要なら今の期間をもう一度保存してください。",
@@ -4532,6 +4556,7 @@ function guideHtml(tab) {
       <li><b>新しいスタッフが入った・辞めた・チームが変わった</b> → 先に希望休申請アプリのスタッフ一覧を直します。そのあと希望休申請Excelを読み込むと勤務表アプリにも反映されます（申請はそのままで編成だけ直したいときは ${gbtn("スタッフ・チーム", "openRosterModal")} の「チーム編成だけ読み込む」）。</li>
       <li><b>前回繰越や開始班が違う</b> → ${gbtn("振休繰越管理", "openCarryModal")} で前回繰越を、${gbtn("期間・次期作成", "openPeriodModal")} の③で開始班・前期最後の夜勤を直し、「1. 日直」から実行し直します。</li>
       <li><b>過去の勤務表を見たい・年間の休みを集計したい</b> → ${gbtn("過去の勤務表・年間集計", "openArchiveModal")}（年度を選ぶと自動で集計）。</li>
+      <li><b>統合アプリの中で使っている</b> → 統合アプリの「勤務表の作成」から開いた場合、変更は自動で統合アプリに保存されます（画面上部に「保存済み」と出ます）。スタッフの希望休は統合アプリの「申請の一覧・取り込み」で取り込み、できあがったら統合アプリ上部の「確定してスタッフに配布」を押します。</li>
     </ul>
     <h4>希望休申請アプリ（GAS版）を直したとき</h4>
     <ol>
@@ -4556,6 +4581,70 @@ loadMemo();
 saveSchedule();
 updateUndoBtn();
 updateGuideBadge();
+
+/* ============================================================
+   統合アプリの中で開いたとき（URLに ?embed=1）
+   保存先を統合アプリのサーバーにする。統合アプリから内容を受け取るまでは送り返さない
+   ============================================================ */
+const EMBED = new URLSearchParams(location.search).get("embed") === "1" && window.parent !== window;
+let _embedOrigin = null, _embedLoaded = false, _embedTimer = null, _embedArchiveSent = null;
+function embedQueue() {
+  if (!_embedLoaded) return;
+  clearTimeout(_embedTimer);
+  _embedTimer = setTimeout(embedSendNow, 1500);
+}
+function embedSendNow() {
+  clearTimeout(_embedTimer);
+  if (!_embedLoaded || !_embedOrigin) return;
+  const backup = { __kinmu_backup__: 1, schedule: DATA, memo: localStorage.getItem("kinmu_memo") || "", settings: collectSettings() };
+  const archive = loadArchive(), as = JSON.stringify(archive);
+  if (as !== _embedArchiveSent) { backup.archive = archive; _embedArchiveSent = as; }   // 過去の勤務表は変わったときだけ送る
+  window.parent.postMessage({ type: "kinmu-save", backup: JSON.parse(JSON.stringify(backup)) }, _embedOrigin);
+}
+// 統合アプリで「確定・配布」するときに渡す内容（スタッフが見る勤務表）
+function buildPublishPayload() {
+  EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
+  const dates = allPeriodDates(), dateSet = new Set(dates);
+  const data = {}, jimu = {}, holidays = {}, dutyTeam = {};
+  for (const n in DATA) {
+    const o = {};
+    for (const iso in DATA[n]) if (dateSet.has(iso) && DATA[n][iso]) o[iso] = DATA[n][iso];
+    if (Object.keys(o).length) data[n] = o;
+  }
+  for (const iso of dates) {
+    const t = eventsTextOf(iso); if (t) jimu[iso] = t;
+    if (isHoliday(iso)) holidays[iso] = holidayName(iso);
+    if (DUTY_TEAM_MAP[iso]) dutyTeam[iso] = DUTY_TEAM_MAP[iso];
+  }
+  return JSON.parse(JSON.stringify({
+    label: periodLabel(PERIOD), period: PERIOD, teams: TEAMS, data, jimu, holidays, dutyTeam,
+    leaves: LEAVES.filter(l => l.to >= dates[0] && l.from <= dates[dates.length - 1]),
+    warnings: checkWarnings(dates).filter(w => w.indexOf("⚠") === 0).length,
+  }));
+}
+if (EMBED) {
+  document.body.classList.add("embedded");
+  window.addEventListener("message", ev => {
+    if (ev.source !== window.parent || !ev.data || typeof ev.data !== "object") return;
+    const m = ev.data;
+    if (m.type === "kinmu-load") {
+      _embedOrigin = ev.origin; _embedLoaded = false;
+      UNDO_STACK.length = 0; updateUndoBtn();
+      applyBackup(m.backup);
+      _embedArchiveSent = JSON.stringify(loadArchive());
+      _embedLoaded = true;
+      window.parent.postMessage({ type: "kinmu-loaded" }, _embedOrigin);
+    }
+    if (m.type === "kinmu-flush") embedSendNow();
+    if (m.type === "kinmu-publish-request" && _embedOrigin)
+      window.parent.postMessage({ type: "kinmu-publish", payload: buildPublishPayload() }, _embedOrigin);
+  });
+  // 保存（localStorage への書き込み）を見張って、統合アプリへ送る
+  const origSet = Storage.prototype.setItem, origRemove = Storage.prototype.removeItem;
+  Storage.prototype.setItem = function (k, v) { origSet.call(this, k, v); if (this === localStorage && String(k).indexOf("kinmu_") === 0) embedQueue(); };
+  Storage.prototype.removeItem = function (k) { origRemove.call(this, k); if (this === localStorage && String(k).indexOf("kinmu_") === 0) embedQueue(); };
+  window.parent.postMessage({ type: "kinmu-ready" }, "*");
+}
 </script>
 </body>
 </html>
