@@ -59,7 +59,8 @@ Tab contents are rebuilt dynamically by `rebuildStaffPanel()` and `rebuildAdminP
 - `統合アプリ/dev/preview.html` ＋ `dev/gas-mock.js` — 開発用。GASのサービスをブラウザで模擬して `コード.gs` と `index.html` を動かす（launch設定 `kinmu-app` で `/統合アプリ/dev/preview.html` を開く）。本番には貼り付けない
 - データ: シート `users`・`log`・`requests`（申請1件1行。status は active／cancelled／imported）、`docs`（キー `state`＝勤務表作成アプリの JSON書出と同じ形の `{schedule, settings, memo}`、キー `workflow`＝流れと受付）、`archives`（過去の勤務表）。大きいJSONは `docGet_`/`docPut_` で4万文字ずつ分割保存
 - 作成の流れ: `workflow.flow` が `request_first`（希望休が先）か `duty_first`（当番が先）。受付は `rounds_()` が flow と `split`（当番が先のとき「土日祝の×」「平日の希望休」の2回に分けるか）から決める。split はあとから切り替え可能で、受付の状態は受付ごと（rest／weekday／all）に保持
-- 申請のきまり（`checkRequest_`）: 受付中の日だけ／勤務表に何か入っている日は不可／平日は1日5人まで（取り込み前の申請と振休の移動も重ねて数える）／当番が先では「振◆」の代わりに日付つき振休の移動。システム管理者は代理入力と上限超え（force）ができる
+- 受付の状態: 受付前 → 受付中 → 調整中 → 締め切り。受付ごとの受付期間（openFrom〜openTo）と調整期間の終わり（adjustTo）を入れると日本時間の日付で自動的に切り替わる（`statusByDate_`）。手動で切り替えると `workflow.status` に保持され、「日付どおり」で解除
+- 申請のきまり（`checkRequest_`）: 受付中・調整中の日だけ／勤務表に何か入っている日は不可／受付中は平日5人を超えても申請でき、超過日（`overDays_`、取り込み前の申請と振休の移動も重ねて数える）に申請している人の画面とメニューに注意を出す（ほかの申請者は名前だけ見せ、種類は見せない）／調整中は、調整期間に入った時点の当該者（`workflow.involved`）だけが変更でき、新しく休みを入れるのは5人未満の日だけ／当番が先では「振◆」の代わりに日付つき振休の移動。システム管理者は代理入力と勤務表との重なりを超えた入力（force）ができる
 - 進め方: 第1段階＝基盤（ログイン・権限・スタッフ管理・操作記録）／第2段階＝希望休申請と勤務表作成の統合・確定配布／第3段階＝勤務変更（交代は依頼者→受領者→承認者、追加は申請者→承認者、振休は振休同士のみ、条件逸脱は理由必須でシステム管理者と承認者だけが閲覧）／第4段階＝時間単位の有給・勤務／第5段階＝実績の集計・分析
 
 ## Domain Context

@@ -74,7 +74,12 @@ table.list tr.inactive td { color: #AAA; }
 .cal .day.rest .dn { color: var(--red); }
 .cal .day .hn { font-size: 9px; color: var(--red); line-height: 1.1; }
 .cal .day .left { margin-top: auto; font-size: 10px; color: #666; }
-.cal .day .left.full { color: var(--red); font-weight: bold; }
+.cal .day .left.full { color: var(--orange); font-weight: bold; }
+.cal .day .left.over { color: white; background: var(--red); border-radius: 3px; padding: 0 3px; font-weight: bold; }
+.cal .day.overday { border: 2px solid var(--red); }
+.pill.adjust { background: var(--orange-light); color: var(--orange); }
+.alert { background: var(--red-light); border: 1px solid #E8A39B; border-radius: 6px; padding: 8px 10px; font-size: 13px; line-height: 1.7; margin-top: 8px; }
+.menu .badge { display: inline-block; font-size: 11px; background: var(--red); color: white; border-radius: 10px; padding: 1px 8px; margin-left: 6px; font-weight: bold; }
 .chip { display: inline-block; border-radius: 3px; padding: 1px 5px; font-weight: bold; font-size: 11px; border: 1px solid; line-height: 1.3; }
 .chip.mark { background: #EEE; color: #444; border-color: #BBB; font-weight: normal; }
 .rounds { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
@@ -101,6 +106,8 @@ table.list tr.inactive td { color: #AAA; }
 .grid td.over { background: var(--red-light) !important; color: var(--red); }
 .grid .dm { color: #888; }
 .radio-list label { display: block; margin: 6px 0; font-size: 14px; }
+.round-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+.round-dates { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; align-items: center; }
 @media (max-width: 600px) {
   main { padding: 10px; }
   table.list .hide-sm { display: none; }
@@ -243,7 +250,7 @@ table.list tr.inactive td { color: #AAA; }
     </div>
     <div class="card">
       <h2>申請の受付</h2>
-      <table class="list"><thead><tr><th>受付</th><th>対象の日</th><th>状態</th><th>締め切り（表示用）</th><th></th></tr></thead><tbody id="wf-rounds"></tbody></table>
+      <div id="wf-rounds"></div>
       <p class="hint" id="wf-roundhint"></p>
     </div>
     <div class="card">
@@ -474,6 +481,12 @@ function renderMenu() {
     const it = items[Number(el.dataset.i)];
     el.onclick = () => { if (it.go) show(it.go); };
   });
+  // 自分の申請日が上限を超えていれば、メニューに注意を出す
+  call('reqAlerts').then(a => {
+    const el = document.querySelector('#menu .item[data-i="0"] b');
+    if (!el || (!a.overDays && !a.adjusting)) return;
+    el.insertAdjacentHTML('beforeend', a.overDays ? '<span class="badge">⚠ 人数超過 ' + a.overDays + '日</span>' : '<span class="badge" style="background:var(--orange);">調整期間中</span>');
+  }).catch(() => {});
 }
 
 /* ============================================================
@@ -637,8 +650,16 @@ function monthTabs(elId, keys, cur, onPick) {
   el.querySelectorAll('button').forEach(b => { b.onclick = () => onPick(b.dataset.k); });
 }
 function statusPill(s) {
-  return '<span class="pill ' + s + '">' + ({ before: '受付前', open: '受付中', closed: '締め切り' }[s] || s) + '</span>';
+  return '<span class="pill ' + s + '">' + ({ before: '受付前', open: '受付中', adjust: '調整中', closed: '締め切り' }[s] || s) + '</span>';
 }
+// 受付期間・調整期間の表示
+function roundDates(r) {
+  const t = [];
+  if (r.openFrom || r.openTo) t.push('受付 ' + (r.openFrom ? md(r.openFrom) : '') + '〜' + (r.openTo ? md(r.openTo) : ''));
+  if (r.adjustTo) t.push('調整 〜' + md(r.adjustTo));
+  return t.length ? ' <span class="hint">' + t.join('／') + '</span>' : '';
+}
+const canEdit = st => st === 'open' || st === 'adjust';
 function roundFor(rounds, rest) {
   return rounds.find(r => r.days === 'all' || r.days === (rest ? 'rest' : 'weekday')) || null;
 }
@@ -661,8 +682,20 @@ function renderReq() {
     document.getElementById('rq-cal').innerHTML = ''; document.getElementById('rq-tabs').innerHTML = ''; document.getElementById('rq-mine').innerHTML = '';
     return;
   }
-  h += '<div class="rounds">' + RV.rounds.map(r => '<span>' + esc(r.label) + '：' + statusPill(r.status) +
-    (r.deadline ? ' <span class="hint">締め切り ' + esc(md(r.deadline)) + '</span>' : '') + '</span>').join('') + '</div>';
+  h += '<div class="rounds">' + RV.rounds.map(r => '<span>' + esc(r.label) + '：' + statusPill(r.status) + roundDates(r) + '</span>').join('') + '</div>';
+  // 自分が申請している日が上限を超えているときの注意
+  if (RV.my.overDays.length) {
+    const adj = RV.rounds.find(r => r.status === 'adjust' || r.adjustTo);
+    h += '<div class="alert"><b>⚠ 休みの人数が上限（' + RV.cap + '人）を超えている日に申請しています</b><br>' + RV.my.overDays.map(o =>
+      esc(mdw(o.date)) + '　休み' + o.count + '人：' + (o.others.length ? 'あなたのほかに ' + esc(o.others.join('・')) + ' さんが申請' : 'あなたの申請') +
+      (o.fixed > 0 ? '（ほかに勤務表で休み' + o.fixed + '人）' : '')).join('<br>') +
+      '<br><span style="font-size:12px;">同じ日に申請している人どうしで相談し、取り消すか別の日に移して調整してください' +
+      (adj && adj.adjustTo ? '（調整期間 〜' + esc(md(adj.adjustTo)) + '）' : '') + '。調整がつかない場合はシステム管理者が決めます。</span></div>';
+  }
+  if (RV.rounds.some(r => r.status === 'adjust'))
+    h += '<p class="notice" style="margin-top:8px;">今は調整期間です。' + (RV.my.adjustMember
+      ? '人数を超えた日の申請を取り消したり、休みが' + RV.cap + '人未満の日へ移したりできます。'
+      : '人数を超えた日に申請していた人だけが申請を変更できます。') + '</p>';
   if (!RV.my.inRoster) h += '<p class="notice" style="margin-top:8px;">あなたの名前（' + esc(RV.my.name) + '）が勤務表の名簿にありません。システム管理者に確認してください。</p>';
   if (RV.flow === 'duty_first' && RV.published)
     h += '<p class="hint" style="margin-top:8px;">日直・夜勤・振休はすでに決まっています（灰色の表示）。その日は申請できません。振休は、日付を押して別の平日へ移す申請ができます。</p>';
@@ -682,7 +715,7 @@ function renderReq() {
     const info = byDate[iso];
     if (!info) { cal += '<div class="day closed outp"><span class="dn">' + d + '</span><span class="hn" style="color:#999;">期間外</span></div>'; continue; }
     const rd = roundFor(RV.rounds, info.rest);
-    const open = rd && rd.status === 'open';
+    const open = rd && canEdit(rd.status);
     const mark = RV.my.marks[iso];
     const req = myReqOn(iso);
     const moveFrom = RV.my.requests.find(r => r.kind === 'move' && r.fromDate === iso);
@@ -690,21 +723,26 @@ function renderReq() {
     if (mark) body += '<span class="chip mark" title="' + esc(markText(mark)) + '"' + (moveFrom ? ' style="text-decoration:line-through;"' : '') + '>' + esc(markShort(mark)) + '</span>';
     if (moveFrom) body += '<span class="hint" style="font-size:10px;">→' + esc(md(moveFrom.date)) + 'へ移動申請中</span>';
     if (req) body += req.kind === 'move' ? chip('振休移動') + '<span class="hint" style="font-size:10px;">' + esc(md(req.fromDate)) + 'から</span>' : chip(req.type);
+    let overCls = '';
     if (!info.rest) {
-      const left = RV.cap - (RV.counts[iso] || 0);
-      body += '<span class="left' + (left <= 0 ? ' full' : '') + '">' + (left <= 0 ? '満員' : '残り' + left) + '</span>';
+      const cnt = RV.counts[iso] || 0, left = RV.cap - cnt;
+      body += left > 0 ? '<span class="left">残り' + left + '</span>'
+        : left === 0 ? '<span class="left full">' + RV.cap + '人（上限）</span>'
+        : '<span class="left over">超過 ' + cnt + '人</span>';
+      if (left < 0 && (req || moveFrom)) overCls = ' overday';
     }
-    cal += '<div class="day' + (info.rest ? ' rest' : '') + (open ? '' : ' closed') + '" data-d="' + iso + '">' + body + '</div>';
+    cal += '<div class="day' + (info.rest ? ' rest' : '') + (open ? '' : ' closed') + overCls + '" data-d="' + iso + '">' + body + '</div>';
   }
   const calEl = document.getElementById('rq-cal');
   calEl.innerHTML = cal;
   calEl.querySelectorAll('.day[data-d]').forEach(el => { el.onclick = () => openPick({ name: RV.my.name, date: el.dataset.d, admin: false }); });
+  const editable = RV.rounds.some(r => canEdit(r.status));
   // 自分の申請
   const mine = RV.my.requests.slice().sort((a, b) => a.date < b.date ? -1 : 1);
   document.getElementById('rq-mine').innerHTML = mine.length
     ? '<table class="list"><thead><tr><th>日付</th><th>内容</th><th></th></tr></thead><tbody>' + mine.map(r =>
       '<tr><td>' + esc(mdw(r.date)) + '</td><td>' + (r.kind === 'move' ? chip('振休移動') + ' ' + esc(md(r.fromDate)) + 'の振休をこの日へ' : chip(r.type) + ' <span class="hint">' + esc(TYPE_DESC[r.type] || '') + '</span>') +
-      '</td><td><button class="btn btn-gray btn-sm" data-id="' + esc(r.id) + '">取り消す</button></td></tr>').join('') + '</tbody></table>'
+      '</td><td>' + (editable ? '<button class="btn btn-gray btn-sm" data-id="' + esc(r.id) + '">取り消す</button>' : '') + '</td></tr>').join('') + '</tbody></table>'
     : '<p class="hint">まだ申請はありません。</p>';
   document.querySelectorAll('#rq-mine button[data-id]').forEach(b => { b.onclick = () => cancelReq(b.dataset.id, false); });
 }
@@ -723,16 +761,23 @@ function openPick(pk) {
   const left = info.rest ? null : V.cap - dayCount(pk.date, pk.admin);
   document.getElementById('pk-title').textContent = (pk.admin ? pk.name + '　' : '') + mdw(pk.date) + (info.holiday ? '　' + info.holiday : '');
   let h = '';
-  if (left !== null) h += '<p class="hint">この日の休み: ' + (V.cap - left) + '人／' + V.cap + '人' + (left <= 0 ? '（満員）' : '（あと' + left + '人）') + '</p>';
+  if (left !== null) h += '<p class="hint">この日の休み: ' + (V.cap - left) + '人／上限' + V.cap + '人' + (left < 0 ? '（' + (-left) + '人超過）' : left === 0 ? '（上限ちょうど）' : '（あと' + left + '人）') + '</p>';
   if (req) h += '<p>申請中: ' + (req.kind === 'move' ? chip('振休移動') + ' ' + esc(md(req.fromDate)) + 'の振休をこの日へ' : chip(req.type)) +
     ' <button class="btn btn-gray btn-sm" id="pk-cancel">取り消す</button></p>';
-  const open = rd && rd.status === 'open';
+  const open = rd && canEdit(rd.status);
+  const adjusting = rd && rd.status === 'adjust';
   if (mark && !pk.admin) {
     h += '<p class="notice">勤務表でこの日は「' + esc(markText(mark)) + '」です。この日は申請できません。休みたい場合は勤務変更（交代）で対応します。</p>';
     if (isMovable(mark) && open && !info.rest) h += '<p class="hint">この振休を別の日へ移すには、移したい日（平日）を押して「振休をこの日へ移動」を選んでください。</p>';
   } else if (!open && !pk.admin) {
     h += '<p class="notice">' + (info.rest ? '土日祝' : '平日') + 'の申請は' + (rd && rd.status === 'closed' ? '締め切りました' : 'まだ受け付けていません') + '。</p>';
+  } else if (adjusting && !pk.admin && !RV.my.adjustMember) {
+    h += '<p class="notice">今は調整期間です。人数を超えた日に申請していた人だけが申請を変更できます。</p>';
+  } else if (adjusting && !pk.admin && left !== null && left <= 0 && !req) {
+    h += '<p class="notice">調整期間中は、休みが' + V.cap + '人未満の日にだけ移せます。この日はすでに' + (V.cap - left) + '人です。</p>';
   } else {
+    if (!pk.admin && !info.rest && left !== null && left <= 0 && !req)
+      h += '<p class="notice">この日はすでに' + (V.cap - left) + '人が休みです。申請はできますが、上限を超えるため、同じ日に申請している人どうしで調整が必要になります。</p>';
     if (mark) h += '<p class="notice">勤務表でこの日は「' + esc(markText(mark)) + '」です。申請を入れると、取り込み時に置き換わります。</p>';
     const types = info.rest ? V.types.rest : V.types.weekday;
     h += '<div class="typegrid">' + types.map(t => {
@@ -748,7 +793,7 @@ function openPick(pk) {
         furi.map(d => '<option value="' + d + '">' + esc(mdw(d)) + '　' + esc(markText(marks[d])) + '</option>').join('') +
         '</select><button class="btn btn-sm" id="pk-move">移動を申請</button></div></div>';
     }
-    if (pk.admin) h += '<label style="display:block; margin-top:8px; font-size:12px;"><input type="checkbox" id="pk-force"> 上限（5人）や勤務表との重なりを超えても入れる</label>';
+    if (pk.admin) h += '<label style="display:block; margin-top:8px; font-size:12px;"><input type="checkbox" id="pk-force"> 勤務表に入っている日にも入れる（取り込み時に置き換わります）</label>';
   }
   h += '<div class="err" id="pk-err"></div>';
   document.getElementById('pk-body').innerHTML = h;
@@ -767,8 +812,9 @@ function dayCount(date, admin) {
 async function submitPick(x) {
   const fe = document.getElementById('pk-force');
   try {
-    await call('reqSave', Object.assign({ date: PICK.date, name: PICK.name, force: !!(fe && fe.checked) }, x));
+    const r = await call('reqSave', Object.assign({ date: PICK.date, name: PICK.name, force: !!(fe && fe.checked) }, x));
     closeModal('pick-modal');
+    if (r.warning) alert(r.warning);
     if (PICK.admin) await loadReqAdmin(); else await loadReq();
   } catch (e) { document.getElementById('pk-err').textContent = e.message; }
 }
@@ -802,17 +848,25 @@ function renderWf() {
   // 受付
   const daysLabel = { all: '全部の日', rest: '土日祝', weekday: '平日' };
   const tb = document.getElementById('wf-rounds');
-  tb.innerHTML = WF.rounds.map(r => '<tr><td><b>' + esc(r.label) + '</b></td><td>' + daysLabel[r.days] + '</td><td>' + statusPill(r.status) + '</td>' +
-    '<td><input type="date" data-dl="' + r.id + '" value="' + esc(r.deadline) + '" style="max-width:160px; font-size:13px;"></td><td style="white-space:nowrap;">' +
-    (r.status !== 'open' ? '<button class="btn btn-green btn-sm" data-st="' + r.id + ':open">受付開始</button> ' : '') +
-    (r.status === 'open' ? '<button class="btn btn-red btn-sm" data-st="' + r.id + ':closed">締め切る</button> ' : '') +
-    (r.status !== 'before' ? '<button class="btn btn-gray btn-sm" data-st="' + r.id + ':before">受付前に戻す</button>' : '') + '</td></tr>').join('');
+  const dt = (r, k) => '<input type="date" data-sc="' + r.id + ':' + k + '" value="' + esc(r[k]) + '" style="max-width:150px; font-size:13px; padding:4px;">';
+  const stBtn = (r, st, label, cls) => r.status === st && r.manual ? '' : '<button class="btn ' + cls + ' btn-sm" data-st="' + r.id + ':' + st + '">' + label + '</button> ';
+  tb.innerHTML = WF.rounds.map(r => '<div class="round-box">' +
+    '<div><b style="font-size:15px;">' + esc(r.label) + '</b> <span class="hint">（' + daysLabel[r.days] + '）</span>　' + statusPill(r.status) +
+    ' <span class="hint">' + (r.manual ? '手動で切り替え中' : (r.openFrom || r.openTo ? '日付どおり' : '日付が未設定（手動で切り替え）')) + '</span></div>' +
+    (r.status === 'adjust' && (WF.involved[r.id] || []).length ? '<div class="hint">調整の当該者: ' + esc(WF.involved[r.id].join('・')) + '</div>' : '') +
+    '<div class="round-dates"><span>受付期間 ' + dt(r, 'openFrom') + ' 〜 ' + dt(r, 'openTo') + '</span>' +
+    (r.days !== 'rest' ? '<span>調整期間の終わり ' + dt(r, 'adjustTo') + '</span>' : '') + '</div>' +
+    '<div>' + stBtn(r, 'open', '受付中にする', 'btn-green') + (r.days !== 'rest' ? stBtn(r, 'adjust', '調整中にする', 'btn-orange') : '') +
+    stBtn(r, 'closed', '締め切る', 'btn-red') + stBtn(r, 'before', '受付前に戻す', 'btn-gray') +
+    (r.manual ? '<button class="btn btn-sm" data-st="' + r.id + ':auto">日付どおりにする</button>' : '') + '</div></div>').join('');
   tb.querySelectorAll('button[data-st]').forEach(b => { b.onclick = () => { const [id, st] = b.dataset.st.split(':'); saveWf({ status: { [id]: st } }); }; });
-  tb.querySelectorAll('input[data-dl]').forEach(i => { i.onchange = () => saveWf({ deadline: { [i.dataset.dl]: i.value } }); });
+  tb.querySelectorAll('input[data-sc]').forEach(i => { i.onchange = () => { const [id, k] = i.dataset.sc.split(':'); saveWf({ sched: { [id]: { [k]: i.value } } }); }; });
   document.getElementById('wf-roundhint').textContent = WF.flow === 'duty_first' && WF.split
     ? '順番: 「土日祝の×」を受け付ける → 締め切って日直・夜勤・振休を決める → 仮の勤務表を公開 → 「平日の希望休」を受け付ける'
     : WF.flow === 'duty_first' ? '順番: 日直・夜勤・振休を決める → 仮の勤務表を公開 → 「希望休」（×と平日の希望休）を受け付ける'
     : '順番: 「希望休」を受け付ける → 締め切って勤務表に取り込む → 日直・夜勤・振休を決める';
+  document.getElementById('wf-roundhint').textContent += '。受付期間と調整期間の日付を入れると、その日付で自動的に「受付中 → 調整中 → 締め切り」に切り替わります（今日 ' + md(WF.today) + '）。' +
+    '受付中は5人を超えても申請でき、超えた日に申請している人の画面に注意が出ます。調整中は、超えた日に申請していた人だけが、取り消しや5人未満の日への移動をできます。';
   document.getElementById('wf-state').textContent = WF.hasState
     ? '勤務表のデータ: ' + WF.period.label + '・入力済み ' + WF.cells + 'マス／取り込み前の申請 ' + WF.activeRequests + '件'
     : 'まだ勤務表のデータはありません（期間を保存するか、勤務表作成アプリのJSONを読み込んでください）。';
@@ -891,8 +945,11 @@ function effAdmin() {
 }
 function renderReqAdmin() {
   const p = AV.period;
+  const overKeys = Object.keys(AV.over).sort();
   document.getElementById('ra-head').innerHTML = '<p><b>' + esc(p.label) + '</b>　取り込み前の申請 ' + AV.requests.length + '件</p>' +
-    '<div class="rounds">' + AV.rounds.map(r => '<span>' + esc(r.label) + '：' + statusPill(r.status) + '</span>').join('') + '</div>';
+    '<div class="rounds">' + AV.rounds.map(r => '<span>' + esc(r.label) + '：' + statusPill(r.status) + roundDates(r) + '</span>').join('') + '</div>' +
+    (overKeys.length ? '<div class="alert"><b>⚠ 休みが上限（' + AV.cap + '人）を超えている日: ' + overKeys.length + '日</b><br>' +
+      overKeys.map(d => esc(mdw(d)) + '　' + AV.over[d].count + '人（申請: ' + esc(AV.over[d].names.join('・')) + '）').join('<br>') + '</div>' : '');
   const grid = document.getElementById('ra-grid');
   if (!p.dates.length) { grid.innerHTML = ''; document.getElementById('ra-tabs').innerHTML = ''; return; }
   const keys = monthKeys(p.dates);
@@ -928,6 +985,8 @@ function renderReqAdmin() {
 }
 async function importRequests() {
   if (!AV.requests.length) { alert('取り込む申請はありません。'); return; }
+  const overN = Object.keys(AV.over).length;
+  if (overN && !confirm('休みが上限を超えている日が ' + overN + '日あります。このまま取り込みますか？\n（先に調整する場合は「キャンセル」を押し、超えている日の申請を取り消してください）')) return;
   if (!confirm('取り込み前の申請 ' + AV.requests.length + '件を勤務表に入れます。取り込んだ申請は、スタッフの画面では「申請」から「勤務表の内容」に変わります。よろしいですか？')) return;
   try {
     const r = await call('reqImport');

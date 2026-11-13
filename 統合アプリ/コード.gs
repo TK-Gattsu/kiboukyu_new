@@ -59,7 +59,9 @@ const HOLIDAYS = {
 // flow: 'request_first'＝希望休を先に受け付ける／'duty_first'＝日直・夜勤・振休を先に決めてから受け付ける
 // split: 当番が先の流れで、申請を「土日祝の×」と「平日の希望休」の2回に分けるか（あとから切り替え可）
 const FLOW_LABELS = { request_first: '希望休が先（希望休 → 日直・夜勤 → 振休）', duty_first: '当番が先（日直・夜勤 → 振休 → 希望休）' };
-const ROUND_STATUS = ['before', 'open', 'closed'];
+// 受付の状態: 受付前 → 受付中（5人を超えても申請できる）→ 調整中（超えた日の当該者だけが変更できる）→ 締め切り
+// 受付期間・調整期間の日付を入れると、その日付で自動的に切り替わる（ボタンで手動に切り替えることもできる）
+const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
 
 // ------------------------------------------------------------
 // 画面の配信
@@ -262,8 +264,15 @@ const ACTIONS = {
       rounds: rounds_(c.wf), cap: DAY_CAP, counts: counts,
       types: { weekday: weekdayTypes_(c.wf, false), rest: ['×'] },
       my: { name: me.name, inRoster: names.indexOf(me.name) >= 0, marks: myData, furi: myFuri,
-            requests: c.reqs.filter(r => r.name === me.name).map(publicReq_) },
+            requests: c.reqs.filter(r => r.name === me.name).map(publicReq_), overDays: overDaysFor_(c, me.name),
+            adjustMember: rounds_(c.wf).some(r => r.status === 'adjust' && ((c.wf.involved || {})[r.id] || []).indexOf(me.name) >= 0) },
     };
+  } },
+
+  // メニューに出す注意（自分が申請している日が人数を超えているか）
+  reqAlerts: { run: me => {
+    const c = ctx_();
+    return { overDays: overDaysFor_(c, me.name).length, adjusting: rounds_(c.wf).some(r => r.status === 'adjust') };
   } },
 
   reqSave: { run: (me, p) => withLock_(() => {
@@ -282,8 +291,13 @@ const ACTIONS = {
     const row = { id: Utilities.getUuid().slice(0, 8), name: name, userId: u ? u.id : '', date: req.date, type: req.kind === 'move' ? '振休移動' : req.type,
       kind: req.kind, fromDate: req.kind === 'move' ? req.fromDate : '', status: 'active', createdAt: now, updatedAt: now, by: me.id };
     writeRow_('requests', row);
-    log_(me, '希望休の申請', name + ' ' + (req.kind === 'move' ? '振休移動 ' + req.fromDate + '→' + req.date : req.date + ' ' + req.type) + (p.force ? '（上限・重なりを超えて登録）' : ''));
-    return publicReq_(row);
+    log_(me, '希望休の申請', name + ' ' + (req.kind === 'move' ? '振休移動 ' + req.fromDate + '→' + req.date : req.date + ' ' + req.type) + (p.force ? '（勤務表との重なりを超えて登録）' : ''));
+    // 上限を超えたら申請した人に知らせる（同じ日に申請している人の画面にも注意が出る）
+    c.reqs.push(row);
+    const over = overDays_(c)[req.date];
+    return { req: publicReq_(row), warning: over
+      ? Number(req.date.slice(5, 7)) + '/' + Number(req.date.slice(8, 10)) + 'は休みが' + over.count + '人になり、上限（' + DAY_CAP + '人）を超えています。同じ日に申請している人に注意が表示されます。受付期間中または調整期間に、申請している人どうしで相談して調整してください。'
+      : '' };
   }) },
 
   reqCancel: { run: (me, p) => withLock_(() => {
@@ -294,7 +308,7 @@ const ACTIONS = {
     if (!admin) {
       if (r.name !== me.name) throw new Error('自分の申請だけ取り消せます。');
       const rd = roundFor_(c.wf, isRestDay_(c, r.date));
-      if (!rd || rd.status !== 'open') throw new Error('受付が終わっているため取り消せません。システム管理者に連絡してください。');
+      if (!rd || (rd.status !== 'open' && rd.status !== 'adjust')) throw new Error('受付・調整の期間が終わっているため取り消せません。システム管理者に連絡してください。');
     }
     r.status = 'cancelled'; r.updatedAt = new Date().toISOString(); r.by = me.id;
     writeRow_('requests', r);
@@ -309,7 +323,7 @@ const ACTIONS = {
     const userNames = rows_('users').filter(u => u.active === '1').map(u => u.name);
     return {
       period: periodInfo_(c), flow: c.wf.flow, split: c.wf.split !== false, published: !!c.wf.published,
-      flowLabels: FLOW_LABELS, rounds: rounds_(c.wf),
+      flowLabels: FLOW_LABELS, rounds: rounds_(c.wf), involved: c.wf.involved || {}, today: todayJst_(),
       hasState: !!docGet_('state'), cells: Object.keys(c.data).reduce((a, n) => a + Object.keys(c.data[n] || {}).length, 0),
       activeRequests: c.reqs.length,
       rosterWithoutUser: roster.filter(n => userNames.indexOf(n) < 0),
@@ -323,8 +337,17 @@ const ACTIONS = {
     if (p.flow) { if (!FLOW_LABELS[p.flow]) throw new Error('流れの指定が正しくありません。'); wf.flow = p.flow; }
     if (p.split !== undefined) wf.split = !!p.split;
     if (p.published !== undefined) wf.published = !!p.published;
-    Object.keys(p.status || {}).forEach(id => { if (ROUND_STATUS.indexOf(p.status[id]) >= 0) wf.status[id] = p.status[id]; });
-    Object.keys(p.deadline || {}).forEach(id => { wf.deadline[id] = String(p.deadline[id] || ''); });
+    Object.keys(p.status || {}).forEach(id => {
+      if (p.status[id] === 'auto') delete wf.status[id];
+      else if (ROUND_STATUS.indexOf(p.status[id]) >= 0) wf.status[id] = p.status[id];
+    });
+    Object.keys(p.sched || {}).forEach(id => {
+      const s = Object.assign({}, wf.sched[id] || {}, p.sched[id]);
+      ['openFrom', 'openTo', 'adjustTo'].forEach(k => { s[k] = /^\d{4}-\d{2}-\d{2}$/.test(String(s[k] || '')) ? s[k] : ''; });
+      if (s.openFrom && s.openTo && s.openFrom > s.openTo) throw new Error('受付期間の終わりは、始まりより後にしてください。');
+      if (s.openTo && s.adjustTo && s.openTo >= s.adjustTo) throw new Error('調整期間の終わりは、受付期間の終わりより後にしてください。');
+      wf.sched[id] = s;
+    });
     docPut_('workflow', wf);
     if (before !== JSON.stringify(rounds_(wf)) + wf.flow + wf.published)
       log_(me, '流れ・受付の変更', FLOW_LABELS[wf.flow] + '／' + rounds_(wf).map(r => r.label + ':' + statusLabel_(r.status)).join('、') + (wf.flow === 'duty_first' ? '／仮の勤務表' + (wf.published ? '公開中' : '非公開') : ''));
@@ -375,7 +398,7 @@ const ACTIONS = {
     return {
       period: periodInfo_(c), flow: c.wf.flow, published: !!c.wf.published, rounds: rounds_(c.wf), cap: DAY_CAP,
       teams: rosterTeams_(c), data: pickDates_(c.data, c.dateSet),
-      requests: c.reqs.map(publicReq_),
+      requests: c.reqs.map(publicReq_), over: overDays_(c),
       types: { weekday: weekdayTypes_(c.wf, true), rest: ['×'].concat(ADMIN_ONLY_TYPES) },
     };
   } },
@@ -565,18 +588,55 @@ function docPut_(key, obj, table) {
 
 // ---- 期間・流れ・申請のきまり ----
 function defaultWorkflow_() {
-  return { flow: 'request_first', split: true, published: false, status: {}, deadline: {} };
+  return { flow: 'request_first', split: true, published: false, status: {}, sched: {} };
 }
 function rounds_(wf) {
   const list = wf.flow === 'duty_first' && wf.split !== false
     ? [{ id: 'rest', label: '土日祝の×', days: 'rest' }, { id: 'weekday', label: '平日の希望休', days: 'weekday' }]
     : [{ id: 'all', label: '希望休', days: 'all' }];
-  return list.map(r => Object.assign(r, { status: (wf.status || {})[r.id] || 'before', deadline: (wf.deadline || {})[r.id] || '' }));
+  return list.map(r => {
+    const s = (wf.sched || {})[r.id] || {};
+    const manual = (wf.status || {})[r.id] || '';
+    return Object.assign(r, { status: manual || statusByDate_(s) || 'before', manual: !!manual,
+      openFrom: s.openFrom || '', openTo: s.openTo || '', adjustTo: s.adjustTo || '' });
+  });
+}
+// 今日の日付（日本時間）
+function todayJst_() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
+// 受付期間・調整期間の日付から、今の状態を決める（日付が入っていなければ null）
+function statusByDate_(s) {
+  if (!s.openFrom && !s.openTo) return null;
+  const t = todayJst_();
+  if (s.openFrom && t < s.openFrom) return 'before';
+  if (!s.openTo || t <= s.openTo) return 'open';
+  if (s.adjustTo && t <= s.adjustTo) return 'adjust';
+  return 'closed';
 }
 function roundFor_(wf, rest) {
   return rounds_(wf).find(r => r.days === 'all' || r.days === (rest ? 'rest' : 'weekday')) || null;
 }
-function statusLabel_(s) { return { before: '受付前', open: '受付中', closed: '締め切り' }[s] || s; }
+function statusLabel_(s) { return { before: '受付前', open: '受付中', adjust: '調整中', closed: '締め切り' }[s] || s; }
+// 平日で休みが上限を超えている日 {日付: {count, names（申請している人）}}
+function overDays_(c) {
+  const effOf = effective_(c);
+  const names = allNames_(c);
+  const out = {};
+  c.dates.forEach(d => {
+    if (isRestDay_(c, d)) return;
+    const count = names.filter(n => isCountMark_(effOf(n)[d])).length;
+    if (count <= DAY_CAP) return;
+    const reqNames = [];
+    c.reqs.forEach(r => { if (r.date === d && isCountMark_(effOf(r.name)[d]) && reqNames.indexOf(r.name) < 0) reqNames.push(r.name); });
+    out[d] = { count: count, names: reqNames };
+  });
+  return out;
+}
+// 自分が申請している超過日（ほかに申請している人の名前つき。種類は見せない）
+function overDaysFor_(c, name) {
+  const over = overDays_(c);
+  return Object.keys(over).sort().filter(d => over[d].names.indexOf(name) >= 0)
+    .map(d => ({ date: d, count: over[d].count, others: over[d].names.filter(n => n !== name), fixed: over[d].count - over[d].names.length }));
+}
 function weekdayTypes_(wf, admin) {
   // 当番が先の流れでは「振◆」の代わりに「振休の移動」を使う
   const t = ['有', '夏', '特'].concat(wf.flow === 'duty_first' ? [] : ['振◆']);
@@ -587,9 +647,28 @@ function ctx_() {
   const settings = state.settings || {};
   const wf = Object.assign(defaultWorkflow_(), docGet_('workflow') || {});
   const dates = periodDates_(settings.period);
-  return { state: state, settings: settings, wf: wf, period: settings.period || null, dates: dates, dateSet: new Set(dates),
+  const c = { state: state, settings: settings, wf: wf, period: settings.period || null, dates: dates, dateSet: new Set(dates),
            custom: new Set(settings.custom_holidays || []), data: state.schedule || {},
            reqs: rows_('requests').filter(r => r.status === 'active') };
+  syncAdjustMembers_(c);
+  return c;
+}
+// 調整期間に入ったときの「当該者」（超過日に申請していた人）を記録しておく。
+// 本人が先に取り消してから別の日へ申請し直せるよう、途中で超過が解消しても当該者のままにする
+function syncAdjustMembers_(c) {
+  const wf = c.wf;
+  wf.involved = wf.involved || {};
+  let changed = false;
+  rounds_(wf).forEach(r => {
+    if (r.status === 'adjust' && !wf.involved[r.id]) {
+      const over = overDays_(c), names = [];
+      Object.keys(over).forEach(d => over[d].names.forEach(n => { if (names.indexOf(n) < 0) names.push(n); }));
+      wf.involved[r.id] = names; changed = true;
+    } else if (r.status !== 'adjust' && wf.involved[r.id]) {
+      delete wf.involved[r.id]; changed = true;
+    }
+  });
+  if (changed) withLock_(() => docPut_('workflow', wf));
 }
 function pad2_(n) { return ('0' + n).slice(-2); }
 function periodDates_(p) {
@@ -667,8 +746,12 @@ function checkRequest_(c, name, req, admin, force) {
   if (!c.dateSet.has(date)) return 'この日は申請の期間に入っていません。';
   const rest = isRestDay_(c, date);
   const round = roundFor_(c.wf, rest);
-  if (!admin && (!round || round.status !== 'open'))
-    return (rest ? '土日祝' : '平日') + 'の申請は' + (round && round.status === 'closed' ? '締め切りました' : 'まだ受け付けていません') + '。';
+  const status = round ? round.status : 'before';
+  if (!admin && status !== 'open' && status !== 'adjust')
+    return (rest ? '土日祝' : '平日') + 'の申請は' + (status === 'closed' ? '締め切りました' : 'まだ受け付けていません') + '。';
+  // 調整期間は、人数を超えた日に申請している人だけが変更できる
+  if (!admin && status === 'adjust' && ((c.wf.involved || {})[round.id] || []).indexOf(name) < 0)
+    return '今は調整期間です。人数を超えた日に申請していた人だけが申請を変更できます。';
   const mine = c.data[name] || {};
   const effOf = effective_(c);
   if (req.kind === 'move') {
@@ -685,11 +768,12 @@ function checkRequest_(c, name, req, admin, force) {
   // 勤務表（日直・夜勤・振休など）がすでに入っている日は選べない
   if (mine[date] && !force)
     return md(date) + 'は勤務表に' + (admin || c.wf.published ? '「' + mine[date] + '」' : '予定') + 'が入っているため申請できません。休みたい場合は勤務変更（交代）で対応します。';
-  // 平日は1日5人まで（ほかの人の申請・振休を含めて数える）
+  // 受付期間中は5人を超えても申請できる（超えた日は全員に注意を出す）。
+  // 調整期間中は、新しく休みを入れる日は5人未満の日だけ（超過を増やさない）
   const newMark = req.kind === 'move' ? mine[req.fromDate] : req.type;
-  if (!rest && isCountMark_(newMark) && !force) {
+  if (!admin && status === 'adjust' && !rest && isCountMark_(newMark)) {
     const others = allNames_(c).filter(n => n !== name && isCountMark_(effOf(n)[date])).length;
-    if (others >= DAY_CAP) return md(date) + 'はすでに' + DAY_CAP + '人が休みのため申請できません。';
+    if (others >= DAY_CAP) return '調整期間中は、休みが' + DAY_CAP + '人未満の日にだけ移せます（' + md(date) + 'はすでに' + others + '人）。';
   }
   return null;
 }
