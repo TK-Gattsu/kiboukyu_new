@@ -113,6 +113,23 @@ table.list tr.inactive td { color: #AAA; }
 .seg button.on { background: var(--blue); color: white; }
 .grid td.lv { background: #E8E8E8; color: #777; }
 .grid td.mine-row, .grid tr.mine td.nm { background: #FFFBE6; }
+.grid td.chg { box-shadow: inset 0 0 0 2px var(--orange); }
+.kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.kind-cards label { border: 2px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; font-size: 13px; line-height: 1.5; display: block; }
+.kind-cards label b { font-size: 15px; color: var(--blue); display: block; }
+.kind-cards input { margin-right: 4px; }
+.kind-cards label.on { border-color: var(--blue); background: var(--blue-light); }
+.form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin: 6px 0; }
+.form-row > div { min-width: 160px; }
+.chg-card { border: 1px solid #DDD; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; line-height: 1.6; }
+.chg-card .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chg-card table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+.chg-card td, .chg-card th { border: 1px solid #E3E3E3; padding: 2px 8px; }
+.pill.wait_partner, .pill.wait_approver { background: var(--orange-light); color: var(--orange); }
+.pill.approved { background: var(--green-light); color: var(--green); }
+.pill.rejected, .pill.withdrawn { background: #EEE; color: #666; }
+.dev { background: var(--red-light); border-radius: 4px; padding: 4px 8px; margin: 4px 0; color: var(--red); }
+.reason { background: #FFF6DE; border-radius: 4px; padding: 4px 8px; margin: 4px 0; }
 .round-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .round-dates { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; align-items: center; }
 @media (max-width: 600px) {
@@ -318,6 +335,53 @@ table.list tr.inactive td { color: #AAA; }
   </div>
 </section>
 
+<!-- 勤務変更・追加の申請 -->
+<section id="v-chg" style="display:none;">
+  <div style="max-width:1000px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>勤務変更・追加の申請</h2>
+      <p class="hint" id="cg-period"></p>
+      <div class="kind-cards" id="cg-kinds">
+        <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>日直・夜勤・残り当番を、ほかの人と日ごとに入れ替えます。相手と承認者の承認が必要です。</label>
+        <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手と承認者の承認が必要です。</label>
+        <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど。承認者の承認が必要です。</label>
+      </div>
+      <div id="cg-form"></div>
+      <div id="cg-preview"></div>
+    </div>
+    <div class="card">
+      <h2>自分の申請</h2>
+      <div id="cg-mine"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 自分あての承認（交代を頼まれた人） -->
+<section id="v-chgme" style="display:none;">
+  <div style="max-width:1000px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>自分あての承認</h2>
+      <p class="hint">ほかの人から頼まれた交代・振休の交換です。承認すると、承認者の確認に進みます。</p>
+      <div id="cm-list"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 管理者の承認（承認者・システム管理者） -->
+<section id="v-chgadm" style="display:none;">
+  <div style="max-width:1000px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>管理者の承認</h2>
+      <p class="hint">承認すると、勤務表の実績に反映されます（「勤務表を見る」で変更したマスに印が付きます）。条件から外れる申請の理由は、システム管理者・承認者と申請者本人だけが見られます。</p>
+      <div class="toolbar"><span class="seg"><button id="ca-f-wait" onclick="setCaFilter('wait')">承認待ち</button><button id="ca-f-all" onclick="setCaFilter('all')">すべて</button></span></div>
+      <div id="ca-list"></div>
+    </div>
+  </div>
+</section>
+
 <!-- 申請する種類を選ぶ -->
 <div class="modal" id="pick-modal" onclick="if(event.target===this)closeModal('pick-modal')">
   <div class="box">
@@ -429,12 +493,12 @@ const isApprover = () => ME && (ME.roles.indexOf('approver') >= 0 || isAdmin());
 /* ============================================================
    画面の切り替え
    ============================================================ */
-const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule'];
+const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule', 'chg', 'chgme', 'chgadm'];
 let CUR_VIEW = null;
 function show(v) {
   if (CUR_VIEW === 'kinmu' && v !== 'kinmu') kinmuFlush();   // 作成画面を離れるときは保存を急がせる
   CUR_VIEW = v;
-  document.querySelector('main').style.display = v === 'kinmu' || v === 'schedule' ? 'none' : '';
+  document.querySelector('main').style.display = ['kinmu', 'schedule', 'chg', 'chgme', 'chgadm'].indexOf(v) >= 0 ? 'none' : '';
   for (const x of VIEWS) document.getElementById('v-' + x).style.display = x === v ? '' : 'none';
   document.getElementById('logout-btn').style.display = v === 'login' ? 'none' : '';
   document.getElementById('who').innerHTML = ME && v !== 'login'
@@ -448,6 +512,9 @@ function show(v) {
   if (v === 'reqadmin') loadReqAdmin();
   if (v === 'kinmu') openKinmu();
   if (v === 'schedule') loadScheduleView();
+  if (v === 'chg') loadChg();
+  if (v === 'chgme') loadChgMe();
+  if (v === 'chgadm') loadChgAdm();
   if (v === 'password') {
     for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
     document.getElementById('pw-err').textContent = '';
@@ -460,6 +527,7 @@ function show(v) {
 function forceLogin(msg) {
   TOKEN = null; ME = null; storeSet('kinmu_token', null);
   closeKinmu();   // 作成画面の内容をページに残さない（次にログインする人に見えないように）
+  resetViews();
   show('login');
   document.getElementById('li-err').textContent = msg || '';
 }
@@ -510,10 +578,10 @@ function renderMenu() {
   const items = [
     { title: '希望休の申請', desc: '希望休（有・夏・特・×など）を申請します。日ごとの残り人数を見ながら申請できます。', go: 'req' },
     { title: '勤務表を見る', desc: '確定して配布された勤務表を見ます（自分の勤務・全員）。', go: 'schedule' },
-    { title: '勤務変更・追加の申請', desc: '勤務の交代（振休は振休同士）や、時間単位の有給などを申請します。', soon: '第3段階' },
-    { title: '自分あての承認', desc: '交代を頼まれた勤務変更を承認します。', soon: '第3段階' },
+    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、振休の交換（振休同士）、自分の勤務の変更を申請します。', go: 'chg' },
+    { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
   ];
-  if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件を外れる申請の理由も確認できます。', soon: '第3段階' });
+  if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件から外れる申請の理由も確認できます。', go: 'chgadm', key: 'approvals' });
   if (isAdmin()) {
     items.push({ title: '期間・流れ・受付の設定', desc: '期間、作成の流れ（希望休が先／当番が先）、申請の受付開始・締め切り、勤務表作成アプリとの受け渡し。', go: 'wf' });
     items.push({ title: '申請の一覧・取り込み', desc: '全員の申請を日ごとに確認し、代わりに入力したり、勤務表に取り込んだりします。', go: 'reqadmin' });
@@ -530,6 +598,14 @@ function renderMenu() {
     const it = items[Number(el.dataset.i)];
     el.onclick = () => { if (it.go) show(it.go); };
   });
+  // 承認待ちの件数をメニューに出す
+  call('chgCounts').then(n => {
+    items.forEach((it, i) => {
+      if (!it.key || !n[it.key]) return;
+      const el = document.querySelector('#menu .item[data-i="' + i + '"] b');
+      if (el) el.insertAdjacentHTML('beforeend', '<span class="badge">承認待ち ' + n[it.key] + '件</span>');
+    });
+  }).catch(() => {});
   // 自分の申請日が上限を超えていれば、メニューに注意を出す
   call('reqAlerts').then(a => {
     const el = document.querySelector('#menu .item[data-i="0"] b');
@@ -1191,6 +1267,7 @@ function renderSchedule() {
       h += '<div class="day' + (info.rest ? ' rest' : '') + '" style="cursor:default;"><span class="dn">' + d + '</span>' +
         (info.holiday ? '<span class="hn">' + esc(info.holiday) + '</span>' : '') +
         (lv ? '<span class="chip mark">' + esc(lv) + '</span>' : mk ? markChip(mk) : '') +
+        ((SV.changed || {})[ME.name + '|' + iso] ? '<span class="hint" style="font-size:9px; color:var(--orange);">変更あり</span>' : '') +
         (c.jimu[iso] ? '<span class="hint" style="font-size:9px; line-height:1.2;">' + esc(c.jimu[iso]) + '</span>' : '') + '</div>';
     }
     h += '</div>';
@@ -1209,13 +1286,177 @@ function renderSchedule() {
       h += '<tr class="' + (n === ME.name ? 'mine' : '') + '"><td class="nm">' + esc(n) + '</td>' + days.map(d => {
         const lv = leaveOf(c, n, d.date), mk = (c.data[n] || {})[d.date] || '';
         if (lv) return '<td class="lv" title="' + esc(lv) + '">' + esc(lv.slice(0, 1)) + '</td>';
-        const st = TYPE_STYLE[mk];
-        return '<td class="' + (d.rest ? 'rest' : '') + '" title="' + esc(markText(mk)) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + esc(mk.length > 3 ? '振' : mk) + '</td>';
+        const st = TYPE_STYLE[mk], ch = (SV.changed || {})[n + '|' + d.date];
+        return '<td class="' + (d.rest ? 'rest' : '') + (ch ? ' chg' : '') + '" title="' + esc(markText(mk) + (ch ? '（確定後に変更）' : '')) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + esc(mk.length > 3 ? '振' : mk) + '</td>';
       }).join('') + '</tr>';
     });
   });
-  h += '</tbody></table></div><p class="hint">事務連絡の「●」は、マスにカーソルを合わせると内容が出ます（スマホは「自分の勤務」で確認できます）。</p>';
+  h += '</tbody></table></div><p class="hint">オレンジの枠は、確定後の勤務変更で変わったマスです。事務連絡の「●」は、マスにカーソルを合わせると内容が出ます（スマホは「自分の勤務」で確認できます）。</p>';
   body.innerHTML = h;
+}
+
+/* ============================================================
+   勤務変更（申請・承認）
+   ============================================================ */
+let CG = null, CG_KIND = null;
+const SELF_LABELS = { '': '勤務（休みなどを取り消す）', '有': '有（年次有給休暇）', '夏': '夏（夏期休暇）', '特': '特（特別休暇）',
+  '業': '業（業務）', '出': '出（出張）', '研': '研（研修）', '×': '×（土日祝の休み）' };
+function isFuriLabelC(mk) { return !!mk && mk.slice(-1) === '振' && mk.indexOf('/') > 0; }
+async function loadChg() {
+  document.getElementById('cg-period').textContent = '読み込み中…';
+  try {
+    const [sv, list] = await Promise.all([call('scheduleView'), call('chgList')]);
+    CG = { sv: sv, list: list };
+    if (!sv.confirmed) {
+      document.getElementById('cg-period').textContent = 'まだ確定・配布された勤務表がないため、勤務変更は申請できません。';
+      document.getElementById('cg-kinds').style.display = 'none';
+    } else {
+      document.getElementById('cg-period').textContent = '対象: ' + sv.confirmed.label + '（第' + sv.confirmed.rev + '版に、承認済みの変更を反映した勤務表）';
+      document.getElementById('cg-kinds').style.display = '';
+    }
+    document.querySelectorAll('input[name=cg-kind]').forEach(r => { r.onchange = () => { CG_KIND = r.value; renderChgForm(); }; r.checked = r.value === CG_KIND; });
+    renderChgForm();
+    renderChgList('cg-mine', list.mine, 'mine');
+  } catch (e) { document.getElementById('cg-period').textContent = e.message; }
+}
+function staffOptions(exclude) {
+  return CG.sv.confirmed.teams.map(t => '<optgroup label="' + esc(t[0]) + '">' + t[1].filter(n => n !== exclude).map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('') + '</optgroup>').join('');
+}
+function cellOf(n, d) { return ((CG.sv.confirmed.data[n] || {})[d]) || ''; }
+function dateOptions(filterFn) {
+  return CG.sv.dates.filter(filterFn).map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '</option>').join('');
+}
+function renderChgForm() {
+  document.querySelectorAll('#cg-kinds label').forEach(l => l.classList.toggle('on', l.dataset.k === CG_KIND));
+  const f = document.getElementById('cg-form');
+  document.getElementById('cg-preview').innerHTML = '';
+  if (!CG || !CG.sv.confirmed || !CG_KIND) { f.innerHTML = ''; return; }
+  const me = ME.name, all = () => true;
+  let h = '';
+  if (CG_KIND === 'swap') {
+    h = '<div class="form-row"><div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
+      '<div><label class="f">入れ替える日（1つ目）</label><select id="cg-d1"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
+      '<div><label class="f">入れ替える日（2つ目・あれば）</label><select id="cg-d2"><option value="">なし</option>' + dateOptions(all) + '</select></div></div>' +
+      '<p class="hint">選んだ日ごとに、あなたと相手の勤務がそっくり入れ替わります（例：あなたの土曜の日直と、相手の日曜の日直を交換するなら、両方の日を選びます）。夜勤（入）を選ぶと、翌日の「明」も一緒に入れ替わります。</p>';
+  } else if (CG_KIND === 'furi') {
+    const mine = CG.sv.dates.filter(d => isFuriLabelC(cellOf(me, d.date)));
+    h = mine.length
+      ? '<div class="form-row"><div><label class="f">自分の振休</label><select id="cg-my"><option value="">選んでください</option>' + mine.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '（' + esc(markText(cellOf(me, d.date))) + '）</option>').join('') + '</select></div>' +
+        '<div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
+        '<div><label class="f">相手の振休</label><select id="cg-pd"><option value="">先に相手を選んでください</option></select></div></div>' +
+        '<p class="hint">あなたの振休は相手の振休の日へ、相手の振休はあなたの振休の日へ移ります。それぞれ、移る先の日に勤務が入っていないことが必要です。</p>'
+      : '<p class="notice">この期間に、あなたの日付つきの振休はありません。</p>';
+  } else {
+    h = '<div class="form-row"><div><label class="f">日付</label><select id="cg-date"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
+      '<div><label class="f">変更後</label><select id="cg-mark">' + Object.keys(SELF_LABELS).map(k => '<option value="' + esc(k) + '">' + esc(SELF_LABELS[k]) + '</option>').join('') + '</select></div></div>' +
+      '<p class="hint" id="cg-now"></p>';
+  }
+  if (h.indexOf('select') >= 0) h += '<button class="btn" onclick="previewChg()">内容を確認</button>';
+  f.innerHTML = h;
+  const ps = document.getElementById('cg-partner');
+  if (ps && CG_KIND === 'furi') ps.onchange = () => {
+    const pd = document.getElementById('cg-pd'), pn = ps.value;
+    const list = pn ? CG.sv.dates.filter(d => isFuriLabelC(cellOf(pn, d.date))) : [];
+    pd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '（' + esc(markText(cellOf(pn, d.date))) + '）</option>').join('')
+      : '<option value="">' + (pn ? 'この人には日付つきの振休がありません' : '先に相手を選んでください') + '</option>';
+  };
+  const ds = document.getElementById('cg-date');
+  if (ds) ds.onchange = () => {
+    const d = CG.sv.dates.find(x => x.date === ds.value);
+    document.getElementById('cg-now').textContent = d ? '今: ' + (markText(cellOf(me, d.date)) || (d.rest ? '休み' : '勤務')) : '';
+  };
+}
+function chgPayload() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), dates: [v('cg-d1'), v('cg-d2')].filter(Boolean) };
+  if (CG_KIND === 'furi') return { kind: 'furi', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
+  return { kind: 'self', date: v('cg-date'), mark: v('cg-mark') };
+}
+function cellsTable(cells) {
+  return '<table><tr><th>人</th><th>日付</th><th>今</th><th></th><th>変更後</th></tr>' + cells.map(x =>
+    '<tr><td>' + esc(x.name) + '</td><td>' + esc(mdw(x.date)) + '</td><td>' + esc(markText(x.before) || (x.rest ? '休み' : '勤務')) + '</td><td>→</td><td><b>' + esc(markText(x.after) || (x.rest ? '休み' : '勤務')) + '</b></td></tr>').join('') + '</table>';
+}
+let CG_PAYLOAD = null;
+async function previewChg() {
+  const pv = document.getElementById('cg-preview');
+  CG_PAYLOAD = chgPayload();
+  try {
+    const r = await call('chgPreview', CG_PAYLOAD);
+    let h = '<div class="chg-card"><b>この内容で申請します</b>' + cellsTable(r.cells);
+    if (r.deviations.length) {
+      h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>' +
+        '<label class="f" for="cg-reason">理由（必須・5文字以上）</label><textarea id="cg-reason" style="min-height:70px;" placeholder="例：家族の通院の付き添いのため。交代できる人がいなかったため。"></textarea>' +
+        '<p class="hint">理由は、システム管理者と承認者（とあなた）だけが見られます。交代の相手には見えません。</p>';
+    }
+    h += '<p class="hint">' + (r.partner ? r.partner + 'さんの承認 → 承認者の承認' : '承認者の承認') + 'で、勤務表に反映されます。</p>' +
+      '<button class="btn btn-green" onclick="submitChg()">申請する</button></div>';
+    pv.innerHTML = h;
+  } catch (e) { pv.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+async function submitChg() {
+  const rs = document.getElementById('cg-reason');
+  try {
+    await call('chgCreate', Object.assign({ reason: rs ? rs.value : '' }, CG_PAYLOAD));
+    alert('申請しました。' + (CG_PAYLOAD.partner ? CG_PAYLOAD.partner + 'さんの承認を待っています。' : '承認者の承認を待っています。'));
+    CG_KIND = null;
+    await loadChg();
+  } catch (e) { alert(e.message); }
+}
+// 申請の一覧（mode: mine＝自分の申請／toMe＝自分あて／adm＝承認者）
+function renderChgList(elId, list, mode) {
+  const el = document.getElementById(elId);
+  if (!list.length) { el.innerHTML = '<p class="hint">' + (mode === 'adm' ? '該当する申請はありません。' : 'まだありません。') + '</p>'; return; }
+  el.innerHTML = list.map(c => {
+    const steps = [];
+    steps.push('申請 ' + fmtDateTime(c.createdAt) + '（' + esc(c.requester) + '）');
+    if (c.partner) steps.push(c.partnerAt ? '受け手の承認 ' + fmtDateTime(c.partnerAt) + '（' + esc(c.partnerBy) + '）' : '受け手（' + esc(c.partner) + '）の承認待ち');
+    if (c.approverAt) steps.push('承認者の承認 ' + fmtDateTime(c.approverAt) + '（' + esc(c.approverBy) + '）');
+    if (c.status === 'rejected') steps.push('却下（' + esc(c.rejectedBy) + '）' + (c.note ? '：' + esc(c.note) : ''));
+    let act = '';
+    if (mode === 'mine' && (c.status === 'wait_partner' || c.status === 'wait_approver')) act = '<button class="btn btn-gray btn-sm" data-w="' + c.id + '">取り下げる</button>';
+    const canPartner = c.status === 'wait_partner' && (mode === 'toMe' || (mode === 'adm' && isAdmin()));
+    const canApprove = c.status === 'wait_approver' && mode === 'adm' && (isAdmin() || (c.requester !== ME.name && c.partner !== ME.name));
+    if (canPartner || canApprove)
+      act = '<button class="btn btn-green btn-sm" data-ok="' + c.id + '">' + (canPartner && mode === 'adm' ? '受け手の代わりに承認' : '承認する') + '</button> <button class="btn btn-red btn-sm" data-ng="' + c.id + '">却下する</button>';
+    return '<div class="chg-card"><div class="top"><b>' + esc(c.kindLabel) + '</b><span class="pill ' + c.status + '">' + esc(c.statusLabel) + '</span><span>' + esc(c.summary) + '</span></div>' +
+      cellsTable(c.cells) +
+      (c.deviations.length ? '<div class="dev">⚠ 条件から外れます：' + c.deviations.map(esc).join('／') + '</div>' : '') +
+      (c.reason ? '<div class="reason">理由：' + esc(c.reason) + '</div>' : '') +
+      '<div class="hint">' + steps.join(' → ') + '</div>' + (act ? '<div style="margin-top:6px;">' + act + '</div>' : '') + '</div>';
+  }).join('');
+  el.querySelectorAll('button[data-w]').forEach(b => { b.onclick = () => withdrawChg(b.dataset.w); });
+  el.querySelectorAll('button[data-ok]').forEach(b => { b.onclick = () => decideChg(b.dataset.ok, 'approve', mode); });
+  el.querySelectorAll('button[data-ng]').forEach(b => { b.onclick = () => decideChg(b.dataset.ng, 'reject', mode); });
+}
+async function withdrawChg(id) {
+  if (!confirm('この申請を取り下げますか？')) return;
+  try { await call('chgWithdraw', { id: id }); await loadChg(); } catch (e) { alert(e.message); }
+}
+async function decideChg(id, decision, mode) {
+  let note = '';
+  if (decision === 'reject') { note = prompt('却下する理由（申請者に表示されます。空欄でも可）:', ''); if (note === null) return; }
+  else if (!confirm('この申請を承認しますか？')) return;
+  try {
+    const r = await call('chgDecide', { id: id, decision: decision, note: note });
+    if (r.status === 'approved') alert('承認しました。勤務表の実績に反映しました。');
+    if (mode === 'toMe') await loadChgMe(); else await loadChgAdm();
+  } catch (e) { alert(e.message); }
+}
+async function loadChgMe() {
+  try { const l = await call('chgList'); renderChgList('cm-list', l.toMe, 'toMe'); }
+  catch (e) { document.getElementById('cm-list').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+let CA_FILTER = 'wait', CA_LIST = [];
+function setCaFilter(f) { CA_FILTER = f; renderCa(); }
+function renderCa() {
+  document.getElementById('ca-f-wait').className = CA_FILTER === 'wait' ? 'on' : '';
+  document.getElementById('ca-f-all').className = CA_FILTER === 'all' ? 'on' : '';
+  const list = CA_FILTER === 'wait' ? CA_LIST.filter(c => c.status === 'wait_approver' || (isAdmin() && c.status === 'wait_partner')) : CA_LIST;
+  renderChgList('ca-list', list, 'adm');
+}
+async function loadChgAdm() {
+  try { const l = await call('chgList'); CA_LIST = l.approvals || []; renderCa(); }
+  catch (e) { document.getElementById('ca-list').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 
 /* ============================================================
@@ -1224,7 +1465,18 @@ function renderSchedule() {
 function openModal(id) { document.getElementById(id).style.display = 'block'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
+// ログアウトしたら、前の人の画面の中身と読み込んだデータをすべて消す（次にログインする人に見えないように）
+const VIEW_TEMPLATES = {};
+function resetViews() {
+  VIEWS.forEach(v => { if (v !== 'login' && VIEW_TEMPLATES[v] !== undefined) document.getElementById('v-' + v).innerHTML = VIEW_TEMPLATES[v]; });
+  ['pk-body', 'pw-list'].forEach(id => { document.getElementById(id).innerHTML = ''; });
+  ['pick-modal', 'pw-modal', 'user-modal', 'bulk-modal'].forEach(closeModal);
+  USERS = []; RV = null; AV = null; _eff = null; WF = null; SV = null; CG = null; CG_KIND = null; CG_PAYLOAD = null; CA_LIST = []; PICK = null;
+  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait';
+}
+
 (async function init() {
+  VIEWS.forEach(v => { if (v !== 'login') VIEW_TEMPLATES[v] = document.getElementById('v-' + v).innerHTML; });
   TOKEN = storeGet('kinmu_token');
   if (!TOKEN) { show('login'); return; }
   try { ME = await call('me'); show(ME.mustChange ? 'password' : 'home'); }

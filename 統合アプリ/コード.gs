@@ -36,6 +36,9 @@ const TABLES = {
   docs:     ['key', 'part', 'text', 'updatedAt'],   // 勤務表の内容・設定（大きいので分割して保存）
   archives: ['key', 'part', 'text', 'updatedAt'],   // 過去の勤務表（読む回数が少ないので別シート）
   requests: ['id', 'name', 'userId', 'date', 'type', 'kind', 'fromDate', 'status', 'createdAt', 'updatedAt', 'by'],
+  // 勤務変更（確定後の交代・振休の交換・自分の勤務の変更）。cells は [{name, date, before, after}] のJSON
+  changes:  ['id', 'kind', 'requester', 'requesterId', 'partner', 'status', 'cells', 'summary', 'deviations', 'reason',
+             'createdAt', 'updatedAt', 'partnerAt', 'partnerBy', 'approverAt', 'approverBy', 'rejectedBy', 'note', 'appliedAt'],
 };
 
 // ---- 勤務表のきまり（勤務表作成アプリと同じ）----
@@ -62,6 +65,17 @@ const FLOW_LABELS = { request_first: '希望休が先（希望休 → 日直・�
 // 受付の状態: 受付前 → 受付中（5人を超えても申請できる）→ 調整中（超えた日の当該者だけが変更できる）→ 締め切り
 // 受付期間・調整期間の日付を入れると、その日付で自動的に切り替わる（ボタンで手動に切り替えることもできる）
 const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
+
+// ---- 勤務変更 ----
+// kind: swap＝交代（日ごとに2人の勤務を入れ替える）／furi＝振休の交換（2人の振休の日を入れ替える）／self＝自分の勤務の変更
+// status: wait_partner（受け手の承認待ち）→ wait_approver（承認者の承認待ち）→ approved（承認・実績に反映）
+//         rejected（却下）／withdrawn（申請者が取り下げ）
+const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更' };
+const CHANGE_STATUS = { wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち', approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
+const SWAP_MARKS = ['', '×', '○', '入', '明', '残'];              // 交代で入れ替えられる記号
+const SELF_MARKS = ['', '有', '夏', '特', '業', '出', '研', '×'];   // 自分の勤務の変更で使える記号
+const MAX_STREAK = 6;                                            // 連続勤務は6日まで
+const FURI_AFTER_DAYS = 14, FURI_BEFORE_DAYS = 7;                // 振休の付与期限
 
 // ------------------------------------------------------------
 // 画面の配信
@@ -425,15 +439,105 @@ const ACTIONS = {
     return { rev: doc.rev, label: doc.label, confirmedAt: doc.confirmedAt };
   }) },
 
+  // 確定版に、確定後に承認された勤務変更を重ねた「実績」を返す（変更したマスは changed に入る）
   scheduleView: { run: () => {
     const doc = docGet_('confirmed');
     if (!doc) return { confirmed: null };
-    const dates = periodDates_(doc.period).map(d => {
-      const w = dowOf_(d);
-      return { date: d, dow: w, rest: w === 0 || w === 6 || !!doc.holidays[d], holiday: doc.holidays[d] || '' };
-    });
-    return { confirmed: doc, dates: dates };
+    const act = actual_(doc);
+    const dates = periodDates_(doc.period).map(d => ({ date: d, dow: dowOf_(d), rest: confRest_(doc, d), holiday: doc.holidays[d] || '' }));
+    return { confirmed: Object.assign({}, doc, { data: act.data }), changed: act.changed, dates: dates };
   } },
+
+  // ---- 勤務変更 ----
+  chgPreview: { run: (me, p) => {
+    const conf = docGet_('confirmed');
+    if (!conf) throw new Error('確定した勤務表がまだありません。');
+    return buildChange_(conf, actual_(conf).data, me, p);
+  } },
+
+  chgCreate: { run: (me, p) => withLock_(() => {
+    const conf = docGet_('confirmed');
+    if (!conf) throw new Error('確定した勤務表がまだありません。');
+    const ch = buildChange_(conf, actual_(conf).data, me, p);
+    // 同じマスに承認待ちの申請があれば受け付けない（先に承認・却下・取り下げを済ませる）
+    const pending = rows_('changes').filter(r => r.status === 'wait_partner' || r.status === 'wait_approver');
+    const busy = ch.cells.filter(x => pending.some(r => JSON.parse(r.cells).some(y => y.name === x.name && y.date === x.date)));
+    if (busy.length) throw new Error(busy.map(x => x.name + 'さんの' + md_(x.date)).filter((v, i, a) => a.indexOf(v) === i).join('、') + 'には、承認待ちの勤務変更があります。その申請が終わってから申請してください。');
+    const reason = String(p.reason || '').trim();
+    if (ch.deviations.length && reason.length < 5) throw new Error('条件から外れる変更のため、理由を5文字以上で書いてください。');
+    const now = new Date().toISOString();
+    const row = { id: Utilities.getUuid().slice(0, 8), kind: ch.kind, requester: me.name, requesterId: me.id, partner: ch.partner || '',
+      status: ch.partner ? 'wait_partner' : 'wait_approver', cells: JSON.stringify(ch.cells), summary: ch.summary,
+      deviations: JSON.stringify(ch.deviations), reason: ch.deviations.length ? reason : '', createdAt: now, updatedAt: now };
+    writeRow_('changes', row);
+    log_(me, '勤務変更の申請', CHANGE_KINDS[ch.kind] + '：' + ch.summary + (ch.deviations.length ? '（条件外' + ch.deviations.length + '件・理由あり）' : ''));
+    return publicChange_(row, me);
+  }) },
+
+  chgList: { run: me => {
+    const all = rows_('changes').slice().reverse();
+    const approver = hasRole_(me, 'approver') || hasRole_(me, 'sysadmin');
+    return {
+      mine: all.filter(r => r.requester === me.name).map(r => publicChange_(r, me)),
+      toMe: all.filter(r => r.partner === me.name).map(r => publicChange_(r, me)),
+      approvals: approver ? all.map(r => publicChange_(r, me)) : null,
+      canApprove: approver, isAdmin: hasRole_(me, 'sysadmin'),
+    };
+  } },
+
+  chgCounts: { run: me => {
+    const all = rows_('changes');
+    const approver = hasRole_(me, 'approver') || hasRole_(me, 'sysadmin');
+    return {
+      toMe: all.filter(r => r.partner === me.name && r.status === 'wait_partner').length,
+      approvals: approver ? all.filter(r => r.status === 'wait_approver' && r.requester !== me.name && r.partner !== me.name).length : 0,
+    };
+  } },
+
+  chgDecide: { run: (me, p) => withLock_(() => {
+    const r = rows_('changes').find(x => x.id === String(p.id || ''));
+    if (!r) throw new Error('申請が見つかりません。');
+    const admin = hasRole_(me, 'sysadmin');
+    const approver = hasRole_(me, 'approver') || admin;
+    const ok = p.decision === 'approve';
+    const now = new Date().toISOString();
+    if (r.status === 'wait_partner') {
+      if (r.partner !== me.name && !admin) throw new Error('この申請の受け手だけが承認できます。');
+      if (ok) { r.status = 'wait_approver'; r.partnerAt = now; r.partnerBy = me.name + (r.partner !== me.name ? '（システム管理者が代理）' : ''); }
+    } else if (r.status === 'wait_approver') {
+      if (!approver) throw new Error('承認者だけが承認できます。');
+      if (!admin && (r.requester === me.name || r.partner === me.name)) throw new Error('自分が関わる変更は、ほかの承認者かシステム管理者が承認します。');
+      if (ok) {
+        // 申請したときから勤務表が変わっていないか確かめてから反映する
+        const conf = docGet_('confirmed');
+        if (!conf) throw new Error('確定した勤務表がありません。');
+        const act = actual_(conf).data;
+        const cells = JSON.parse(r.cells);
+        const stale = cells.filter(x => ((act[x.name] || {})[x.date] || '') !== x.before);
+        if (stale.length) throw new Error('申請したあとに勤務表が変わったため承認できません（' + stale.map(x => x.name + ' ' + md_(x.date)).join('、') + '）。却下して、申請し直してもらってください。');
+        r.status = 'approved'; r.approverAt = now; r.approverBy = me.name; r.appliedAt = now;
+        applyToState_(cells);
+      }
+    } else {
+      throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
+    }
+    if (!ok) { r.status = 'rejected'; r.rejectedBy = me.name; r.note = String(p.note || '').slice(0, 200); }
+    r.updatedAt = now;
+    writeRow_('changes', r);
+    log_(me, ok ? '勤務変更の承認' : '勤務変更の却下', CHANGE_KINDS[r.kind] + '：' + r.summary + '（' + (CHANGE_STATUS[r.status] || r.status) + '）');
+    return publicChange_(r, me);
+  }) },
+
+  chgWithdraw: { run: (me, p) => withLock_(() => {
+    const r = rows_('changes').find(x => x.id === String(p.id || ''));
+    if (!r) throw new Error('申請が見つかりません。');
+    if (r.requester !== me.name && !hasRole_(me, 'sysadmin')) throw new Error('自分の申請だけ取り下げられます。');
+    if (r.status !== 'wait_partner' && r.status !== 'wait_approver') throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
+    r.status = 'withdrawn'; r.updatedAt = new Date().toISOString();
+    writeRow_('changes', r);
+    log_(me, '勤務変更の取り下げ', CHANGE_KINDS[r.kind] + '：' + r.summary);
+    return true;
+  }) },
 
   // ---- システム管理者: 申請の一覧・代理入力・取り込み ----
   reqAdminView: { role: 'sysadmin', run: () => {
@@ -600,6 +704,189 @@ function withLock_(fn) {
   LOCK_DEPTH++;
   try { return fn(); } finally { LOCK_DEPTH--; lock.releaseLock(); }
 }
+// ---- 勤務変更の中身 ----
+function md_(iso) { return Number(iso.slice(5, 7)) + '/' + Number(iso.slice(8, 10)); }
+function addDays_(iso, n) {
+  const a = iso.split('-').map(Number);
+  const d = new Date(a[0], a[1] - 1, a[2] + n);
+  return d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate());
+}
+function confRest_(conf, d) { const w = dowOf_(d); return w === 0 || w === 6 || !!conf.holidays[d]; }
+function isFuriLabel_(mk) { return /^\d{1,2}\/\d{1,2}振$/.test(String(mk || '')); }
+function furiDuty_(mk, conf) {
+  // 「M/D振」の出勤日（期間に近い年）
+  const m = String(mk).match(/^(\d{1,2})\/(\d{1,2})振$/);
+  if (!m) return null;
+  const y0 = conf.period.year;
+  let best = null, dist = Infinity;
+  const first = periodDates_(conf.period)[0];
+  for (let y = y0 - 1; y <= y0 + 1; y++) {
+    const iso = y + '-' + pad2_(Number(m[1])) + '-' + pad2_(Number(m[2]));
+    const dd = Math.abs(new Date(iso) - new Date(first));
+    if (dd < dist) { dist = dd; best = iso; }
+  }
+  return best;
+}
+function daysBetween_(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+// 確定版に、確定後に承認された変更を順に重ねる
+function actual_(conf) {
+  const data = JSON.parse(JSON.stringify(conf.data || {}));
+  const changed = {};
+  rows_('changes').filter(r => r.status === 'approved' && r.appliedAt > conf.confirmedAt)
+    .sort((a, b) => a.appliedAt < b.appliedAt ? -1 : 1)
+    .forEach(r => JSON.parse(r.cells).forEach(x => {
+      data[x.name] = data[x.name] || {};
+      if (x.after) data[x.name][x.date] = x.after; else delete data[x.name][x.date];
+      changed[x.name + '|' + x.date] = 1;
+    }));
+  return { data: data, changed: changed };
+}
+// 承認した変更を勤務表作成アプリのデータにも入れる（再配布で抜け落ちないように）
+function applyToState_(cells) {
+  const state = docGet_('state');
+  if (!state) return;
+  const data = state.schedule = state.schedule || {};
+  const st = state.settings || {};
+  cells.forEach(x => {
+    data[x.name] = data[x.name] || {};
+    if (x.after) data[x.name][x.date] = x.after; else delete data[x.name][x.date];
+  });
+  // 振休が別の日に移ったら、振休の自動配置の記録も付け替える（「3. 振休」のやり直しで重複しないように）
+  cells.filter(x => isFuriLabel_(x.before) && !x.after).forEach(from => {
+    const to = cells.find(y => y.name === from.name && y.after === from.before && !y.before);
+    if (!to) return;
+    (st.furi_auto || []).forEach(f => { if (f.name === from.name && f.iso === from.date) f.iso = to.date; });
+  });
+  saveState_(state);
+}
+// 申請の中身を組み立て、確かめる（受け付けられない場合はエラー、条件外は deviations に入れる）
+function buildChange_(conf, act, me, p) {
+  const kind = p.kind;
+  if (!CHANGE_KINDS[kind]) throw new Error('変更の種類を選んでください。');
+  const dates = periodDates_(conf.period), dateSet = new Set(dates);
+  const roster = [].concat.apply([], conf.teams.map(t => t[1]));
+  const name = me.name;
+  if (roster.indexOf(name) < 0) throw new Error('あなたの名前（' + name + '）が勤務表の名簿にありません。システム管理者に確認してください。');
+  const cell = (n, d) => (act[n] || {})[d] || '';
+  const cells = [];
+  let partner = '', summary = '';
+  if (kind === 'swap' || kind === 'furi') {
+    partner = String(p.partner || '');
+    if (!partner || roster.indexOf(partner) < 0) throw new Error('交代する相手を選んでください。');
+    if (partner === name) throw new Error('相手には自分以外の人を選んでください。');
+  }
+  if (kind === 'swap') {
+    // 選んだ日ごとに2人の勤務を入れ替える。夜勤（入）は翌日の「明」も一緒に入れ替える
+    const set = {};
+    (p.dates || []).forEach(d => { if (d) set[d] = 1; });
+    if (!Object.keys(set).length) throw new Error('入れ替える日を選んでください。');
+    Object.keys(set).forEach(d => {
+      [name, partner].forEach(n => {
+        if (cell(n, d) === '入' && dateSet.has(addDays_(d, 1))) set[addDays_(d, 1)] = 1;
+        if (cell(n, d) === '明' && dateSet.has(addDays_(d, -1))) set[addDays_(d, -1)] = 1;
+      });
+    });
+    const ds = Object.keys(set).sort();
+    ds.forEach(d => {
+      if (!dateSet.has(d)) throw new Error(md_(d) + 'は勤務表の期間に入っていません。');
+      [name, partner].forEach(n => {
+        const mk = cell(n, d);
+        if (String(mk).indexOf('振') >= 0) throw new Error(md_(d) + 'の' + n + 'さんは振休です。振休は「振休の交換」で、振休同士で入れ替えてください。');
+        if (SWAP_MARKS.indexOf(mk) < 0) throw new Error(md_(d) + 'の' + n + 'さんの「' + mk + '」は人と入れ替えられません（休み・出張などは「自分の勤務の変更」で行います）。');
+      });
+      const a = cell(name, d), b = cell(partner, d);
+      if (a === b) return;
+      cells.push({ name: name, date: d, before: a, after: b }, { name: partner, date: d, before: b, after: a });
+    });
+    if (!cells.length) throw new Error('選んだ日は2人とも同じ勤務のため、入れ替えるものがありません。');
+    const named = { '○': '日直', '入': '夜勤入り', '明': '夜勤明け', '残': '残り当番', '×': '休み' };
+    const lb = (n, d) => named[cell(n, d)] || cell(n, d) || (confRest_(conf, d) ? '休み' : '勤務');
+    summary = name + ' ⇄ ' + partner + '：' + ds.map(d => md_(d) + '（' + lb(name, d) + '⇄' + lb(partner, d) + '）').join('、');
+  } else if (kind === 'furi') {
+    const myDate = String(p.myDate || ''), pDate = String(p.partnerDate || '');
+    if (!isFuriLabel_(cell(name, myDate))) throw new Error('自分の振休の日を選んでください。');
+    if (!isFuriLabel_(cell(partner, pDate))) throw new Error('相手の振休の日を選んでください。');
+    if (myDate === pDate) throw new Error('同じ日の振休どうしは入れ替える必要がありません。');
+    if (cell(name, pDate)) throw new Error(md_(pDate) + 'はあなたに「' + cell(name, pDate) + '」が入っているため、振休を移せません。');
+    if (cell(partner, myDate)) throw new Error(md_(myDate) + 'は' + partner + 'さんに「' + cell(partner, myDate) + '」が入っているため、振休を移せません。');
+    const myLb = cell(name, myDate), pLb = cell(partner, pDate);
+    cells.push({ name: name, date: myDate, before: myLb, after: '' }, { name: name, date: pDate, before: '', after: myLb },
+               { name: partner, date: pDate, before: pLb, after: '' }, { name: partner, date: myDate, before: '', after: pLb });
+    summary = name + 'の振休 ' + md_(myDate) + '→' + md_(pDate) + '、' + partner + 'の振休 ' + md_(pDate) + '→' + md_(myDate);
+  } else {
+    const d = String(p.date || ''), to = String(p.mark || '');
+    if (!dateSet.has(d)) throw new Error('変更する日を選んでください。');
+    const from = cell(name, d), rest = confRest_(conf, d);
+    if (String(from).indexOf('振') >= 0) throw new Error('振休は「振休の交換」で、ほかの人の振休と入れ替えてください。');
+    if (SELF_MARKS.indexOf(from) < 0) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」で、ほかの人と入れ替えてください。');
+    if (SELF_MARKS.indexOf(to) < 0) throw new Error('変更後の勤務を選んでください。');
+    if (to === from) throw new Error('今と同じ内容です。');
+    if (rest && ['有', '夏', '特'].indexOf(to) >= 0) throw new Error('土日祝に「' + to + '」は入れられません。');
+    if (!rest && to === '×') throw new Error('「×」は土日祝だけに入れられます。');
+    cells.push({ name: name, date: d, before: from, after: to });
+    const empty = rest ? '休み' : '勤務';
+    summary = name + ' ' + md_(d) + '：' + (from || empty) + ' → ' + (to || empty);
+  }
+  const deviations = deviations_(conf, act, cells);
+  cells.forEach(x => { x.rest = confRest_(conf, x.date); });   // 画面で空きマスを「勤務」「休み」と書き分けるため
+  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations };
+}
+// 変更によって新しく起きる、きまりから外れること
+function deviations_(conf, act, cells) {
+  const after = JSON.parse(JSON.stringify(act));
+  cells.forEach(x => { after[x.name] = after[x.name] || {}; if (x.after) after[x.name][x.date] = x.after; else delete after[x.name][x.date]; });
+  const dates = periodDates_(conf.period);
+  const names = [].concat.apply([], conf.teams.map(t => t[1]));
+  const onLeave = (n, d) => (conf.leaves || []).some(l => l.name === n && l.from <= d && d <= l.to);
+  const out = [];
+  const people = [], days = [];
+  cells.forEach(x => { if (people.indexOf(x.name) < 0) people.push(x.name); if (days.indexOf(x.date) < 0) days.push(x.date); });
+  // 1) 平日の休みが上限を超える
+  days.forEach(d => {
+    if (confRest_(conf, d)) return;
+    const cnt = data => names.filter(n => !onLeave(n, d) && isCountMark_((data[n] || {})[d])).length;
+    const b = cnt(act), a = cnt(after);
+    if (a > DAY_CAP && a > b) out.push(md_(d) + 'の休みが' + a + '人になり、上限（' + DAY_CAP + '人）を超えます');
+  });
+  // 2) 連続勤務 3) 夜勤明けの翌日の勤務
+  const isWork = (data, n, d) => {
+    if (onLeave(n, d)) return false;
+    const mk = (data[n] || {})[d] || '';
+    if (['○', '入', '明', '残', '業', '出', '研'].indexOf(mk) >= 0) return true;
+    if (!mk) return !confRest_(conf, d);
+    return false;   // 有・夏・特・×・振休
+  };
+  const longest = (data, n) => { let best = 0, cur = 0; dates.forEach(d => { cur = isWork(data, n, d) ? cur + 1 : 0; best = Math.max(best, cur); }); return best; };
+  people.forEach(n => {
+    const b = longest(act, n), a = longest(after, n);
+    if (a > MAX_STREAK && a > b) out.push(n + 'さんが' + a + '日連続の勤務になります（' + MAX_STREAK + '日まで）');
+    dates.forEach(d => {
+      const nx = addDays_(d, 1);
+      const bad = data => (data[n] || {})[d] === '明' && dates.indexOf(nx) >= 0 && isWork(data, n, nx) && ((data[n] || {})[nx] || '') !== '入';
+      if (bad(after) && !bad(act)) out.push(n + 'さんの夜勤明け（' + md_(d) + '）の翌日が勤務になります');
+    });
+  });
+  // 4) 振休の付与期限（前回繰越の振休は、期間内に置けばよいので対象外。勤務表作成アプリと同じ）
+  cells.forEach(x => {
+    if (!isFuriLabel_(x.after)) return;
+    const duty = furiDuty_(x.after, conf);
+    if (!duty || duty < dates[0]) return;
+    const diff = daysBetween_(duty, x.date);
+    if (diff > FURI_AFTER_DAYS || diff < -FURI_BEFORE_DAYS)
+      out.push(x.name + 'さんの振休（' + md_(duty) + '出勤分）が' + md_(x.date) + 'になり、付与期限（出勤後' + FURI_AFTER_DAYS + '日・前' + FURI_BEFORE_DAYS + '日）を外れます');
+  });
+  return out;
+}
+// 画面に返す形（理由はシステム管理者・承認者・申請者本人にだけ見せる）
+function publicChange_(r, me) {
+  const canSeeReason = hasRole_(me, 'sysadmin') || hasRole_(me, 'approver') || r.requester === me.name;
+  return { id: r.id, kind: r.kind, kindLabel: CHANGE_KINDS[r.kind], requester: r.requester, partner: r.partner, status: r.status,
+    statusLabel: CHANGE_STATUS[r.status] || r.status, cells: JSON.parse(r.cells || '[]'), summary: r.summary,
+    deviations: JSON.parse(r.deviations || '[]'), reason: canSeeReason ? r.reason : (r.reason ? '（理由は管理者だけが見られます）' : ''),
+    createdAt: r.createdAt, updatedAt: r.updatedAt, partnerAt: r.partnerAt, partnerBy: r.partnerBy, approverAt: r.approverAt,
+    approverBy: r.approverBy, rejectedBy: r.rejectedBy, note: r.note };
+}
+
 // 勤務表（state）を保存するたびに版（rev）を1つ上げる。作成画面の自動保存が古い内容で上書きしないための目印
 function saveState_(state) {
   state.rev = (state.rev || 0) + 1;
