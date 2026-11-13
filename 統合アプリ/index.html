@@ -58,6 +58,49 @@ table.list tr.inactive td { color: #AAA; }
 .checks label { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; font-size: 13px; }
 .pwtable td.pw { font-family: Menlo, Consolas, monospace; font-size: 15px; letter-spacing: 1px; }
 .busy { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: var(--orange); display: none; z-index: 200; }
+/* 希望休の申請 */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.tabs button { border: 1px solid var(--border); background: #eee; border-radius: 6px; padding: 6px 14px; font-weight: bold; cursor: pointer; font-family: inherit; font-size: 13px; }
+.tabs button.on { background: var(--blue); border-color: var(--blue); color: white; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal .dow { text-align: center; font-size: 11px; font-weight: bold; color: #555; padding: 2px 0; }
+.cal .day { min-height: 74px; background: white; border: 1px solid #DDD; border-radius: 4px; padding: 3px; font-size: 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.cal .day.rest { background: #FFF4F4; }
+.cal .day.out { visibility: hidden; }
+.cal .day.outp { min-height: 0; opacity: .4; }
+.cal .day.closed { cursor: default; background: #F4F4F4; }
+.cal .day.rest.closed { background: #F7EEEE; }
+.cal .day .dn { font-weight: bold; font-size: 13px; }
+.cal .day.rest .dn { color: var(--red); }
+.cal .day .hn { font-size: 9px; color: var(--red); line-height: 1.1; }
+.cal .day .left { margin-top: auto; font-size: 10px; color: #666; }
+.cal .day .left.full { color: var(--red); font-weight: bold; }
+.chip { display: inline-block; border-radius: 3px; padding: 1px 5px; font-weight: bold; font-size: 11px; border: 1px solid; line-height: 1.3; }
+.chip.mark { background: #EEE; color: #444; border-color: #BBB; font-weight: normal; }
+.rounds { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.pill { display: inline-block; border-radius: 10px; padding: 2px 10px; font-size: 12px; font-weight: bold; }
+.pill.open { background: var(--green-light); color: var(--green); }
+.pill.before { background: #EEE; color: #666; }
+.pill.closed { background: var(--red-light); color: var(--red); }
+.typegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin: 8px 0; }
+.typegrid button { border: 2px solid; border-radius: 6px; padding: 8px 6px; font-weight: bold; font-size: 16px; cursor: pointer; font-family: inherit; }
+.typegrid button small { display: block; font-size: 10px; font-weight: normal; margin-top: 2px; }
+.typegrid button.sel { outline: 3px solid var(--orange); }
+.notice { background: #FFF6DE; border: 1px solid #E8C96A; border-radius: 6px; padding: 8px 10px; font-size: 13px; line-height: 1.6; }
+/* 申請の一覧（管理者） */
+.grid { border-collapse: separate; border-spacing: 0; font-size: 11px; }
+.grid th, .grid td { border-right: 1px solid #DDD; border-bottom: 1px solid #DDD; text-align: center; min-width: 30px; height: 24px; padding: 0 2px; background: white; }
+.grid th { position: sticky; top: 0; background: var(--gray); z-index: 2; }
+.grid .nm { position: sticky; left: 0; z-index: 1; background: white; text-align: left; padding: 0 6px; min-width: 70px; font-weight: bold; white-space: nowrap; }
+.grid th.nm { z-index: 3; background: var(--gray); }
+.grid .rest { background: #FFF4F4; }
+.grid td.cell { cursor: pointer; }
+.grid td.cell:hover { outline: 2px solid var(--blue); outline-offset: -2px; }
+.grid tr.team td { background: #EEF2F6; font-weight: bold; text-align: left; padding-left: 6px; }
+.grid tr.cnt td { background: #F0F0F0; font-weight: bold; }
+.grid td.over { background: var(--red-light) !important; color: var(--red); }
+.grid .dm { color: #888; }
+.radio-list label { display: block; margin: 6px 0; font-size: 14px; }
 @media (max-width: 600px) {
   main { padding: 10px; }
   table.list .hide-sm { display: none; }
@@ -152,7 +195,93 @@ table.list tr.inactive td { color: #AAA; }
       </div>
     </div>
   </section>
+
+  <!-- 希望休の申請（スタッフ） -->
+  <section id="v-req" style="display:none;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>希望休の申請</h2>
+      <div id="rq-head"></div>
+    </div>
+    <div class="card">
+      <div class="tabs" id="rq-tabs"></div>
+      <div class="cal" id="rq-cal"></div>
+      <p class="hint" style="margin-top:8px;">日付を押すと申請できます。平日の「残り」は、その日にあと何人休めるかです（1日5人まで）。</p>
+    </div>
+    <div class="card">
+      <h2>自分の申請</h2>
+      <div id="rq-mine"></div>
+    </div>
+  </section>
+
+  <!-- 期間・流れ・受付の設定（システム管理者） -->
+  <section id="v-wf" style="display:none;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>期間</h2>
+      <p id="wf-period" style="font-weight:bold;"></p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+        <div><label class="f" for="wf-start">開始日</label><input type="date" id="wf-start"></div>
+        <div><label class="f" for="wf-end">終了日</label><input type="date" id="wf-end"></div>
+        <button class="btn" onclick="savePeriod()">期間を保存</button>
+      </div>
+      <p class="hint">勤務表を作る期間です（6か月以内）。勤務表作成アプリのデータを読み込むと、その期間になります。</p>
+    </div>
+    <div class="card">
+      <h2>作成の流れ</h2>
+      <div class="radio-list" id="wf-flows"></div>
+      <div id="wf-dutyopts" style="margin-left:18px; border-left:3px solid var(--border); padding-left:12px;">
+        <label class="f">申請の受付の分け方</label>
+        <div class="radio-list">
+          <label><input type="radio" name="wf-split" value="1"> 2回に分ける（日直を決める前に「土日祝の×」、振休を付けたあとに「平日の希望休」）</label>
+          <label><input type="radio" name="wf-split" value="0"> 1回にまとめる（日直・夜勤・振休を決めたあとに、×も平日の希望休も受け付ける）</label>
+        </div>
+        <label class="f">仮の勤務表</label>
+        <label style="font-size:14px;"><input type="checkbox" id="wf-published"> スタッフに公開する（本人の申請画面に日直・夜勤・振休が表示され、その日は申請できなくなります。振休を別の日に移す申請もできるようになります）</label>
+      </div>
+      <button class="btn" style="margin-top:10px;" onclick="saveFlow()">流れを保存</button>
+    </div>
+    <div class="card">
+      <h2>申請の受付</h2>
+      <table class="list"><thead><tr><th>受付</th><th>対象の日</th><th>状態</th><th>締め切り（表示用）</th><th></th></tr></thead><tbody id="wf-rounds"></tbody></table>
+      <p class="hint" id="wf-roundhint"></p>
+    </div>
+    <div class="card">
+      <h2>勤務表データ（勤務表作成アプリとの受け渡し）</h2>
+      <p id="wf-state" class="hint"></p>
+      <div class="toolbar">
+        <label class="btn btn-sm" style="display:inline-block;">勤務表作成アプリのJSONを読み込む<input type="file" accept=".json" style="display:none" onchange="importState(this)"></label>
+        <button class="btn btn-green btn-sm" onclick="exportState()">勤務表作成アプリ用に書き出す</button>
+      </div>
+      <p class="hint">勤務表の作成画面がこのアプリに入るまで（第2段階の後半）の受け渡しです。勤務表作成アプリで「JSON書出」したファイルを読み込むと、期間・チーム編成・勤務表（日直・夜勤・振休など）・設定・過去の勤務表がこのアプリに入ります。申請を取り込んだあとに「書き出す」で保存したファイルを、勤務表作成アプリで「JSON読込」すると続きを作れます。</p>
+      <div id="wf-roster"></div>
+    </div>
+  </section>
+
+  <!-- 申請の一覧・取り込み（システム管理者） -->
+  <section id="v-reqadmin" style="display:none;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>申請の一覧・取り込み</h2>
+      <div id="ra-head"></div>
+      <div class="toolbar" style="margin-top:8px;">
+        <button class="btn btn-green btn-sm" onclick="importRequests()">申請を勤務表に取り込む</button>
+        <span class="hint">色つきの文字＝申請（取り込み前）、灰色＝勤務表に入っている内容。マスを押すと代わりに申請・取り消しができます。</span>
+      </div>
+      <div class="tabs" id="ra-tabs"></div>
+      <div class="scroll" style="max-height:65vh;"><table class="grid" id="ra-grid"></table></div>
+    </div>
+  </section>
 </main>
+
+<!-- 申請する種類を選ぶ -->
+<div class="modal" id="pick-modal" onclick="if(event.target===this)closeModal('pick-modal')">
+  <div class="box">
+    <h3 id="pk-title"></h3>
+    <div id="pk-body"></div>
+    <div class="actions"><button class="btn btn-gray" onclick="closeModal('pick-modal')">閉じる</button></div>
+  </div>
+</div>
 
 <!-- スタッフの追加・編集 -->
 <div class="modal" id="user-modal" onclick="if(event.target===this)closeModal('user-modal')">
@@ -256,7 +385,7 @@ const isApprover = () => ME && (ME.roles.indexOf('approver') >= 0 || isAdmin());
 /* ============================================================
    画面の切り替え
    ============================================================ */
-const VIEWS = ['login', 'password', 'home', 'users', 'log'];
+const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin'];
 function show(v) {
   for (const x of VIEWS) document.getElementById('v-' + x).style.display = x === v ? '' : 'none';
   document.getElementById('logout-btn').style.display = v === 'login' ? 'none' : '';
@@ -266,6 +395,9 @@ function show(v) {
   if (v === 'home') renderMenu();
   if (v === 'users') loadUsers();
   if (v === 'log') loadLog();
+  if (v === 'req') loadReq();
+  if (v === 'wf') loadWf();
+  if (v === 'reqadmin') loadReqAdmin();
   if (v === 'password') {
     for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
     document.getElementById('pw-err').textContent = '';
@@ -320,14 +452,16 @@ async function doChangePassword() {
    ============================================================ */
 function renderMenu() {
   const items = [
-    { title: '希望休の申請', desc: '希望休（有・夏・特・振◆・×など）を申請します。', soon: '第2段階' },
-    { title: '勤務表を見る', desc: '確定した勤務表と、勤務変更を反映した実績を見ます。', soon: '第2段階' },
+    { title: '希望休の申請', desc: '希望休（有・夏・特・×など）を申請します。日ごとの残り人数を見ながら申請できます。', go: 'req' },
+    { title: '勤務表を見る', desc: '確定した勤務表と、勤務変更を反映した実績を見ます。', soon: '第2段階の後半' },
     { title: '勤務変更・追加の申請', desc: '勤務の交代（振休は振休同士）や、時間単位の有給などを申請します。', soon: '第3段階' },
     { title: '自分あての承認', desc: '交代を頼まれた勤務変更を承認します。', soon: '第3段階' },
   ];
   if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件を外れる申請の理由も確認できます。', soon: '第3段階' });
   if (isAdmin()) {
-    items.push({ title: '勤務表の作成', desc: '希望休の締め切り・勤務表の自動作成・確定・配布を行います。', soon: '第2段階' });
+    items.push({ title: '期間・流れ・受付の設定', desc: '期間、作成の流れ（希望休が先／当番が先）、申請の受付開始・締め切り、勤務表作成アプリとの受け渡し。', go: 'wf' });
+    items.push({ title: '申請の一覧・取り込み', desc: '全員の申請を日ごとに確認し、代わりに入力したり、勤務表に取り込んだりします。', go: 'reqadmin' });
+    items.push({ title: '勤務表の作成', desc: '日直・夜勤・振休の自動作成・確定・配布を行います。', soon: '第2段階の後半' });
     items.push({ title: 'スタッフ・権限の管理', desc: 'スタッフのID登録、仮パスワードの発行、承認者・システム管理者の指名。', go: 'users' });
     items.push({ title: '操作記録', desc: 'ログインや権限変更などの記録を確認します。', go: 'log' });
   }
@@ -455,6 +589,351 @@ async function loadLog() {
       (r.userId ? '<span class="hint">（' + esc(r.userId) + '）</span>' : '') + '</td><td>' + esc(r.action) + '</td><td>' + esc(r.detail) + '</td></tr>').join('')
       : '<tr><td colspan="4" class="hint">記録はありません</td></tr>';
   } catch (e) { tb.innerHTML = '<tr><td colspan="4" class="err">' + esc(e.message) + '</td></tr>'; }
+}
+
+/* ============================================================
+   共通: 日付・申請の種類
+   ============================================================ */
+const YOBI = ['日', '月', '火', '水', '木', '金', '土'];
+const TYPE_STYLE = {
+  '有': ['#E2EFDA', '#276221'], '夏': ['#FCE4C0', '#BF5B00'], '特': ['#EEEEEE', '#555555'], '振◆': ['#EAD8F5', '#7B5EA7'],
+  '×': ['#FADBD8', '#CC0000'], '業': ['#D6EAF8', '#1F4E79'], '研': ['#D6EAF8', '#1F4E79'], '出': ['#D6EAF8', '#1F4E79'],
+  '振休移動': ['#EAD8F5', '#7B5EA7'],
+};
+const TYPE_DESC = { '有': '年次有給休暇', '夏': '夏期休暇', '特': '特別休暇', '振◆': '振替休日の希望', '×': '休日に休みたい（日直を入れない）',
+  '業': '業務', '研': '研修', '出': '出張' };
+const COUNT_MARKS = ['特', '夏', '有', '業', '出'];
+function isCountMark(mk) { return !!mk && (COUNT_MARKS.indexOf(mk) >= 0 || String(mk).indexOf('振') >= 0); }
+function md(iso) { return Number(iso.slice(5, 7)) + '/' + Number(iso.slice(8, 10)); }
+function mdw(iso) { const a = iso.split('-').map(Number); return md(iso) + '（' + YOBI[new Date(a[0], a[1] - 1, a[2]).getDay()] + '）'; }
+function chip(type) {
+  const s = TYPE_STYLE[type] || ['#EEE', '#444'];
+  return '<span class="chip" style="background:' + s[0] + ';color:' + s[1] + ';border-color:' + s[1] + ';">' + esc(type) + '</span>';
+}
+// 勤務表の記号を読みやすく
+function markText(mk) {
+  if (!mk) return '';
+  const t = { '○': '日直', '入': '夜勤入り', '明': '夜勤明け', '残': '残り当番', '振': '振休（夜勤明け）' }[mk];
+  if (t) return t;
+  if (mk.indexOf('振') >= 0 && mk !== '振◆') return '振休（' + mk.replace('振', '') + '出勤分）';
+  return mk;
+}
+// カレンダーのマス用の短い表記（詳しい表記は日付を押した画面で出す）
+function markShort(mk) {
+  if (!mk) return '';
+  const t = { '○': '日直', '入': '夜勤入', '明': '明け', '残': '残当' }[mk];
+  if (t) return t;
+  if (mk.indexOf('振') >= 0 && mk !== '振◆') return '振休';
+  return mk;
+}
+function monthKeys(dates) {
+  const out = [];
+  dates.forEach(d => { const k = d.date.slice(0, 7); if (out.indexOf(k) < 0) out.push(k); });
+  return out;
+}
+function monthTabs(elId, keys, cur, onPick) {
+  const el = document.getElementById(elId);
+  el.innerHTML = keys.map(k => '<button data-k="' + k + '" class="' + (k === cur ? 'on' : '') + '">' + Number(k.slice(5)) + '月</button>').join('');
+  el.querySelectorAll('button').forEach(b => { b.onclick = () => onPick(b.dataset.k); });
+}
+function statusPill(s) {
+  return '<span class="pill ' + s + '">' + ({ before: '受付前', open: '受付中', closed: '締め切り' }[s] || s) + '</span>';
+}
+function roundFor(rounds, rest) {
+  return rounds.find(r => r.days === 'all' || r.days === (rest ? 'rest' : 'weekday')) || null;
+}
+
+/* ============================================================
+   希望休の申請（スタッフ）
+   ============================================================ */
+let RV = null, RQ_MONTH = null;
+async function loadReq() {
+  document.getElementById('rq-head').innerHTML = '<p class="hint">読み込み中…</p>';
+  try { RV = await call('reqView'); renderReq(); }
+  catch (e) { document.getElementById('rq-head').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+function myReqOn(date) { return RV.my.requests.find(r => r.date === date); }
+function renderReq() {
+  const p = RV.period;
+  let h = '<p><b>' + esc(p.label) + '</b></p>';
+  if (!p.dates.length) {
+    document.getElementById('rq-head').innerHTML = h + '<p class="notice">申請の期間がまだ決まっていません。システム管理者からの案内をお待ちください。</p>';
+    document.getElementById('rq-cal').innerHTML = ''; document.getElementById('rq-tabs').innerHTML = ''; document.getElementById('rq-mine').innerHTML = '';
+    return;
+  }
+  h += '<div class="rounds">' + RV.rounds.map(r => '<span>' + esc(r.label) + '：' + statusPill(r.status) +
+    (r.deadline ? ' <span class="hint">締め切り ' + esc(md(r.deadline)) + '</span>' : '') + '</span>').join('') + '</div>';
+  if (!RV.my.inRoster) h += '<p class="notice" style="margin-top:8px;">あなたの名前（' + esc(RV.my.name) + '）が勤務表の名簿にありません。システム管理者に確認してください。</p>';
+  if (RV.flow === 'duty_first' && RV.published)
+    h += '<p class="hint" style="margin-top:8px;">日直・夜勤・振休はすでに決まっています（灰色の表示）。その日は申請できません。振休は、日付を押して別の平日へ移す申請ができます。</p>';
+  document.getElementById('rq-head').innerHTML = h;
+  const keys = monthKeys(p.dates);
+  if (!RQ_MONTH || keys.indexOf(RQ_MONTH) < 0) RQ_MONTH = keys[0];
+  monthTabs('rq-tabs', keys, RQ_MONTH, k => { RQ_MONTH = k; renderReq(); });
+  // カレンダー
+  const days = p.dates.filter(d => d.date.slice(0, 7) === RQ_MONTH);
+  let cal = YOBI.map(y => '<div class="dow">' + y + '</div>').join('');
+  const y = Number(RQ_MONTH.slice(0, 4)), m = Number(RQ_MONTH.slice(5));
+  const first = new Date(y, m - 1, 1).getDay(), last = new Date(y, m, 0).getDate();
+  const byDate = {}; days.forEach(d => { byDate[d.date] = d; });
+  for (let i = 0; i < first; i++) cal += '<div class="day out"></div>';
+  for (let d = 1; d <= last; d++) {
+    const iso = RQ_MONTH + '-' + String(d).padStart(2, '0');
+    const info = byDate[iso];
+    if (!info) { cal += '<div class="day closed outp"><span class="dn">' + d + '</span><span class="hn" style="color:#999;">期間外</span></div>'; continue; }
+    const rd = roundFor(RV.rounds, info.rest);
+    const open = rd && rd.status === 'open';
+    const mark = RV.my.marks[iso];
+    const req = myReqOn(iso);
+    const moveFrom = RV.my.requests.find(r => r.kind === 'move' && r.fromDate === iso);
+    let body = '<span class="dn">' + d + '</span>' + (info.holiday ? '<span class="hn">' + esc(info.holiday) + '</span>' : '');
+    if (mark) body += '<span class="chip mark" title="' + esc(markText(mark)) + '"' + (moveFrom ? ' style="text-decoration:line-through;"' : '') + '>' + esc(markShort(mark)) + '</span>';
+    if (moveFrom) body += '<span class="hint" style="font-size:10px;">→' + esc(md(moveFrom.date)) + 'へ移動申請中</span>';
+    if (req) body += req.kind === 'move' ? chip('振休移動') + '<span class="hint" style="font-size:10px;">' + esc(md(req.fromDate)) + 'から</span>' : chip(req.type);
+    if (!info.rest) {
+      const left = RV.cap - (RV.counts[iso] || 0);
+      body += '<span class="left' + (left <= 0 ? ' full' : '') + '">' + (left <= 0 ? '満員' : '残り' + left) + '</span>';
+    }
+    cal += '<div class="day' + (info.rest ? ' rest' : '') + (open ? '' : ' closed') + '" data-d="' + iso + '">' + body + '</div>';
+  }
+  const calEl = document.getElementById('rq-cal');
+  calEl.innerHTML = cal;
+  calEl.querySelectorAll('.day[data-d]').forEach(el => { el.onclick = () => openPick({ name: RV.my.name, date: el.dataset.d, admin: false }); });
+  // 自分の申請
+  const mine = RV.my.requests.slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  document.getElementById('rq-mine').innerHTML = mine.length
+    ? '<table class="list"><thead><tr><th>日付</th><th>内容</th><th></th></tr></thead><tbody>' + mine.map(r =>
+      '<tr><td>' + esc(mdw(r.date)) + '</td><td>' + (r.kind === 'move' ? chip('振休移動') + ' ' + esc(md(r.fromDate)) + 'の振休をこの日へ' : chip(r.type) + ' <span class="hint">' + esc(TYPE_DESC[r.type] || '') + '</span>') +
+      '</td><td><button class="btn btn-gray btn-sm" data-id="' + esc(r.id) + '">取り消す</button></td></tr>').join('') + '</tbody></table>'
+    : '<p class="hint">まだ申請はありません。</p>';
+  document.querySelectorAll('#rq-mine button[data-id]').forEach(b => { b.onclick = () => cancelReq(b.dataset.id, false); });
+}
+
+/* 日付を押したときの選択画面（スタッフ・管理者共通） */
+let PICK = null;
+function openPick(pk) {
+  PICK = pk;
+  const V = pk.admin ? AV : RV;
+  const info = V.period.dates.find(d => d.date === pk.date);
+  const rd = roundFor(V.rounds, info.rest);
+  const marks = pk.admin ? (AV.data[pk.name] || {}) : RV.my.marks;
+  const reqs = pk.admin ? AV.requests.filter(r => r.name === pk.name) : RV.my.requests;
+  const mark = marks[pk.date];
+  const req = reqs.find(r => r.date === pk.date);
+  const left = info.rest ? null : V.cap - dayCount(pk.date, pk.admin);
+  document.getElementById('pk-title').textContent = (pk.admin ? pk.name + '　' : '') + mdw(pk.date) + (info.holiday ? '　' + info.holiday : '');
+  let h = '';
+  if (left !== null) h += '<p class="hint">この日の休み: ' + (V.cap - left) + '人／' + V.cap + '人' + (left <= 0 ? '（満員）' : '（あと' + left + '人）') + '</p>';
+  if (req) h += '<p>申請中: ' + (req.kind === 'move' ? chip('振休移動') + ' ' + esc(md(req.fromDate)) + 'の振休をこの日へ' : chip(req.type)) +
+    ' <button class="btn btn-gray btn-sm" id="pk-cancel">取り消す</button></p>';
+  const open = rd && rd.status === 'open';
+  if (mark && !pk.admin) {
+    h += '<p class="notice">勤務表でこの日は「' + esc(markText(mark)) + '」です。この日は申請できません。休みたい場合は勤務変更（交代）で対応します。</p>';
+    if (isMovable(mark) && open && !info.rest) h += '<p class="hint">この振休を別の日へ移すには、移したい日（平日）を押して「振休をこの日へ移動」を選んでください。</p>';
+  } else if (!open && !pk.admin) {
+    h += '<p class="notice">' + (info.rest ? '土日祝' : '平日') + 'の申請は' + (rd && rd.status === 'closed' ? '締め切りました' : 'まだ受け付けていません') + '。</p>';
+  } else {
+    if (mark) h += '<p class="notice">勤務表でこの日は「' + esc(markText(mark)) + '」です。申請を入れると、取り込み時に置き換わります。</p>';
+    const types = info.rest ? V.types.rest : V.types.weekday;
+    h += '<div class="typegrid">' + types.map(t => {
+      const s = TYPE_STYLE[t] || ['#EEE', '#444'];
+      return '<button data-t="' + esc(t) + '" class="' + (req && req.type === t ? 'sel' : '') + '" style="background:' + s[0] + ';color:' + s[1] + ';border-color:' + s[1] + ';">' +
+        esc(t) + '<small>' + esc(TYPE_DESC[t] || '') + '</small></button>';
+    }).join('') + '</div>';
+    // 振休の移動（当番が先の流れ・仮の勤務表を公開中）
+    const furi = Object.keys(marks).filter(d => isMovable(marks[d]) && d !== pk.date).sort();
+    if (V.flow === 'duty_first' && (pk.admin || V.published) && !info.rest && !mark && furi.length) {
+      h += '<div style="border-top:1px solid #EEE; padding-top:8px;"><b style="font-size:13px;">振休をこの日へ移動</b>' +
+        '<div style="display:flex; gap:6px; margin-top:4px;"><select id="pk-from">' +
+        furi.map(d => '<option value="' + d + '">' + esc(mdw(d)) + '　' + esc(markText(marks[d])) + '</option>').join('') +
+        '</select><button class="btn btn-sm" id="pk-move">移動を申請</button></div></div>';
+    }
+    if (pk.admin) h += '<label style="display:block; margin-top:8px; font-size:12px;"><input type="checkbox" id="pk-force"> 上限（5人）や勤務表との重なりを超えても入れる</label>';
+  }
+  h += '<div class="err" id="pk-err"></div>';
+  document.getElementById('pk-body').innerHTML = h;
+  document.querySelectorAll('#pk-body .typegrid button').forEach(b => { b.onclick = () => submitPick({ kind: 'leave', type: b.dataset.t }); });
+  const mv = document.getElementById('pk-move');
+  if (mv) mv.onclick = () => submitPick({ kind: 'move', fromDate: document.getElementById('pk-from').value });
+  const cb = document.getElementById('pk-cancel');
+  if (cb) cb.onclick = () => cancelReq(req.id, pk.admin);
+  openModal('pick-modal');
+}
+function isMovable(mk) { return !!mk && mk !== '振' && mk !== '振◆' && mk.slice(-1) === '振' && mk.indexOf('/') > 0; }
+function dayCount(date, admin) {
+  if (!admin) return RV.counts[date] || 0;
+  return Object.keys(effAdmin()).filter(n => isCountMark(effAdmin()[n][date])).length;
+}
+async function submitPick(x) {
+  const fe = document.getElementById('pk-force');
+  try {
+    await call('reqSave', Object.assign({ date: PICK.date, name: PICK.name, force: !!(fe && fe.checked) }, x));
+    closeModal('pick-modal');
+    if (PICK.admin) await loadReqAdmin(); else await loadReq();
+  } catch (e) { document.getElementById('pk-err').textContent = e.message; }
+}
+async function cancelReq(id, admin) {
+  if (!confirm('この申請を取り消しますか？')) return;
+  try {
+    await call('reqCancel', { id: id });
+    closeModal('pick-modal');
+    if (admin) await loadReqAdmin(); else await loadReq();
+  } catch (e) { alert(e.message); }
+}
+
+/* ============================================================
+   期間・流れ・受付の設定（システム管理者）
+   ============================================================ */
+let WF = null;
+async function loadWf() {
+  try { WF = await call('wfGet'); renderWf(); }
+  catch (e) { document.getElementById('wf-period').textContent = e.message; }
+}
+function renderWf() {
+  document.getElementById('wf-period').textContent = WF.period.label;
+  document.getElementById('wf-start').value = WF.period.start || '';
+  document.getElementById('wf-end').value = WF.period.end || '';
+  document.getElementById('wf-flows').innerHTML = Object.keys(WF.flowLabels).map(k =>
+    '<label><input type="radio" name="wf-flow" value="' + k + '"' + (WF.flow === k ? ' checked' : '') + '> ' + esc(WF.flowLabels[k]) + '</label>').join('');
+  document.querySelectorAll('input[name=wf-flow]').forEach(r => { r.onchange = syncFlowForm; });
+  document.querySelectorAll('input[name=wf-split]').forEach(r => { r.checked = (r.value === '1') === WF.split; });
+  document.getElementById('wf-published').checked = WF.published;
+  syncFlowForm();
+  // 受付
+  const daysLabel = { all: '全部の日', rest: '土日祝', weekday: '平日' };
+  const tb = document.getElementById('wf-rounds');
+  tb.innerHTML = WF.rounds.map(r => '<tr><td><b>' + esc(r.label) + '</b></td><td>' + daysLabel[r.days] + '</td><td>' + statusPill(r.status) + '</td>' +
+    '<td><input type="date" data-dl="' + r.id + '" value="' + esc(r.deadline) + '" style="max-width:160px; font-size:13px;"></td><td style="white-space:nowrap;">' +
+    (r.status !== 'open' ? '<button class="btn btn-green btn-sm" data-st="' + r.id + ':open">受付開始</button> ' : '') +
+    (r.status === 'open' ? '<button class="btn btn-red btn-sm" data-st="' + r.id + ':closed">締め切る</button> ' : '') +
+    (r.status !== 'before' ? '<button class="btn btn-gray btn-sm" data-st="' + r.id + ':before">受付前に戻す</button>' : '') + '</td></tr>').join('');
+  tb.querySelectorAll('button[data-st]').forEach(b => { b.onclick = () => { const [id, st] = b.dataset.st.split(':'); saveWf({ status: { [id]: st } }); }; });
+  tb.querySelectorAll('input[data-dl]').forEach(i => { i.onchange = () => saveWf({ deadline: { [i.dataset.dl]: i.value } }); });
+  document.getElementById('wf-roundhint').textContent = WF.flow === 'duty_first' && WF.split
+    ? '順番: 「土日祝の×」を受け付ける → 締め切って日直・夜勤・振休を決める → 仮の勤務表を公開 → 「平日の希望休」を受け付ける'
+    : WF.flow === 'duty_first' ? '順番: 日直・夜勤・振休を決める → 仮の勤務表を公開 → 「希望休」（×と平日の希望休）を受け付ける'
+    : '順番: 「希望休」を受け付ける → 締め切って勤務表に取り込む → 日直・夜勤・振休を決める';
+  document.getElementById('wf-state').textContent = WF.hasState
+    ? '勤務表のデータ: ' + WF.period.label + '・入力済み ' + WF.cells + 'マス／取り込み前の申請 ' + WF.activeRequests + '件'
+    : 'まだ勤務表のデータはありません（期間を保存するか、勤務表作成アプリのJSONを読み込んでください）。';
+  let r = '';
+  if (WF.rosterWithoutUser.length) r += '<p class="notice" style="margin-top:8px;">勤務表の名簿にいるが、ログインIDがない人（' + WF.rosterWithoutUser.length + '人）: ' + esc(WF.rosterWithoutUser.join('、')) + '<br><span class="hint">この人たちは自分で申請できません。「スタッフ・権限の管理」で、名簿と同じ名前で登録してください。</span></p>';
+  if (WF.usersNotInRoster.length) r += '<p class="notice" style="margin-top:8px;">ログインIDはあるが、勤務表の名簿にない人: ' + esc(WF.usersNotInRoster.join('、')) + '<br><span class="hint">名前の表記（漢字・空白）が名簿と同じか確認してください。</span></p>';
+  document.getElementById('wf-roster').innerHTML = r;
+}
+function syncFlowForm() {
+  const sel = document.querySelector('input[name=wf-flow]:checked');
+  document.getElementById('wf-dutyopts').style.display = sel && sel.value === 'duty_first' ? '' : 'none';
+}
+async function saveWf(p) {
+  try { await call('wfSave', p); await loadWf(); } catch (e) { alert(e.message); }
+}
+function saveFlow() {
+  const flow = (document.querySelector('input[name=wf-flow]:checked') || {}).value;
+  const split = (document.querySelector('input[name=wf-split]:checked') || {}).value !== '0';
+  saveWf({ flow: flow, split: split, published: document.getElementById('wf-published').checked });
+}
+async function savePeriod() {
+  const s = document.getElementById('wf-start').value, e = document.getElementById('wf-end').value;
+  if (WF.hasState && WF.cells && !confirm('期間を変えると、期間の外になった日の勤務表は表示されなくなります（消えはしません）。保存しますか？')) return;
+  try { await call('periodSave', { start: s, end: e }); await loadWf(); } catch (er) { alert(er.message); }
+}
+function importState(input) {
+  const f = input.files[0];
+  input.value = '';
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = async () => {
+    let b;
+    try { b = JSON.parse(rd.result); } catch (e) { alert('JSONファイルとして読めませんでした。'); return; }
+    if (!b.__kinmu_backup__) { alert('勤務表作成アプリの「JSON書出」で作ったファイル（kinmu_backup.json）を選んでください。'); return; }
+    if (!confirm('このファイルの内容で、勤務表のデータ（期間・チーム編成・勤務表・設定・過去の勤務表）を置き換えます。取り込み前の申請はそのまま残ります。よろしいですか？')) return;
+    try {
+      const r = await call('stateImport', { backup: b });
+      alert('読み込みました: ' + r.period.label + '・名簿' + r.staff + '人・入力済み' + r.cells + 'マス・過去の勤務表' + r.archive + '件');
+      await loadWf();
+    } catch (e) { alert(e.message); }
+  };
+  rd.readAsText(f);
+}
+async function exportState() {
+  try {
+    const b = await call('stateExport');
+    const blob = new Blob([JSON.stringify(b, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'kinmu_backup.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { alert(e.message); }
+}
+
+/* ============================================================
+   申請の一覧・取り込み（システム管理者）
+   ============================================================ */
+let AV = null, RA_MONTH = null, _eff = null;
+async function loadReqAdmin() {
+  document.getElementById('ra-head').innerHTML = '<p class="hint">読み込み中…</p>';
+  try { AV = await call('reqAdminView'); _eff = null; renderReqAdmin(); }
+  catch (e) { document.getElementById('ra-head').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+// 申請を勤務表に重ねた見込み（サーバーの数え方と同じ）
+function effAdmin() {
+  if (_eff) return _eff;
+  const eff = {};
+  AV.teams.forEach(t => t[1].forEach(n => { eff[n] = Object.assign({}, AV.data[n] || {}); }));
+  Object.keys(AV.data).forEach(n => { if (!eff[n]) eff[n] = Object.assign({}, AV.data[n]); });
+  AV.requests.forEach(r => {
+    const m = eff[r.name] || (eff[r.name] = Object.assign({}, AV.data[r.name] || {}));
+    if (r.kind === 'move') { const lb = (AV.data[r.name] || {})[r.fromDate]; if (lb) { delete m[r.fromDate]; m[r.date] = lb; } }
+    else m[r.date] = r.type;
+  });
+  return (_eff = eff);
+}
+function renderReqAdmin() {
+  const p = AV.period;
+  document.getElementById('ra-head').innerHTML = '<p><b>' + esc(p.label) + '</b>　取り込み前の申請 ' + AV.requests.length + '件</p>' +
+    '<div class="rounds">' + AV.rounds.map(r => '<span>' + esc(r.label) + '：' + statusPill(r.status) + '</span>').join('') + '</div>';
+  const grid = document.getElementById('ra-grid');
+  if (!p.dates.length) { grid.innerHTML = ''; document.getElementById('ra-tabs').innerHTML = ''; return; }
+  const keys = monthKeys(p.dates);
+  if (!RA_MONTH || keys.indexOf(RA_MONTH) < 0) RA_MONTH = keys[0];
+  monthTabs('ra-tabs', keys, RA_MONTH, k => { RA_MONTH = k; renderReqAdmin(); });
+  const days = p.dates.filter(d => d.date.slice(0, 7) === RA_MONTH);
+  const reqOf = {};
+  AV.requests.forEach(r => { reqOf[r.name + '|' + r.date] = r; if (r.kind === 'move') reqOf[r.name + '|from|' + r.fromDate] = r; });
+  let h = '<thead><tr><th class="nm">氏名</th>' + days.map(d => '<th class="' + (d.rest ? 'rest' : '') + '" title="' + esc(d.holiday) + '">' + Number(d.date.slice(8)) + '<br>' + YOBI[d.dow] + '</th>').join('') + '</tr></thead><tbody>';
+  const names = [];
+  AV.teams.forEach(t => {
+    h += '<tr class="team"><td class="nm" colspan="' + (days.length + 1) + '">' + esc(t[0]) + '</td></tr>';
+    t[1].forEach(n => {
+      names.push(n);
+      h += '<tr><td class="nm">' + esc(n) + '</td>' + days.map(d => {
+        const r = reqOf[n + '|' + d.date], from = reqOf[n + '|from|' + d.date];
+        const mk = (AV.data[n] || {})[d.date];
+        let c = '';
+        if (r) c = r.kind === 'move' ? '<b style="color:#7B5EA7;" title="' + esc(md(r.fromDate)) + 'の振休をこの日へ">移</b>' : '<b style="color:' + (TYPE_STYLE[r.type] || ['', '#000'])[1] + ';">' + esc(r.type) + '</b>';
+        else if (mk) c = '<span class="dm"' + (from ? ' style="text-decoration:line-through;"' : '') + '>' + esc(mk.length > 3 ? '振' : mk) + '</span>';
+        return '<td class="cell' + (d.rest ? ' rest' : '') + '" data-n="' + esc(n) + '" data-d="' + d.date + '" title="' + esc(mk || '') + '">' + c + '</td>';
+      }).join('') + '</tr>';
+    });
+  });
+  // 日ごとの休み人数
+  h += '<tr class="cnt"><td class="nm">休み人数</td>' + days.map(d => {
+    if (d.rest) return '<td class="rest"></td>';
+    const n = Object.keys(effAdmin()).filter(x => isCountMark(effAdmin()[x][d.date])).length;
+    return '<td class="' + (n > AV.cap ? 'over' : '') + '">' + (n || '') + '</td>';
+  }).join('') + '</tr></tbody>';
+  grid.innerHTML = h;
+  grid.querySelectorAll('td.cell').forEach(td => { td.onclick = () => openPick({ name: td.dataset.n, date: td.dataset.d, admin: true }); });
+}
+async function importRequests() {
+  if (!AV.requests.length) { alert('取り込む申請はありません。'); return; }
+  if (!confirm('取り込み前の申請 ' + AV.requests.length + '件を勤務表に入れます。取り込んだ申請は、スタッフの画面では「申請」から「勤務表の内容」に変わります。よろしいですか？')) return;
+  try {
+    const r = await call('reqImport');
+    alert('取り込みました: 希望休 ' + r.leave + '件・振休の移動 ' + r.moved + '件' + (r.skipped.length ? '\n\n取り込めなかった申請（勤務表と重なっているため。申請はそのまま残っています）:\n' + r.skipped.join('\n') : ''));
+    await loadReqAdmin();
+  } catch (e) { alert(e.message); }
 }
 
 /* ============================================================

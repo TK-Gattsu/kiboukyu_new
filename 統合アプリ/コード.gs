@@ -31,9 +31,35 @@ const ROLE_LABELS = { sysadmin: 'システム管理者', approver: '承認者' }
 
 // シートの列（1行目が見出し）
 const TABLES = {
-  users: ['id', 'name', 'team', 'roles', 'salt', 'hash', 'active', 'mustChange', 'createdAt', 'updatedAt'],
-  log:   ['at', 'userId', 'userName', 'action', 'detail'],
+  users:    ['id', 'name', 'team', 'roles', 'salt', 'hash', 'active', 'mustChange', 'createdAt', 'updatedAt'],
+  log:      ['at', 'userId', 'userName', 'action', 'detail'],
+  docs:     ['key', 'part', 'text', 'updatedAt'],   // 勤務表の内容・設定（大きいので分割して保存）
+  archives: ['key', 'part', 'text', 'updatedAt'],   // 過去の勤務表（読む回数が少ないので別シート）
+  requests: ['id', 'name', 'userId', 'date', 'type', 'kind', 'fromDate', 'status', 'createdAt', 'updatedAt', 'by'],
 };
+
+// ---- 勤務表のきまり（勤務表作成アプリと同じ）----
+const DAY_CAP = 5;                                   // 平日の休みは1日5人まで
+const COUNT_MARKS = ['特', '夏', '有', '業', '出'];   // ＋「振」を含むもの（×・研は数えない）
+const ADMIN_ONLY_TYPES = ['業', '研', '出'];          // スタッフ本人は申請できない（システム管理者が入れる）
+const HOLIDAYS = {
+  '2025-01-01':'元日','2025-01-13':'成人の日','2025-02-11':'建国記念の日','2025-02-23':'天皇誕生日','2025-02-24':'振替休日',
+  '2025-03-20':'春分の日','2025-04-29':'昭和の日','2025-05-03':'憲法記念日','2025-05-04':'みどりの日','2025-05-05':'こどもの日','2025-05-06':'振替休日',
+  '2025-07-21':'海の日','2025-08-11':'山の日','2025-09-15':'敬老の日','2025-09-22':'振替休日','2025-09-23':'秋分の日',
+  '2025-10-13':'スポーツの日','2025-11-03':'文化の日','2025-11-23':'勤労感謝の日','2025-11-24':'振替休日',
+  '2026-01-01':'元日','2026-01-12':'成人の日','2026-02-11':'建国記念の日','2026-02-23':'天皇誕生日','2026-03-20':'春分の日','2026-04-29':'昭和の日',
+  '2026-05-03':'憲法記念日','2026-05-04':'みどりの日','2026-05-05':'こどもの日','2026-05-06':'振替休日','2026-07-20':'海の日','2026-08-11':'山の日',
+  '2026-09-21':'敬老の日','2026-09-22':'国民の休日','2026-09-23':'秋分の日','2026-10-12':'スポーツの日','2026-11-03':'文化の日','2026-11-23':'勤労感謝の日',
+  '2027-01-01':'元日','2027-01-11':'成人の日','2027-02-11':'建国記念の日','2027-02-23':'天皇誕生日','2027-03-21':'春分の日','2027-03-22':'振替休日','2027-04-29':'昭和の日',
+  '2027-05-03':'憲法記念日','2027-05-04':'みどりの日','2027-05-05':'こどもの日','2027-07-19':'海の日','2027-08-11':'山の日','2027-09-20':'敬老の日',
+  '2027-09-23':'秋分の日','2027-10-11':'スポーツの日','2027-11-03':'文化の日','2027-11-23':'勤労感謝の日',
+};
+
+// ---- 作成の流れと申請の受付 ----
+// flow: 'request_first'＝希望休を先に受け付ける／'duty_first'＝日直・夜勤・振休を先に決めてから受け付ける
+// split: 当番が先の流れで、申請を「土日祝の×」と「平日の希望休」の2回に分けるか（あとから切り替え可）
+const FLOW_LABELS = { request_first: '希望休が先（希望休 → 日直・夜勤 → 振休）', duty_first: '当番が先（日直・夜勤 → 振休 → 希望休）' };
+const ROUND_STATUS = ['before', 'open', 'closed'];
 
 // ------------------------------------------------------------
 // 画面の配信
@@ -216,6 +242,168 @@ const ACTIONS = {
     const n = Math.min(Number(p.limit) || 300, 2000);
     return all.slice(-n).reverse().map(r => ({ at: r.at, userId: r.userId, userName: r.userName, action: r.action, detail: r.detail }));
   } },
+
+  // ---- 希望休の申請（スタッフ本人）----
+  reqView: { run: me => {
+    const c = ctx_();
+    const effOf = effective_(c);
+    const names = allNames_(c);
+    const rest = d => isRestDay_(c, d);
+    const counts = {};
+    c.dates.forEach(d => { if (!rest(d)) counts[d] = names.filter(n => isCountMark_(effOf(n)[d])).length; });
+    const myData = c.wf.published ? (c.data[me.name] || {}) : {};
+    const myFuri = c.wf.flow === 'duty_first' && c.wf.published
+      ? Object.keys(c.data[me.name] || {}).filter(d => c.dateSet.has(d) && isMovableFuri_((c.data[me.name] || {})[d])).sort()
+        .map(d => ({ date: d, label: c.data[me.name][d] }))
+      : [];
+    return {
+      period: periodInfo_(c),
+      flow: c.wf.flow, flowLabel: FLOW_LABELS[c.wf.flow], published: !!c.wf.published,
+      rounds: rounds_(c.wf), cap: DAY_CAP, counts: counts,
+      types: { weekday: weekdayTypes_(c.wf, false), rest: ['×'] },
+      my: { name: me.name, inRoster: names.indexOf(me.name) >= 0, marks: myData, furi: myFuri,
+            requests: c.reqs.filter(r => r.name === me.name).map(publicReq_) },
+    };
+  } },
+
+  reqSave: { run: (me, p) => withLock_(() => {
+    const c = ctx_();
+    const admin = hasRole_(me, 'sysadmin');
+    const name = p.name && p.name !== me.name ? (admin ? String(p.name) : null) : me.name;
+    if (!name) throw new Error('ほかの人の申請はシステム管理者だけが入れられます。');
+    const req = { kind: p.kind === 'move' ? 'move' : 'leave', date: String(p.date || ''), type: String(p.type || ''), fromDate: String(p.fromDate || '') };
+    const err = checkRequest_(c, name, req, admin, !!(admin && p.force));
+    if (err) throw new Error(err);
+    // 同じ日（移動は同じ振休）の申請は置き換える
+    const now = new Date().toISOString();
+    c.reqs.filter(r => r.name === name && (req.kind === 'move' ? (r.kind === 'move' && r.fromDate === req.fromDate) || r.date === req.date : r.date === req.date))
+      .forEach(r => { r.status = 'cancelled'; r.updatedAt = now; r.by = me.id; writeRow_('requests', r); });
+    const u = rows_('users').find(x => x.name === name);
+    const row = { id: Utilities.getUuid().slice(0, 8), name: name, userId: u ? u.id : '', date: req.date, type: req.kind === 'move' ? '振休移動' : req.type,
+      kind: req.kind, fromDate: req.kind === 'move' ? req.fromDate : '', status: 'active', createdAt: now, updatedAt: now, by: me.id };
+    writeRow_('requests', row);
+    log_(me, '希望休の申請', name + ' ' + (req.kind === 'move' ? '振休移動 ' + req.fromDate + '→' + req.date : req.date + ' ' + req.type) + (p.force ? '（上限・重なりを超えて登録）' : ''));
+    return publicReq_(row);
+  }) },
+
+  reqCancel: { run: (me, p) => withLock_(() => {
+    const c = ctx_();
+    const admin = hasRole_(me, 'sysadmin');
+    const r = c.reqs.find(x => x.id === String(p.id || ''));
+    if (!r) throw new Error('取り消す申請が見つかりません（すでに取り消されたか、勤務表に取り込み済みです）。');
+    if (!admin) {
+      if (r.name !== me.name) throw new Error('自分の申請だけ取り消せます。');
+      const rd = roundFor_(c.wf, isRestDay_(c, r.date));
+      if (!rd || rd.status !== 'open') throw new Error('受付が終わっているため取り消せません。システム管理者に連絡してください。');
+    }
+    r.status = 'cancelled'; r.updatedAt = new Date().toISOString(); r.by = me.id;
+    writeRow_('requests', r);
+    log_(me, '希望休の取り消し', r.name + ' ' + (r.kind === 'move' ? '振休移動 ' + r.fromDate + '→' + r.date : r.date + ' ' + r.type));
+    return true;
+  }) },
+
+  // ---- システム管理者: 期間・流れ・受付 ----
+  wfGet: { role: 'sysadmin', run: () => {
+    const c = ctx_();
+    const roster = rosterNames_(c);
+    const userNames = rows_('users').filter(u => u.active === '1').map(u => u.name);
+    return {
+      period: periodInfo_(c), flow: c.wf.flow, split: c.wf.split !== false, published: !!c.wf.published,
+      flowLabels: FLOW_LABELS, rounds: rounds_(c.wf),
+      hasState: !!docGet_('state'), cells: Object.keys(c.data).reduce((a, n) => a + Object.keys(c.data[n] || {}).length, 0),
+      activeRequests: c.reqs.length,
+      rosterWithoutUser: roster.filter(n => userNames.indexOf(n) < 0),
+      usersNotInRoster: roster.length ? userNames.filter(n => roster.indexOf(n) < 0 && n !== 'システム管理者') : [],
+    };
+  } },
+
+  wfSave: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const wf = Object.assign(defaultWorkflow_(), docGet_('workflow') || {});
+    const before = JSON.stringify(rounds_(wf)) + wf.flow + wf.published;
+    if (p.flow) { if (!FLOW_LABELS[p.flow]) throw new Error('流れの指定が正しくありません。'); wf.flow = p.flow; }
+    if (p.split !== undefined) wf.split = !!p.split;
+    if (p.published !== undefined) wf.published = !!p.published;
+    Object.keys(p.status || {}).forEach(id => { if (ROUND_STATUS.indexOf(p.status[id]) >= 0) wf.status[id] = p.status[id]; });
+    Object.keys(p.deadline || {}).forEach(id => { wf.deadline[id] = String(p.deadline[id] || ''); });
+    docPut_('workflow', wf);
+    if (before !== JSON.stringify(rounds_(wf)) + wf.flow + wf.published)
+      log_(me, '流れ・受付の変更', FLOW_LABELS[wf.flow] + '／' + rounds_(wf).map(r => r.label + ':' + statusLabel_(r.status)).join('、') + (wf.flow === 'duty_first' ? '／仮の勤務表' + (wf.published ? '公開中' : '非公開') : ''));
+    return true;
+  }) },
+
+  periodSave: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const start = String(p.start || ''), end = String(p.end || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) throw new Error('開始日と終了日を入れてください。');
+    if (start > end) throw new Error('終了日は開始日より後にしてください。');
+    const [sy, sm] = start.split('-').map(Number), [ey, em, ed] = end.split('-').map(Number);
+    const span = (ey * 12 + em) - (sy * 12 + sm);
+    if (span > 5) throw new Error('期間は6か月以内にしてください。');
+    const months = [];
+    for (let i = 0; i <= span; i++) months.push(((sm - 1 + i) % 12) + 1);
+    const lastDay = new Date(ey, em, 0).getDate();
+    const state = docGet_('state') || { schedule: {}, settings: {}, memo: '' };
+    state.settings = state.settings || {};
+    const old = state.settings.period || {};
+    state.settings.period = { year: sy, months: months, extraDates: old.extraDates || [], extraLabel: old.extraLabel || '追加日程',
+      start: start.slice(8) === '01' ? null : start, end: ed === lastDay ? null : end };
+    docPut_('state', state);
+    log_(me, '期間の設定', start + '〜' + end);
+    return periodInfo_(ctx_());
+  }) },
+
+  // 勤務表作成アプリの「JSON書出」ファイルを読み込む（移行用・第2段階の後半までの橋渡し）
+  stateImport: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const b = p.backup;
+    if (!b || !b.__kinmu_backup__) throw new Error('勤務表作成アプリの「JSON書出」で作ったファイル（kinmu_backup.json）を選んでください。');
+    docPut_('state', { schedule: b.schedule || {}, settings: b.settings || {}, memo: b.memo || '' });
+    if (Array.isArray(b.archive)) docPut_('archive', b.archive, 'archives');
+    const c = ctx_();
+    const cells = Object.keys(c.data).reduce((a, n) => a + Object.keys(c.data[n] || {}).length, 0);
+    log_(me, '勤務表データの読み込み', periodInfo_(c).label + '・' + cells + 'マス・過去の勤務表' + (b.archive || []).length + '件');
+    return { period: periodInfo_(c), cells: cells, archive: (b.archive || []).length, staff: rosterNames_(c).length };
+  }) },
+
+  stateExport: { role: 'sysadmin', run: me => {
+    const state = docGet_('state') || { schedule: {}, settings: {}, memo: '' };
+    log_(me, '勤務表データの書き出し', '');
+    return { __kinmu_backup__: 1, schedule: state.schedule || {}, memo: state.memo || '', archive: docGet_('archive', 'archives') || [], settings: state.settings || {} };
+  } },
+
+  // ---- システム管理者: 申請の一覧・代理入力・取り込み ----
+  reqAdminView: { role: 'sysadmin', run: () => {
+    const c = ctx_();
+    return {
+      period: periodInfo_(c), flow: c.wf.flow, published: !!c.wf.published, rounds: rounds_(c.wf), cap: DAY_CAP,
+      teams: rosterTeams_(c), data: pickDates_(c.data, c.dateSet),
+      requests: c.reqs.map(publicReq_),
+      types: { weekday: weekdayTypes_(c.wf, true), rest: ['×'].concat(ADMIN_ONLY_TYPES) },
+    };
+  } },
+
+  reqImport: { role: 'sysadmin', run: me => withLock_(() => {
+    const c = ctx_();
+    const state = docGet_('state');
+    if (!state) throw new Error('勤務表のデータがありません。先に期間を設定してください。');
+    const data = state.schedule = state.schedule || {};
+    const now = new Date().toISOString();
+    let leave = 0, moved = 0; const skipped = [];
+    c.reqs.forEach(r => {
+      data[r.name] = data[r.name] || {};
+      if (r.kind === 'move') {
+        const label = data[r.name][r.fromDate];
+        if (!isMovableFuri_(label) || data[r.name][r.date]) { skipped.push(r.name + ' 振休移動 ' + r.fromDate + '→' + r.date); return; }
+        delete data[r.name][r.fromDate]; data[r.name][r.date] = label; moved++;
+      } else {
+        if (data[r.name][r.date] && data[r.name][r.date] !== r.type) { skipped.push(r.name + ' ' + r.date + '（勤務表に「' + data[r.name][r.date] + '」）'); return; }
+        data[r.name][r.date] = r.type; leave++;
+      }
+      r.status = 'imported'; r.updatedAt = now; r.by = me.id;
+      writeRow_('requests', r);
+    });
+    docPut_('state', state);
+    log_(me, '申請を勤務表に取り込み', '希望休' + leave + '件・振休移動' + moved + '件' + (skipped.length ? '・取り込めず' + skipped.length + '件' : ''));
+    return { leave: leave, moved: moved, skipped: skipped };
+  }) },
 };
 
 // ------------------------------------------------------------
@@ -330,18 +518,178 @@ function writeRow_(name, obj) {
   const sh = sheet_(name);
   const head = TABLES[name];
   const vals = [head.map(k => obj[k] === undefined || obj[k] === null ? '' : String(obj[k]))];
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
+  withLock_(() => {
     // 書式を文字列にしてから書く（IDの先頭の0や日時が、数値・日付に変換されないように）
     const row = obj._row || sh.getLastRow() + 1;
     sh.getRange(row, 1, 1, head.length).setNumberFormat('@').setValues(vals);
     obj._row = row;
-  } finally {
-    lock.releaseLock();
-  }
+  });
+}
+// 同時に複数の人が書き込んでも食い違わないよう、読み取り→確認→書き込みをまとめて排他にする
+let LOCK_DEPTH = 0;
+function withLock_(fn) {
+  if (LOCK_DEPTH) return fn();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  LOCK_DEPTH++;
+  try { return fn(); } finally { LOCK_DEPTH--; lock.releaseLock(); }
 }
 function findUser_(id) {
   id = String(id || '');
   return rows_('users').find(u => u.id === id) || null;
+}
+
+// ---- 大きなデータ（JSON）を分割して保存 ----
+const DOC_CHUNK = 40000;   // 1マスの上限（5万文字）より少なく
+const DOC_MEMO = {};       // 1回の操作の中では読み直さない
+function docGet_(key, table) {
+  table = table || 'docs';
+  const mk = table + ':' + key;
+  if (mk in DOC_MEMO) return DOC_MEMO[mk];
+  const parts = rows_(table).filter(r => r.key === key).sort((a, b) => Number(a.part) - Number(b.part));
+  return (DOC_MEMO[mk] = parts.length ? JSON.parse(parts.map(r => r.text).join('')) : null);
+}
+function docPut_(key, obj, table) {
+  table = table || 'docs';
+  withLock_(() => {
+    const text = JSON.stringify(obj);
+    const chunks = [];
+    for (let i = 0; i < text.length; i += DOC_CHUNK) chunks.push(text.slice(i, i + DOC_CHUNK));
+    const old = rows_(table).filter(r => r.key === key).sort((a, b) => Number(a.part) - Number(b.part));
+    const now = new Date().toISOString();
+    chunks.forEach((t, i) => { const r = old[i] || {}; r.key = key; r.part = String(i); r.text = t; r.updatedAt = now; writeRow_(table, r); });
+    for (let i = chunks.length; i < old.length; i++) { const r = old[i]; r.key = ''; r.part = ''; r.text = ''; r.updatedAt = ''; writeRow_(table, r); }
+    DOC_MEMO[table + ':' + key] = JSON.parse(text);
+  });
+}
+
+// ---- 期間・流れ・申請のきまり ----
+function defaultWorkflow_() {
+  return { flow: 'request_first', split: true, published: false, status: {}, deadline: {} };
+}
+function rounds_(wf) {
+  const list = wf.flow === 'duty_first' && wf.split !== false
+    ? [{ id: 'rest', label: '土日祝の×', days: 'rest' }, { id: 'weekday', label: '平日の希望休', days: 'weekday' }]
+    : [{ id: 'all', label: '希望休', days: 'all' }];
+  return list.map(r => Object.assign(r, { status: (wf.status || {})[r.id] || 'before', deadline: (wf.deadline || {})[r.id] || '' }));
+}
+function roundFor_(wf, rest) {
+  return rounds_(wf).find(r => r.days === 'all' || r.days === (rest ? 'rest' : 'weekday')) || null;
+}
+function statusLabel_(s) { return { before: '受付前', open: '受付中', closed: '締め切り' }[s] || s; }
+function weekdayTypes_(wf, admin) {
+  // 当番が先の流れでは「振◆」の代わりに「振休の移動」を使う
+  const t = ['有', '夏', '特'].concat(wf.flow === 'duty_first' ? [] : ['振◆']);
+  return admin ? t.concat(ADMIN_ONLY_TYPES) : t;
+}
+function ctx_() {
+  const state = docGet_('state') || { schedule: {}, settings: {} };
+  const settings = state.settings || {};
+  const wf = Object.assign(defaultWorkflow_(), docGet_('workflow') || {});
+  const dates = periodDates_(settings.period);
+  return { state: state, settings: settings, wf: wf, period: settings.period || null, dates: dates, dateSet: new Set(dates),
+           custom: new Set(settings.custom_holidays || []), data: state.schedule || {},
+           reqs: rows_('requests').filter(r => r.status === 'active') };
+}
+function pad2_(n) { return ('0' + n).slice(-2); }
+function periodDates_(p) {
+  if (!p || !p.months || !p.months.length) return [];
+  const out = [], seen = {};
+  p.months.forEach(m => {
+    const y = m >= p.months[0] ? p.year : p.year + 1;
+    let from = 1, to = new Date(y, m, 0).getDate();
+    if (p.start) { const s = p.start.split('-').map(Number); if (s[0] === y && s[1] === m) from = s[2]; }
+    if (p.end) { const e = p.end.split('-').map(Number); if (e[0] === y && e[1] === m) to = e[2]; }
+    for (let d = from; d <= to; d++) { const iso = y + '-' + pad2_(m) + '-' + pad2_(d); out.push(iso); seen[iso] = 1; }
+  });
+  (p.extraDates || []).forEach(iso => { if (!seen[iso]) out.push(iso); });
+  return out;
+}
+function dowOf_(iso) { const a = iso.split('-').map(Number); return new Date(a[0], a[1] - 1, a[2]).getDay(); }
+function isRestDay_(c, iso) { const w = dowOf_(iso); return w === 0 || w === 6 || !!HOLIDAYS[iso] || c.custom.has(iso); }
+function periodInfo_(c) {
+  if (!c.dates.length) return { label: '（期間が未設定）', dates: [] };
+  const f = iso => { const a = iso.split('-').map(Number); return a[0] + '年' + a[1] + '月' + a[2] + '日'; };
+  const sorted = c.dates.slice().sort();
+  return {
+    label: f(sorted[0]) + '〜' + f(sorted[sorted.length - 1]), start: sorted[0], end: sorted[sorted.length - 1],
+    dates: c.dates.map(d => ({ date: d, dow: dowOf_(d), rest: isRestDay_(c, d), holiday: HOLIDAYS[d] || (c.custom.has(d) ? '休日' : '') })),
+  };
+}
+function isCountMark_(mk) { return !!mk && (COUNT_MARKS.indexOf(mk) >= 0 || String(mk).indexOf('振') >= 0); }
+function isMovableFuri_(mk) { return /^\d{1,2}\/\d{1,2}振$/.test(String(mk || '')); }   // 日付つきの振休だけ（夜勤明けの「振」は動かさない）
+// 申請（取り込み前）を勤務表に重ねた、その時点の見込み
+function effective_(c) {
+  const eff = {};
+  c.reqs.forEach(r => {
+    const m = eff[r.name] || (eff[r.name] = Object.assign({}, c.data[r.name] || {}));
+    if (r.kind === 'move') { const label = (c.data[r.name] || {})[r.fromDate]; if (label) { delete m[r.fromDate]; m[r.date] = label; } }
+    else m[r.date] = r.type;
+  });
+  return name => eff[name] || c.data[name] || {};
+}
+function rosterTeams_(c) {
+  // 勤務表のチーム編成（なければ登録スタッフのチーム）
+  if (Array.isArray(c.settings.teams) && c.settings.teams.length) return c.settings.teams.map(t => [String(t[0]), (t[1] || []).map(String)]);
+  const map = {};
+  rows_('users').filter(u => u.active === '1' && (u.team || !hasRole_(u, 'sysadmin'))).forEach(u => {
+    (map[u.team || 'チームなし'] = map[u.team || 'チームなし'] || []).push(u.name);
+  });
+  return Object.keys(map).map(k => [k, map[k]]);
+}
+function rosterNames_(c) {
+  return Array.isArray(c.settings.teams) ? [].concat.apply([], c.settings.teams.map(t => (t[1] || []).map(String))) : [];
+}
+function allNames_(c) {
+  const set = {};
+  rosterTeams_(c).forEach(t => t[1].forEach(n => { set[n] = 1; }));
+  Object.keys(c.data).forEach(n => { set[n] = 1; });
+  c.reqs.forEach(r => { set[r.name] = 1; });
+  return Object.keys(set);
+}
+function pickDates_(data, dateSet) {
+  const out = {};
+  Object.keys(data).forEach(n => {
+    const o = {};
+    Object.keys(data[n] || {}).forEach(d => { if (dateSet.has(d)) o[d] = data[n][d]; });
+    out[n] = o;
+  });
+  return out;
+}
+function publicReq_(r) {
+  return { id: r.id, name: r.name, date: r.date, type: r.type, kind: r.kind, fromDate: r.fromDate, status: r.status, createdAt: r.createdAt };
+}
+// 申請してよいかの確認（エラーなら理由の文、よければ null）
+function checkRequest_(c, name, req, admin, force) {
+  if (!c.dates.length) return '申請の期間がまだ決まっていません。';
+  const md = iso => Number(iso.slice(5, 7)) + '/' + Number(iso.slice(8, 10));
+  const date = req.date;
+  if (!c.dateSet.has(date)) return 'この日は申請の期間に入っていません。';
+  const rest = isRestDay_(c, date);
+  const round = roundFor_(c.wf, rest);
+  if (!admin && (!round || round.status !== 'open'))
+    return (rest ? '土日祝' : '平日') + 'の申請は' + (round && round.status === 'closed' ? '締め切りました' : 'まだ受け付けていません') + '。';
+  const mine = c.data[name] || {};
+  const effOf = effective_(c);
+  if (req.kind === 'move') {
+    if (c.wf.flow !== 'duty_first') return '振休の移動は「当番が先」の流れのときだけ申請できます。';
+    if (rest) return '振休は平日にだけ移動できます。';
+    if (!isMovableFuri_(mine[req.fromDate])) return '移動元に、日付つきの振休がありません。';
+    if (req.fromDate === date) return '移動先には別の日を選んでください。';
+    if (c.reqs.some(r => r.name === name && r.kind === 'leave' && r.date === date)) return md(date) + 'にはすでに希望休を申請しています。';
+  } else {
+    const allowed = rest ? ['×'].concat(admin ? ADMIN_ONLY_TYPES : []) : weekdayTypes_(c.wf, admin);
+    if (allowed.indexOf(req.type) < 0)
+      return ADMIN_ONLY_TYPES.indexOf(req.type) >= 0 ? '「' + req.type + '」は本人では申請できません。システム管理者に依頼してください。' : 'この日には「' + req.type + '」は申請できません。';
+  }
+  // 勤務表（日直・夜勤・振休など）がすでに入っている日は選べない
+  if (mine[date] && !force)
+    return md(date) + 'は勤務表に' + (admin || c.wf.published ? '「' + mine[date] + '」' : '予定') + 'が入っているため申請できません。休みたい場合は勤務変更（交代）で対応します。';
+  // 平日は1日5人まで（ほかの人の申請・振休を含めて数える）
+  const newMark = req.kind === 'move' ? mine[req.fromDate] : req.type;
+  if (!rest && isCountMark_(newMark) && !force) {
+    const others = allNames_(c).filter(n => n !== name && isCountMark_(effOf(n)[date])).length;
+    if (others >= DAY_CAP) return md(date) + 'はすでに' + DAY_CAP + '人が休みのため申請できません。';
+  }
+  return null;
 }
