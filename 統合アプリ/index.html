@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>勤務管理アプリ</title>
+<style>
+:root {
+  --blue: #1F4E79; --blue-light: #D6EAF8; --green: #276221; --green-light: #E2EFDA;
+  --orange: #BF5B00; --orange-light: #FCE4C0; --red: #CC0000; --red-light: #FADBD8;
+  --gray: #F5F5F5; --border: #CCCCCC; --text: #222; --muted: #777;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: #EEF2F6; color: var(--text); font-size: 14px; }
+header { background: var(--blue); color: white; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0; }
+header .who { margin-left: auto; font-size: 12px; opacity: .95; }
+header button { background: rgba(255,255,255,.15); color: white; border: 1px solid rgba(255,255,255,.4); border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+main { max-width: 1000px; margin: 0 auto; padding: 16px; }
+.card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+.card h2 { font-size: 16px; margin: 0 0 10px; color: var(--blue); }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.btn { border: none; border-radius: 4px; padding: 7px 14px; font-size: 13px; font-weight: bold; cursor: pointer; color: white; background: var(--blue); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-gray { background: #777; } .btn-green { background: var(--green); } .btn-red { background: var(--red); } .btn-orange { background: var(--orange); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+label.f { display: block; font-size: 12px; color: #444; margin: 10px 0 3px; font-weight: bold; }
+input[type=text], input[type=password], input[type=number], textarea, select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 15px; font-family: inherit;
+}
+textarea { min-height: 120px; font-size: 13px; line-height: 1.6; }
+.err { color: var(--red); font-size: 13px; margin-top: 8px; min-height: 1em; }
+.ok { color: var(--green); font-size: 13px; margin-top: 8px; }
+#login-box { max-width: 380px; margin: 40px auto; }
+.menu { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.menu .item { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 14px; cursor: pointer; text-align: left; font-family: inherit; }
+.menu .item b { display: block; font-size: 15px; color: var(--blue); margin-bottom: 4px; }
+.menu .item span { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.menu .item:hover { border-color: var(--blue); }
+.menu .item.soon { cursor: default; opacity: .6; }
+.menu .item.soon:hover { border-color: var(--border); }
+.menu .tag { display: inline-block; font-size: 10px; background: var(--gray); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; margin-left: 4px; color: #666; font-weight: normal; }
+table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.list th, table.list td { border-bottom: 1px solid #E3E3E3; padding: 6px 6px; text-align: left; vertical-align: middle; }
+table.list th { background: var(--gray); font-size: 12px; position: sticky; top: 0; }
+table.list tr.inactive td { color: #AAA; }
+.scroll { max-height: 60vh; overflow: auto; border: 1px solid #E3E3E3; border-radius: 4px; }
+.role { display: inline-block; font-size: 11px; border-radius: 3px; padding: 1px 6px; margin-right: 3px; font-weight: bold; }
+.role.sysadmin { background: var(--red-light); color: var(--red); }
+.role.approver { background: var(--green-light); color: var(--green); }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.toolbar input { max-width: 220px; font-size: 13px; padding: 6px 8px; }
+.back { background: none; border: none; color: var(--blue); cursor: pointer; font-size: 13px; padding: 0; margin-bottom: 10px; font-family: inherit; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 100; overflow: auto; padding: 20px 12px; }
+.modal .box { background: white; border-radius: 8px; max-width: 520px; margin: 30px auto; padding: 18px; }
+.modal .box h3 { margin: 0 0 10px; font-size: 16px; color: var(--blue); }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.checks label { display: inline-flex; align-items: center; gap: 4px; margin-right: 14px; font-size: 13px; }
+.pwtable td.pw { font-family: Menlo, Consolas, monospace; font-size: 15px; letter-spacing: 1px; }
+.busy { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: var(--orange); display: none; z-index: 200; }
+@media (max-width: 600px) {
+  main { padding: 10px; }
+  table.list .hide-sm { display: none; }
+}
+@media print {
+  body * { visibility: hidden; }
+  #pw-modal, #pw-modal * { visibility: visible; }
+  #pw-modal { position: absolute; inset: 0; background: white; padding: 0; }
+  #pw-modal .actions, #pw-modal .noprint { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="busy" id="busy"></div>
+<header>
+  <h1>勤務管理アプリ</h1>
+  <span class="who" id="who"></span>
+  <button id="logout-btn" style="display:none;" onclick="logout()">ログアウト</button>
+</header>
+
+<main>
+  <!-- ログイン -->
+  <section id="v-login" style="display:none;">
+    <div class="card" id="login-box">
+      <h2>ログイン</h2>
+      <label class="f" for="li-id">ID</label>
+      <input type="text" id="li-id" autocomplete="username" autocapitalize="off">
+      <label class="f" for="li-pw">パスワード</label>
+      <input type="password" id="li-pw" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      <div class="err" id="li-err"></div>
+      <button class="btn" style="width:100%; margin-top:8px; padding:10px;" onclick="doLogin()">ログイン</button>
+      <p class="hint">IDとパスワードは、システム管理者から配られたものを使います。パスワードを忘れたときは、システム管理者に再発行を頼んでください。</p>
+    </div>
+  </section>
+
+  <!-- パスワード変更 -->
+  <section id="v-password" style="display:none;">
+    <button class="back" id="pw-back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card" style="max-width:420px;">
+      <h2>パスワード変更</h2>
+      <p class="hint" id="pw-first" style="display:none; color:var(--orange); font-weight:bold;">はじめてのログインです。自分だけが知っているパスワードに変更してください。</p>
+      <label class="f" for="pw-cur">今のパスワード</label>
+      <input type="password" id="pw-cur" autocomplete="current-password">
+      <label class="f" for="pw-new">新しいパスワード（英字と数字を含む8文字以上）</label>
+      <input type="password" id="pw-new" autocomplete="new-password">
+      <label class="f" for="pw-new2">新しいパスワード（確認のためもう一度）</label>
+      <input type="password" id="pw-new2" autocomplete="new-password" onkeydown="if(event.key==='Enter')doChangePassword()">
+      <div class="err" id="pw-err"></div>
+      <button class="btn" style="margin-top:8px;" onclick="doChangePassword()">変更する</button>
+    </div>
+  </section>
+
+  <!-- メニュー -->
+  <section id="v-home" style="display:none;">
+    <div class="menu" id="menu"></div>
+  </section>
+
+  <!-- スタッフ・権限の管理 -->
+  <section id="v-users" style="display:none;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>スタッフ・権限の管理</h2>
+      <p class="hint">スタッフのIDを登録し、仮パスワードを配ります（本人は初回ログイン時に自分のパスワードに変更します）。
+        「承認者」にチェックした人が、勤務変更を承認できる管理者になります。「システム管理者」はすべての操作ができます。</p>
+      <div class="toolbar">
+        <button class="btn btn-green btn-sm" onclick="openUserModal()">＋ スタッフを追加</button>
+        <button class="btn btn-sm" onclick="openBulkModal()">まとめて追加</button>
+        <input type="text" id="u-filter" placeholder="名前・ID・チームで絞り込み" oninput="renderUsers()">
+        <label style="font-size:12px;"><input type="checkbox" id="u-show-inactive" onchange="renderUsers()"> 無効の人も表示</label>
+        <span class="hint" id="u-count" style="margin-left:auto;"></span>
+      </div>
+      <div class="scroll">
+        <table class="list">
+          <thead><tr><th>ID</th><th>名前</th><th class="hide-sm">チーム</th><th>権限</th><th class="hide-sm">状態</th><th></th></tr></thead>
+          <tbody id="u-list"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 操作記録 -->
+  <section id="v-log" style="display:none;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>操作記録</h2>
+      <p class="hint">ログイン・スタッフの登録や権限の変更・パスワード再発行などの記録です（新しい順に最大300件）。システム管理者だけが見られます。</p>
+      <div class="scroll">
+        <table class="list">
+          <thead><tr><th>日時</th><th>操作した人</th><th>操作</th><th>内容</th></tr></thead>
+          <tbody id="log-list"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- スタッフの追加・編集 -->
+<div class="modal" id="user-modal" onclick="if(event.target===this)closeModal('user-modal')">
+  <div class="box">
+    <h3 id="um-title">スタッフを追加</h3>
+    <label class="f" for="um-id">ID（半角英数字。職員番号など）</label>
+    <input type="text" id="um-id" autocapitalize="off">
+    <label class="f" for="um-name">名前（勤務表に出る表記）</label>
+    <input type="text" id="um-name">
+    <label class="f" for="um-team">チーム</label>
+    <input type="text" id="um-team" list="team-list" placeholder="例: Aチーム">
+    <datalist id="team-list"></datalist>
+    <label class="f">権限</label>
+    <div class="checks">
+      <label><input type="checkbox" id="um-approver"> 承認者（勤務変更を承認する管理者）</label>
+      <label><input type="checkbox" id="um-sysadmin"> システム管理者</label>
+    </div>
+    <label class="f">状態</label>
+    <div class="checks"><label><input type="checkbox" id="um-active" checked> 有効（チェックを外すとログインできなくなります）</label></div>
+    <div class="err" id="um-err"></div>
+    <div class="actions">
+      <button class="btn btn-gray" onclick="closeModal('user-modal')">閉じる</button>
+      <button class="btn btn-green" onclick="saveUser()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- まとめて追加 -->
+<div class="modal" id="bulk-modal" onclick="if(event.target===this)closeModal('bulk-modal')">
+  <div class="box">
+    <h3>スタッフをまとめて追加</h3>
+    <p class="hint">1行に「チーム名: 名前、名前、…」の形で入れます。IDは下の番号から順に自動で付きます（あとで個別に変えることはできないので、職員番号を使う場合は1人ずつ追加してください）。すでに同じ名前の人がいる場合は飛ばします。</p>
+    <textarea id="bk-text" placeholder="Aチーム: 大澤、品川、木暮&#10;Bチーム: 髙麗、我妻&#10;事務: 鎌田"></textarea>
+    <label class="f" for="bk-start">IDの開始番号</label>
+    <input type="number" id="bk-start" value="1001" style="max-width:140px;">
+    <div class="err" id="bk-err"></div>
+    <div class="actions">
+      <button class="btn btn-gray" onclick="closeModal('bulk-modal')">閉じる</button>
+      <button class="btn btn-green" onclick="bulkAdd()">追加する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 仮パスワードの一覧（配布用） -->
+<div class="modal" id="pw-modal">
+  <div class="box" style="max-width:640px;">
+    <h3>仮パスワード（この画面を閉じると二度と表示されません）</h3>
+    <p class="hint noprint">印刷するか書き写して、本人に渡してください。本人は初回ログイン時に自分のパスワードに変更します。</p>
+    <table class="list pwtable"><thead><tr><th>ID</th><th>名前</th><th>チーム</th><th>仮パスワード</th></tr></thead><tbody id="pw-list"></tbody></table>
+    <p class="hint">ログインのURLはシステム管理者にたずねてください。初回ログイン後、自分だけが知っているパスワードに変更します。</p>
+    <div class="actions">
+      <button class="btn" onclick="window.print()">印刷</button>
+      <button class="btn btn-gray" onclick="closePwModal()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   サーバーとのやりとり
+   ============================================================ */
+let TOKEN = null;
+let ME = null;
+let USERS = [];
+const ROLE_LABELS = { sysadmin: 'システム管理者', approver: '承認者' };
+
+function storeGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+function storeSet(k, v) { try { if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch (e) {} }
+
+function runServer(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    document.getElementById('busy').style.display = 'block';
+    google.script.run
+      .withSuccessHandler(r => { document.getElementById('busy').style.display = 'none'; resolve(r); })
+      .withFailureHandler(e => { document.getElementById('busy').style.display = 'none'; reject(new Error((e && e.message) || '通信に失敗しました')); })[fn](...args);
+  });
+}
+// 操作の呼び出し。ログイン切れならログイン画面へ
+async function call(action, payload) {
+  const r = await runServer('api', TOKEN, action, payload || {});
+  if (!r.ok) {
+    if (r.error.indexOf('ログイン') >= 0 && action !== 'changePassword') { forceLogin(r.error); }
+    throw new Error(r.error);
+  }
+  return r.data;
+}
+function esc(s) {
+  // 引用符は正規表現に書かない（GAS版で画面のスクリプトが動かなくなるため）
+  return String(s === undefined || s === null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split(String.fromCharCode(34)).join('&quot;');
+}
+function fmtDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+const isAdmin = () => ME && ME.roles.indexOf('sysadmin') >= 0;
+const isApprover = () => ME && (ME.roles.indexOf('approver') >= 0 || isAdmin());
+
+/* ============================================================
+   画面の切り替え
+   ============================================================ */
+const VIEWS = ['login', 'password', 'home', 'users', 'log'];
+function show(v) {
+  for (const x of VIEWS) document.getElementById('v-' + x).style.display = x === v ? '' : 'none';
+  document.getElementById('logout-btn').style.display = v === 'login' ? 'none' : '';
+  document.getElementById('who').innerHTML = ME && v !== 'login'
+    ? esc(ME.name) + '（' + esc(ME.id) + '）' + ME.roles.map(r => ' <span class="role ' + r + '" style="font-size:10px;">' + ROLE_LABELS[r] + '</span>').join('')
+    : '';
+  if (v === 'home') renderMenu();
+  if (v === 'users') loadUsers();
+  if (v === 'log') loadLog();
+  if (v === 'password') {
+    for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
+    document.getElementById('pw-err').textContent = '';
+    const first = ME && ME.mustChange;
+    document.getElementById('pw-first').style.display = first ? '' : 'none';
+    document.getElementById('pw-back').style.display = first ? 'none' : '';
+  }
+  window.scrollTo(0, 0);
+}
+function forceLogin(msg) {
+  TOKEN = null; ME = null; storeSet('kinmu_token', null);
+  show('login');
+  document.getElementById('li-err').textContent = msg || '';
+}
+
+/* ============================================================
+   ログイン・パスワード
+   ============================================================ */
+async function doLogin() {
+  const id = document.getElementById('li-id').value.trim();
+  const pw = document.getElementById('li-pw').value;
+  const err = document.getElementById('li-err');
+  err.textContent = '';
+  if (!id || !pw) { err.textContent = 'IDとパスワードを入れてください。'; return; }
+  try {
+    const r = await runServer('login', id, pw);
+    if (!r.ok) { err.textContent = r.error; return; }
+    TOKEN = r.data.token; ME = r.data.me; storeSet('kinmu_token', TOKEN);
+    document.getElementById('li-pw').value = '';
+    show(ME.mustChange ? 'password' : 'home');
+  } catch (e) { err.textContent = e.message; }
+}
+async function logout() {
+  try { if (TOKEN) await call('logout'); } catch (e) {}
+  forceLogin('ログアウトしました。');
+}
+async function doChangePassword() {
+  const cur = document.getElementById('pw-cur').value;
+  const nw = document.getElementById('pw-new').value, nw2 = document.getElementById('pw-new2').value;
+  const err = document.getElementById('pw-err');
+  err.textContent = '';
+  if (nw !== nw2) { err.textContent = '新しいパスワードが2回とも同じになっていません。'; return; }
+  try {
+    ME = await call('changePassword', { current: cur, next: nw });
+    alert('パスワードを変更しました。');
+    show('home');
+  } catch (e) { err.textContent = e.message; }
+}
+
+/* ============================================================
+   メニュー（権限に応じて表示）
+   ============================================================ */
+function renderMenu() {
+  const items = [
+    { title: '希望休の申請', desc: '希望休（有・夏・特・振◆・×など）を申請します。', soon: '第2段階' },
+    { title: '勤務表を見る', desc: '確定した勤務表と、勤務変更を反映した実績を見ます。', soon: '第2段階' },
+    { title: '勤務変更・追加の申請', desc: '勤務の交代（振休は振休同士）や、時間単位の有給などを申請します。', soon: '第3段階' },
+    { title: '自分あての承認', desc: '交代を頼まれた勤務変更を承認します。', soon: '第3段階' },
+  ];
+  if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件を外れる申請の理由も確認できます。', soon: '第3段階' });
+  if (isAdmin()) {
+    items.push({ title: '勤務表の作成', desc: '希望休の締め切り・勤務表の自動作成・確定・配布を行います。', soon: '第2段階' });
+    items.push({ title: 'スタッフ・権限の管理', desc: 'スタッフのID登録、仮パスワードの発行、承認者・システム管理者の指名。', go: 'users' });
+    items.push({ title: '操作記録', desc: 'ログインや権限変更などの記録を確認します。', go: 'log' });
+  }
+  items.push({ title: 'パスワード変更', desc: '自分のパスワードを変更します。', go: 'password' });
+  document.getElementById('menu').innerHTML = items.map((it, i) =>
+    '<button class="item' + (it.soon ? ' soon' : '') + '" data-i="' + i + '">' +
+    '<b>' + esc(it.title) + (it.soon ? '<span class="tag">準備中（' + it.soon + '）</span>' : '') + '</b>' +
+    '<span>' + esc(it.desc) + '</span></button>').join('');
+  document.querySelectorAll('#menu .item').forEach(el => {
+    const it = items[Number(el.dataset.i)];
+    el.onclick = () => { if (it.go) show(it.go); };
+  });
+}
+
+/* ============================================================
+   スタッフ・権限の管理（システム管理者）
+   ============================================================ */
+async function loadUsers() {
+  document.getElementById('u-list').innerHTML = '<tr><td colspan="6" class="hint">読み込み中…</td></tr>';
+  try { USERS = await call('listUsers'); renderUsers(); }
+  catch (e) { document.getElementById('u-list').innerHTML = '<tr><td colspan="6" class="err">' + esc(e.message) + '</td></tr>'; }
+}
+function renderUsers() {
+  const q = document.getElementById('u-filter').value.trim();
+  const showInactive = document.getElementById('u-show-inactive').checked;
+  const list = USERS.filter(u => (showInactive || u.active) && (!q || (u.id + ' ' + u.name + ' ' + u.team).indexOf(q) >= 0))
+    .sort((a, b) => (a.team || '￿').localeCompare(b.team || '￿', 'ja') || a.id.localeCompare(b.id, 'ja', { numeric: true }));
+  document.getElementById('u-count').textContent = '有効 ' + USERS.filter(u => u.active).length + '人／全' + USERS.length + '人';
+  document.getElementById('team-list').innerHTML = [...new Set(USERS.map(u => u.team).filter(Boolean))].map(t => '<option value="' + esc(t) + '">').join('');
+  const tb = document.getElementById('u-list');
+  tb.innerHTML = list.length ? '' : '<tr><td colspan="6" class="hint">該当するスタッフはいません</td></tr>';
+  for (const u of list) {
+    const tr = document.createElement('tr');
+    if (!u.active) tr.className = 'inactive';
+    tr.innerHTML = '<td>' + esc(u.id) + '</td><td><b>' + esc(u.name) + '</b></td><td class="hide-sm">' + esc(u.team) + '</td>' +
+      '<td>' + (u.roles.length ? u.roles.map(r => '<span class="role ' + r + '">' + ROLE_LABELS[r] + '</span>').join('') : '<span class="hint">一般</span>') + '</td>' +
+      '<td class="hide-sm">' + (u.active ? (u.mustChange ? '<span class="hint">初回ログイン前</span>' : '有効') : '無効') + '</td><td style="white-space:nowrap;"></td>';
+    const td = tr.lastChild;
+    const be = document.createElement('button'); be.className = 'btn btn-sm'; be.textContent = '編集';
+    be.onclick = () => openUserModal(u);
+    const br = document.createElement('button'); br.className = 'btn btn-orange btn-sm'; br.textContent = 'パスワード再発行'; br.style.marginLeft = '4px';
+    br.onclick = () => resetPassword(u);
+    td.appendChild(be); td.appendChild(br);
+    tb.appendChild(tr);
+  }
+}
+let editingNew = true;
+function openUserModal(u) {
+  editingNew = !u;
+  document.getElementById('um-title').textContent = u ? 'スタッフの編集' : 'スタッフを追加';
+  document.getElementById('um-id').value = u ? u.id : '';
+  document.getElementById('um-id').disabled = !!u;
+  document.getElementById('um-name').value = u ? u.name : '';
+  document.getElementById('um-team').value = u ? u.team : '';
+  document.getElementById('um-approver').checked = !!u && u.roles.indexOf('approver') >= 0;
+  document.getElementById('um-sysadmin').checked = !!u && u.roles.indexOf('sysadmin') >= 0;
+  document.getElementById('um-active').checked = !u || u.active;
+  document.getElementById('um-err').textContent = '';
+  openModal('user-modal');
+  document.getElementById(u ? 'um-name' : 'um-id').focus();
+}
+async function saveUser() {
+  const roles = [];
+  if (document.getElementById('um-approver').checked) roles.push('approver');
+  if (document.getElementById('um-sysadmin').checked) roles.push('sysadmin');
+  const payload = {
+    isNew: editingNew, id: document.getElementById('um-id').value.trim(), name: document.getElementById('um-name').value.trim(),
+    team: document.getElementById('um-team').value.trim(), roles: roles, active: document.getElementById('um-active').checked,
+  };
+  try {
+    const r = await call('saveUser', payload);
+    closeModal('user-modal');
+    if (r.user.id === ME.id) ME = await call('me');
+    await loadUsers();
+    if (r.password) showPasswords([{ id: r.user.id, name: r.user.name, team: r.user.team, password: r.password }]);
+    show(isAdmin() ? 'users' : 'home');
+  } catch (e) { document.getElementById('um-err').textContent = e.message; }
+}
+async function resetPassword(u) {
+  if (!confirm(u.name + '（' + u.id + '）のパスワードを再発行しますか？\n今のパスワードは使えなくなり、新しい仮パスワードを本人に渡す必要があります。')) return;
+  try {
+    const r = await call('resetPassword', { id: u.id });
+    await loadUsers();
+    showPasswords([{ id: r.id, name: r.name, team: u.team, password: r.password }]);
+  } catch (e) { alert(e.message); }
+}
+function openBulkModal() {
+  document.getElementById('bk-err').textContent = '';
+  const nums = USERS.map(u => Number(u.id)).filter(n => n > 0);
+  document.getElementById('bk-start').value = nums.length ? Math.max(...nums) + 1 : 1001;
+  openModal('bulk-modal');
+}
+async function bulkAdd() {
+  const text = document.getElementById('bk-text').value;
+  if (!text.trim()) { document.getElementById('bk-err').textContent = '名前を入れてください。'; return; }
+  try {
+    const r = await call('bulkAddUsers', { text: text, start: Number(document.getElementById('bk-start').value) });
+    closeModal('bulk-modal');
+    document.getElementById('bk-text').value = '';
+    await loadUsers();
+    if (r.skipped.length) alert('すでに登録されているため飛ばした人: ' + r.skipped.join('、'));
+    if (r.created.length) showPasswords(r.created);
+  } catch (e) { document.getElementById('bk-err').textContent = e.message; }
+}
+function showPasswords(list) {
+  document.getElementById('pw-list').innerHTML = list.map(p =>
+    '<tr><td>' + esc(p.id) + '</td><td><b>' + esc(p.name) + '</b></td><td>' + esc(p.team || '') + '</td><td class="pw">' + esc(p.password) + '</td></tr>').join('');
+  openModal('pw-modal');
+}
+function closePwModal() {
+  if (!confirm('閉じると仮パスワードは二度と表示されません。印刷または書き写しは済みましたか？')) return;
+  document.getElementById('pw-list').innerHTML = '';
+  closeModal('pw-modal');
+}
+
+/* ============================================================
+   操作記録（システム管理者）
+   ============================================================ */
+async function loadLog() {
+  const tb = document.getElementById('log-list');
+  tb.innerHTML = '<tr><td colspan="4" class="hint">読み込み中…</td></tr>';
+  try {
+    const rows = await call('listLog', { limit: 300 });
+    tb.innerHTML = rows.length ? rows.map(r => '<tr><td style="white-space:nowrap;">' + esc(fmtDateTime(r.at)) + '</td><td>' + esc(r.userName) +
+      (r.userId ? '<span class="hint">（' + esc(r.userId) + '）</span>' : '') + '</td><td>' + esc(r.action) + '</td><td>' + esc(r.detail) + '</td></tr>').join('')
+      : '<tr><td colspan="4" class="hint">記録はありません</td></tr>';
+  } catch (e) { tb.innerHTML = '<tr><td colspan="4" class="err">' + esc(e.message) + '</td></tr>'; }
+}
+
+/* ============================================================
+   モーダル・起動
+   ============================================================ */
+function openModal(id) { document.getElementById(id).style.display = 'block'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+(async function init() {
+  TOKEN = storeGet('kinmu_token');
+  if (!TOKEN) { show('login'); return; }
+  try { ME = await call('me'); show(ME.mustChange ? 'password' : 'home'); }
+  catch (e) { forceLogin(''); }
+})();
+</script>
+</body>
+</html>

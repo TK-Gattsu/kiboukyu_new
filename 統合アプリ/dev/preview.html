@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="UTF-8"><title>勤務管理アプリ（開発用プレビュー）</title></head>
+<body>
+<!-- 開発用: コード.gs をブラウザ上の模擬サーバーで動かし、index.html を表示する（本番では使わない） -->
+<script src="gas-mock.js"></script>
+<script>
+(async () => {
+  const code = await fetch('../コード.gs', { cache: 'no-store' }).then(r => r.text());
+  // 本番のGASと同じく、サーバー側のコードは画面側と別の場所（関数の中）で動かす
+  const names = [...code.matchAll(/^function\s+([^\s(]+)/gm)].map(m => m[1]);
+  window.__gas = new Function(code + '\nreturn {' + names.map(n => JSON.stringify(n) + ': ' + n).join(', ') + '};')();
+  // 初回は初期設定を実行し、管理者の仮パスワードを画面の隅に出す
+  let first = null;
+  if (!window.__gas.rows_('users').length) first = window.__gas.初期設定();
+  const html = await fetch('../index.html', { cache: 'no-store' }).then(r => r.text());
+  document.open(); document.write(html); document.close();
+  const note = document.createElement('div');
+  note.style.cssText = 'position:fixed;bottom:6px;right:6px;background:#333;color:#fff;font-size:11px;padding:4px 8px;border-radius:4px;z-index:999;opacity:.85;';
+  note.textContent = '開発用プレビュー（模擬サーバー）' + (first ? ' ／ 管理者 ID: admin 初期PW: ' + first.password : '');
+  document.body.appendChild(note);
+  window.__firstAdmin = first;
+})();
+</script>
+</body>
+</html>

@@ -51,6 +51,14 @@ Tab contents are rebuilt dynamically by `rebuildStaffPanel()` and `rebuildAdminP
 - `GUIDE_UPDATES` の先頭に `{ date, ver, items }` を追加する（`APP_VERSION` と同じバージョン）。先頭が変わるとボタンに「更新あり」が出る
 - 説明文は平易な日本語で、ボタン名は画面の表記どおりに書く
 
+## 統合アプリ（`統合アプリ/`・作成中）
+
+希望休申請アプリと勤務表作成アプリを1つにまとめ、勤務変更の申請・承認と実績の記録を行う多人数向けアプリ。Google Apps Script（GAS）＋スプレッドシートで動く。
+- `統合アプリ/コード.gs` — サーバー側。ログイン（ID・パスワード、ハッシュ保存）、セッション（CacheService）、権限（`sysadmin`＝システム管理者／`approver`＝システム管理者が指名する承認者）をすべてここで確認する。画面からは `login()` と `api(token, action, payload)` だけを呼ぶ。操作は `ACTIONS` に `{ role, allowBeforeChange, run }` で追加する。名前が `_` で終わる関数は画面から呼べない
+- `統合アプリ/index.html` — 画面側（GASの `index` ファイル）。GASの落とし穴により、正規表現リテラルに引用符を書かない・文字列の中に `//` を書かない
+- `統合アプリ/dev/preview.html` ＋ `dev/gas-mock.js` — 開発用。GASのサービスをブラウザで模擬して `コード.gs` と `index.html` を動かす（launch設定 `kinmu-app` で `/統合アプリ/dev/preview.html` を開く）。本番には貼り付けない
+- 進め方: 第1段階＝基盤（ログイン・権限・スタッフ管理・操作記録）／第2段階＝希望休申請と勤務表作成の統合・確定配布／第3段階＝勤務変更（交代は依頼者→受領者→承認者、追加は申請者→承認者、振休は振休同士のみ、条件逸脱は理由必須でシステム管理者と承認者だけが閲覧）／第4段階＝時間単位の有給・勤務／第5段階＝実績の集計・分析
+
 ## Domain Context
 
 - Staff are organized into teams (A–E + その他 + 事務); default members are in `DEFAULT_TEAMS`
