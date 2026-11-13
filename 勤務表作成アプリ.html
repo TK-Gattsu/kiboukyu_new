@@ -1476,7 +1476,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.17";
+const APP_VERSION = "v8.18";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1864,6 +1864,40 @@ function importFromKiboushu() {
   alert(msg);
 }
 
+// 全設定（JSONバックアップ・過去の勤務表の保存で共用）
+function collectSettings() {
+  return {
+    participation: PARTICIPATION, night_conds: NIGHT_CONDS, zan_conds: ZAN_CONDS,
+    ng_pairs: NG_PAIRS, events_fixed: EVENTS_FIXED, events_text: EVENTS_TEXT,
+    event_moves: EVENT_MOVES, event_cancels: EVENT_CANCELS, groups: GROUPS, must_days: MUST_DAYS,
+    custom_holidays: [...CUSTOM_HOLIDAYS], prev_carryover: PREV_CARRY,
+    leaves: LEAVES, carry: [...CARRY_SET],
+    period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT, prev_lastin: PREV_LASTIN,
+    teams: TEAMS, managers: [...MANAGERS],
+  };
+}
+function applySettings(s) {
+  if (s.participation) { PARTICIPATION = s.participation; saveJson("kinmu_participation", PARTICIPATION); }
+  if (s.night_conds) { NIGHT_CONDS = s.night_conds; saveNightConds(); }
+  if (s.zan_conds) { ZAN_CONDS = s.zan_conds; saveJson("kinmu_zan_conds", ZAN_CONDS); }
+  if (s.ng_pairs) { NG_PAIRS = s.ng_pairs; saveJson("kinmu_ng_pairs", NG_PAIRS); }
+  if (s.events_fixed) { EVENTS_FIXED = s.events_fixed; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
+  if (s.events_text) { EVENTS_TEXT = s.events_text; saveJson("kinmu_events_text", EVENTS_TEXT); }
+  if (s.event_moves) { EVENT_MOVES = s.event_moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
+  if (s.event_cancels) { EVENT_CANCELS = s.event_cancels; saveJson("kinmu_event_cancels", EVENT_CANCELS); }
+  if (s.groups) { GROUPS = s.groups; saveJson("kinmu_groups", GROUPS); }
+  if (s.must_days) { MUST_DAYS = s.must_days; saveJson("kinmu_must_days", MUST_DAYS); }
+  if (s.custom_holidays) { CUSTOM_HOLIDAYS = new Set(s.custom_holidays); saveCustomHolidays(); }
+  if (s.prev_carryover) { PREV_CARRY = s.prev_carryover; saveJson("kinmu_prev_carryover", PREV_CARRY); }
+  if (s.leaves) { LEAVES = s.leaves; saveLeaves(); }
+  if (s.carry) { CARRY_SET = new Set(s.carry); saveCarrySet(); }
+  if (s.period) { PERIOD = s.period; savePeriod(); TABS = buildTabs(); currentTab = String(PERIOD.months[0]); }
+  if (s.cycle_start !== undefined) { CYCLE_START_IDX = s.cycle_start; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
+  if (s.prev_night) { PREV_NIGHT = s.prev_night; saveJson("kinmu_prev_night", PREV_NIGHT); }
+  if (s.prev_lastin) { PREV_LASTIN = s.prev_lastin; saveJson("kinmu_prev_lastin", PREV_LASTIN); }
+  if (s.teams) { applyRoster(s.teams, s.managers); saveRoster(); }
+}
+
 function exportJson() {
   // 勤務データ＋メモ＋全設定を含む完全バックアップ
   const backup = {
@@ -1871,15 +1905,7 @@ function exportJson() {
     schedule: DATA,
     memo: localStorage.getItem("kinmu_memo") || "",
     archive: loadArchive(),   // 過去の勤務表（年間集計用）も含める
-    settings: {
-      participation: PARTICIPATION, night_conds: NIGHT_CONDS, zan_conds: ZAN_CONDS,
-      ng_pairs: NG_PAIRS, events_fixed: EVENTS_FIXED, events_text: EVENTS_TEXT,
-      event_moves: EVENT_MOVES, event_cancels: EVENT_CANCELS, groups: GROUPS, must_days: MUST_DAYS,
-      custom_holidays: [...CUSTOM_HOLIDAYS], prev_carryover: PREV_CARRY,
-      leaves: LEAVES, carry: [...CARRY_SET],
-      period: PERIOD, cycle_start: CYCLE_START_IDX, prev_night: PREV_NIGHT, prev_lastin: PREV_LASTIN,
-      teams: TEAMS, managers: [...MANAGERS],
-    },
+    settings: collectSettings(),
   };
   const blob = new Blob([JSON.stringify(backup, null, 1)], {type: "application/json"});
   const a = document.createElement("a");
@@ -1904,26 +1930,7 @@ function importJson(input) {
           const ta = document.getElementById("memo-area");
           if (ta) { ta.value = obj.memo; if (obj.memo.trim()) openMemo(true); }
         }
-        const s = obj.settings || {};
-        if (s.participation) { PARTICIPATION = s.participation; saveJson("kinmu_participation", PARTICIPATION); }
-        if (s.night_conds) { NIGHT_CONDS = s.night_conds; saveNightConds(); }
-        if (s.zan_conds) { ZAN_CONDS = s.zan_conds; saveJson("kinmu_zan_conds", ZAN_CONDS); }
-        if (s.ng_pairs) { NG_PAIRS = s.ng_pairs; saveJson("kinmu_ng_pairs", NG_PAIRS); }
-        if (s.events_fixed) { EVENTS_FIXED = s.events_fixed; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
-        if (s.events_text) { EVENTS_TEXT = s.events_text; saveJson("kinmu_events_text", EVENTS_TEXT); }
-        if (s.event_moves) { EVENT_MOVES = s.event_moves; saveJson("kinmu_event_moves", EVENT_MOVES); }
-        if (s.event_cancels) { EVENT_CANCELS = s.event_cancels; saveJson("kinmu_event_cancels", EVENT_CANCELS); }
-        if (s.groups) { GROUPS = s.groups; saveJson("kinmu_groups", GROUPS); }
-        if (s.must_days) { MUST_DAYS = s.must_days; saveJson("kinmu_must_days", MUST_DAYS); }
-        if (s.custom_holidays) { CUSTOM_HOLIDAYS = new Set(s.custom_holidays); saveCustomHolidays(); }
-        if (s.prev_carryover) { PREV_CARRY = s.prev_carryover; saveJson("kinmu_prev_carryover", PREV_CARRY); }
-        if (s.leaves) { LEAVES = s.leaves; saveLeaves(); }
-        if (s.carry) { CARRY_SET = new Set(s.carry); saveCarrySet(); }
-        if (s.period) { PERIOD = s.period; savePeriod(); TABS = buildTabs(); currentTab = String(PERIOD.months[0]); }
-        if (s.cycle_start !== undefined) { CYCLE_START_IDX = s.cycle_start; saveJson("kinmu_cycle_start", CYCLE_START_IDX); }
-        if (s.prev_night) { PREV_NIGHT = s.prev_night; saveJson("kinmu_prev_night", PREV_NIGHT); }
-        if (s.prev_lastin) { PREV_LASTIN = s.prev_lastin; saveJson("kinmu_prev_lastin", PREV_LASTIN); }
-        if (s.teams) { applyRoster(s.teams, s.managers); saveRoster(); }
+        applySettings(obj.settings || {});
         if (Array.isArray(obj.archive)) saveArchive(obj.archive);   // 過去の勤務表も復元
         EVENT_DATES = buildEventDates(); DUTY_TEAM_MAP = buildDutyTeamMap();
         saveSchedule(); render();
@@ -2951,6 +2958,11 @@ function addMustDay() {
    過去の勤務表アーカイブ・年間集計
    ============================================================ */
 function loadArchive() { return loadJson("kinmu_archive", []); }
+// 過去の勤務表の1件: 期間・表の内容に加え、その時点の全設定と振休の自動配置記録も残す
+function makeArchiveEntry(label) {
+  return JSON.parse(JSON.stringify({ id: Date.now(), label, period: PERIOD, data: DATA,
+    settings: collectSettings(), nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, savedAt: new Date().toISOString() }));
+}
 function saveArchive(a) { saveJson("kinmu_archive", a); }
 function periodLabel(p) {
   let s;
@@ -2976,8 +2988,7 @@ function periodLabel(p) {
 function saveCurrentSchedule() {
   const arch = loadArchive();
   const label = periodLabel(PERIOD);
-  const entry = { id: Date.now(), label, period: JSON.parse(JSON.stringify(PERIOD)),
-                  data: JSON.parse(JSON.stringify(DATA)), savedAt: new Date().toISOString() };
+  const entry = makeArchiveEntry(label);
   const idx = arch.findIndex(a => a.label === label);
   if (idx >= 0) {
     if (!confirm(`「${label}」は既に保存されています。上書きしますか？`)) return;
@@ -2986,7 +2997,7 @@ function saveCurrentSchedule() {
   arch.sort((a, b) => a.period.year - b.period.year || (a.period.months[0] - b.period.months[0]));
   saveArchive(arch);
   renderProgress();
-  alert(`「${label}」を保存しました（過去の勤務表・年間集計から見返せます）。`);
+  alert(`「${label}」を保存しました（表の内容と、行事・長期休暇・前回繰越・チーム編成などの設定）。\n「過去の勤務表・年間集計」から見返せます。`);
 }
 function fiscalYearOf(p) {
   // 会計年度（4月始まり）: 対象月の最初の月から判定。1〜3月は前年度扱い。
@@ -3032,7 +3043,8 @@ function renderArchiveList() {
   arch.forEach(e => {
     const tr = document.createElement("tr");
     const d = new Date(e.savedAt);
-    tr.innerHTML = `<td><b>${e.label}</b></td><td>${d.toLocaleString("ja-JP")}</td>` +
+    tr.innerHTML = `<td><b>${e.label}</b></td><td>${d.toLocaleString("ja-JP")}` +
+      `<br><span style="font-size:10px;color:${e.settings ? "#276221" : "#999"};">${e.settings ? "表＋設定" : "表のみ（設定なし）"}</span></td>` +
       `<td style="text-align:center;"><input type="checkbox" class="arch-chk" data-id="${e.id}" checked></td>`;
     const tdL = document.createElement("td");
     const bl = document.createElement("button"); bl.className = "btn btn-primary btn-sm"; bl.textContent = "読込";
@@ -3048,8 +3060,12 @@ function renderArchiveList() {
 function loadArchiveEntry(id) {
   const e = loadArchive().find(a => a.id === id);
   if (!e) return;
-  if (!confirm(`「${e.label}」を読み込みます。現在の表示内容は置き換わります。\n（今の内容を残すには先に「この勤務表を保存」してください）よろしいですか？`)) return;
+  const what = e.settings ? "表の内容と設定（行事・長期休暇・前回繰越・チーム編成・夜勤条件など）" : "表の内容（この保存には設定が含まれていないため、設定は今のまま）";
+  if (!confirm(`「${e.label}」を読み込みます。${what}が保存時の状態に置き換わります。\n（今の内容を残すには先に「この勤務表を保存」してください。読み込んだあと「↩ 元に戻す」で戻せます）よろしいですか？`)) return;
   pushUndo("過去の勤務表の読込");
+  if (e.settings) applySettings(JSON.parse(JSON.stringify(e.settings)));
+  if (e.nightAuto) { NIGHT_AUTO = e.nightAuto.slice(); saveNightAuto(); }
+  if (e.furiAuto) { FURIKYU_AUTO = JSON.parse(JSON.stringify(e.furiAuto)); saveFurikyuAuto(); }
   PERIOD = JSON.parse(JSON.stringify(e.period)); savePeriod(); TABS = buildTabs(); currentTab = String(PERIOD.months[0]);
   DATA = JSON.parse(JSON.stringify(e.data)); saveSchedule();
   DUTY_TEAM_MAP = buildDutyTeamMap(); EVENT_DATES = buildEventDates();
@@ -3226,8 +3242,7 @@ function carryForwardToNext() {
   pushUndo("今期を締めて次期へ引き継ぎ");
   // 1) 今期を過去の勤務表に保存（同じ期間は上書き）
   const arch = loadArchive();
-  const entry = { id: Date.now(), label, period: JSON.parse(JSON.stringify(PERIOD)),
-                  data: JSON.parse(JSON.stringify(DATA)), savedAt: new Date().toISOString() };
+  const entry = makeArchiveEntry(label);
   const ai = arch.findIndex(a => a.label === label);
   if (ai >= 0) { entry.id = arch[ai].id; arch[ai] = entry; } else arch.push(entry);
   arch.sort((a, b) => a.period.year - b.period.year || (a.period.months[0] - b.period.months[0]));
@@ -4016,6 +4031,7 @@ function pushUndo(label) {
     data: DATA, nightAuto: NIGHT_AUTO, furiAuto: FURIKYU_AUTO, part: PARTICIPATION,
     holidays: [...CUSTOM_HOLIDAYS], carry: [...CARRY_SET], leaves: LEAVES, moves: EVENT_MOVES, cancels: EVENT_CANCELS, events: EVENTS_FIXED,
     teams: TEAMS, managers: [...MANAGERS],
+    nightConds: NIGHT_CONDS, zanConds: ZAN_CONDS, ngPairs: NG_PAIRS, eventsText: EVENTS_TEXT, groups: GROUPS, mustDays: MUST_DAYS,
     prevCarry: PREV_CARRY, period: PERIOD, cycle: CYCLE_START_IDX, prevNight: PREV_NIGHT, part: PARTICIPATION, prevLastIn: PREV_LASTIN,
   }) });
   if (UNDO_STACK.length > UNDO_MAX) UNDO_STACK.shift();
@@ -4029,6 +4045,12 @@ function applySnapshot(snap) {
   if (o.cancels) { EVENT_CANCELS = o.cancels; saveJson("kinmu_event_cancels", EVENT_CANCELS); }
   if (o.events) { EVENTS_FIXED = o.events; saveJson("kinmu_events_fixed", EVENTS_FIXED); }
   if (o.teams) { applyRoster(o.teams, o.managers); saveRoster(); }
+  if (o.nightConds) { NIGHT_CONDS = o.nightConds; saveNightConds(); }
+  if (o.zanConds) { ZAN_CONDS = o.zanConds; saveJson("kinmu_zan_conds", ZAN_CONDS); }
+  if (o.ngPairs) { NG_PAIRS = o.ngPairs; saveJson("kinmu_ng_pairs", NG_PAIRS); }
+  if (o.eventsText) { EVENTS_TEXT = o.eventsText; saveJson("kinmu_events_text", EVENTS_TEXT); }
+  if (o.groups) { GROUPS = o.groups; saveJson("kinmu_groups", GROUPS); }
+  if (o.mustDays) { MUST_DAYS = o.mustDays; saveJson("kinmu_must_days", MUST_DAYS); }
   if (o.prevCarry) { PREV_CARRY = o.prevCarry; saveJson("kinmu_prev_carryover", PREV_CARRY); }
   if (o.part) { PARTICIPATION = o.part; saveJson("kinmu_participation", PARTICIPATION); }
   if (o.period) { PERIOD = o.period; savePeriod(); TABS = buildTabs(); if (!PERIOD.months.includes(Number(currentTab)) && currentTab !== "extra") currentTab = String(PERIOD.months[0]); }
@@ -4275,6 +4297,10 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-11-13", ver: "v8.18", items: [
+    "「この勤務表を保存」で、表の内容に加えて行事・長期休暇・前回繰越・チーム編成・夜勤条件などの設定も保存するようにしました（次期作成で今期を締めるときの自動保存も同じ）。",
+    "「過去の勤務表・年間集計」から読み込むと、設定も保存時の状態に戻ります。一覧に「表＋設定」「表のみ（設定なし）」と表示します。以前に保存した分は表のみなので、必要なら今の期間をもう一度保存してください。",
+  ] },
   { date: "2026-11-04", ver: "v8.17", items: [
     "行事設定の「開催日の個別変更」に「この回を削除」を追加しました。中止になった回だけを消せます（事務連絡の表示と必須出勤の扱いがなくなります）。「元に戻す」で復活できます。",
   ] },
@@ -4416,7 +4442,7 @@ function guideHtml(tab) {
       <li><b>赤い警告を確認して手で直す</b> — 警告は表の上に赤字で出ます。セルをクリックすると種類を選び直せます。</li>
       <li><b>${gbtn("📋 期間の集計", "showPeriodSummary")} タブで偏りを確認</b> — 期間全体の人ごとの日直・夜勤・残当・申請の回数（月ごとの内訳つき）を一覧で見られます。「計」の棒が長すぎる・短すぎる人がいないか確認します。月のタブの一番下の行は、その月の申請計と期間の日直・夜勤・残当の計です。</li>
       <li><b>${gbtn("Excel出力")}・${gbtn("印刷（PDF）")}</b> で出力します。</li>
-      <li><b>${gbtn("この勤務表を保存")}</b> — 「過去の勤務表・年間集計」で見返せるようになります。</li>
+      <li><b>${gbtn("この勤務表を保存")}</b> — 表の内容と、その時点の設定（行事・長期休暇・前回繰越・チーム編成・夜勤条件など）をこのブラウザに保存します。「過去の勤務表・年間集計」で見返せ、読み込むと設定も保存時の状態に戻ります。</li>
       <li><b>${gbtn("JSON書出")}</b> でバックアップ（kinmu_backup.json）を保存しておきます。</li>
     </ol>
     <div class="g-warn">⚠ <b>1〜4のボタンは、押すとその種類をいったん全部消してから作り直します。</b>
