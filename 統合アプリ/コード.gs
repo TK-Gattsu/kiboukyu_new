@@ -67,12 +67,13 @@ const FLOW_LABELS = { request_first: '希望休が先（希望休 → 日直・�
 const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
 
 // ---- 勤務変更 ----
-// kind: swap＝交代（日ごとに2人の勤務を入れ替える）／furi＝振休の交換（2人の振休の日を入れ替える）／self＝自分の勤務の変更
+// kind: swap＝交代（自分の勤務と相手の勤務を同時に入れ替える）／furi＝振休の交換（2人の振休の日を入れ替える）／self＝自分の勤務の変更
 // status: wait_partner（受け手の承認待ち）→ wait_approver（承認者の承認待ち）→ approved（承認・実績に反映）
 //         rejected（却下）／withdrawn（申請者が取り下げ）
 const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更' };
 const CHANGE_STATUS = { wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち', approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
 const SWAP_MARKS = ['', '×', '○', '入', '明', '残'];              // 交代で入れ替えられる記号
+const SWAP_DUTIES = ['○', '入', '残'];                           // 交代で渡す・引き受ける勤務（日直・夜勤・残り当番）
 const SELF_MARKS = ['', '有', '夏', '特', '業', '出', '研', '×'];   // 自分の勤務の変更で使える記号
 const MAX_STREAK = 6;                                            // 連続勤務は6日まで
 const FURI_AFTER_DAYS = 14, FURI_BEFORE_DAYS = 7;                // 振休の付与期限
@@ -776,32 +777,38 @@ function buildChange_(conf, act, me, p) {
     if (partner === name) throw new Error('相手には自分以外の人を選んでください。');
   }
   if (kind === 'swap') {
-    // 選んだ日ごとに2人の勤務を入れ替える。夜勤（入）は翌日の「明」も一緒に入れ替える
-    const set = {};
-    (p.dates || []).forEach(d => { if (d) set[d] = 1; });
-    if (!Object.keys(set).length) throw new Error('入れ替える日を選んでください。');
-    Object.keys(set).forEach(d => {
-      [name, partner].forEach(n => {
-        if (cell(n, d) === '入' && dateSet.has(addDays_(d, 1))) set[addDays_(d, 1)] = 1;
-        if (cell(n, d) === '明' && dateSet.has(addDays_(d, -1))) set[addDays_(d, -1)] = 1;
-      });
-    });
-    const ds = Object.keys(set).sort();
+    // 交代: 自分が渡す勤務（myDate）と、代わりに引き受ける相手の勤務（partnerDate）を同時に入れ替える。
+    // 夜勤（入）は翌日の「明」も一緒に移す
+    const myDate = String(p.myDate || ''), pDate = String(p.partnerDate || '');
+    const mine = cell(name, myDate), theirs = cell(partner, pDate);
+    if (!dateSet.has(myDate) || SWAP_DUTIES.indexOf(mine) < 0) throw new Error('自分が渡す勤務（日直・夜勤・残り当番）の日を選んでください。');
+    if (!dateSet.has(pDate) || SWAP_DUTIES.indexOf(theirs) < 0) throw new Error('代わりに引き受ける、相手の勤務（日直・夜勤・残り当番）の日を選んでください。');
+    const span = (n, d) => {
+      const ds = [d], nx = addDays_(d, 1);
+      if (cell(n, d) === '入' && dateSet.has(nx) && cell(n, nx) === '明') ds.push(nx);
+      return ds;
+    };
+    const give = span(name, myDate), take = span(partner, pDate);
+    const ds = give.concat(take).filter((d, i, a) => a.indexOf(d) === i).sort();
+    const isFree = mk => mk === '' || mk === '×';
     ds.forEach(d => {
-      if (!dateSet.has(d)) throw new Error(md_(d) + 'は勤務表の期間に入っていません。');
       [name, partner].forEach(n => {
         const mk = cell(n, d);
         if (String(mk).indexOf('振') >= 0) throw new Error(md_(d) + 'の' + n + 'さんは振休です。振休は「振休の交換」で、振休同士で入れ替えてください。');
         if (SWAP_MARKS.indexOf(mk) < 0) throw new Error(md_(d) + 'の' + n + 'さんの「' + mk + '」は人と入れ替えられません（休み・出張などは「自分の勤務の変更」で行います）。');
       });
+      // 受け取る側は、その日に別の勤務が入っていないこと（同じ日の勤務どうしの入れ替えは可）
+      if (give.indexOf(d) >= 0 && take.indexOf(d) < 0 && !isFree(cell(partner, d)))
+        throw new Error(md_(d) + 'は' + partner + 'さんに「' + cell(partner, d) + '」が入っているため、あなたの勤務を引き受けられません。');
+      if (take.indexOf(d) >= 0 && give.indexOf(d) < 0 && !isFree(cell(name, d)))
+        throw new Error(md_(d) + 'はあなたに「' + cell(name, d) + '」が入っているため、' + partner + 'さんの勤務を引き受けられません。');
       const a = cell(name, d), b = cell(partner, d);
       if (a === b) return;
       cells.push({ name: name, date: d, before: a, after: b }, { name: partner, date: d, before: b, after: a });
     });
-    if (!cells.length) throw new Error('選んだ日は2人とも同じ勤務のため、入れ替えるものがありません。');
-    const named = { '○': '日直', '入': '夜勤入り', '明': '夜勤明け', '残': '残り当番', '×': '休み' };
-    const lb = (n, d) => named[cell(n, d)] || cell(n, d) || (confRest_(conf, d) ? '休み' : '勤務');
-    summary = name + ' ⇄ ' + partner + '：' + ds.map(d => md_(d) + '（' + lb(name, d) + '⇄' + lb(partner, d) + '）').join('、');
+    if (!cells.length) throw new Error('2人とも同じ勤務のため、入れ替えるものがありません。');
+    const named = { '○': '日直', '入': '夜勤', '残': '残り当番' };
+    summary = name + 'の' + md_(myDate) + named[mine] + ' ⇄ ' + partner + 'の' + md_(pDate) + named[theirs];
   } else if (kind === 'furi') {
     const myDate = String(p.myDate || ''), pDate = String(p.partnerDate || '');
     if (!isFuriLabel_(cell(name, myDate))) throw new Error('自分の振休の日を選んでください。');

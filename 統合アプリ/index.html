@@ -343,7 +343,7 @@ table.list tr.inactive td { color: #AAA; }
       <h2>勤務変更・追加の申請</h2>
       <p class="hint" id="cg-period"></p>
       <div class="kind-cards" id="cg-kinds">
-        <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>日直・夜勤・残り当番を、ほかの人と日ごとに入れ替えます。相手と承認者の承認が必要です。</label>
+        <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>自分の日直・夜勤・残り当番と、相手の勤務を入れ替えます（同時に入れ替わります）。相手と承認者の承認が必要です。</label>
         <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手と承認者の承認が必要です。</label>
         <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど。承認者の承認が必要です。</label>
       </div>
@@ -1301,6 +1301,7 @@ function renderSchedule() {
 let CG = null, CG_KIND = null;
 const SELF_LABELS = { '': '勤務（休みなどを取り消す）', '有': '有（年次有給休暇）', '夏': '夏（夏期休暇）', '特': '特（特別休暇）',
   '業': '業（業務）', '出': '出（出張）', '研': '研（研修）', '×': '×（土日祝の休み）' };
+const SWAP_DUTIES_C = ['○', '入', '残'];
 function isFuriLabelC(mk) { return !!mk && mk.slice(-1) === '振' && mk.indexOf('/') > 0; }
 async function loadChg() {
   document.getElementById('cg-period').textContent = '読み込み中…';
@@ -1334,10 +1335,14 @@ function renderChgForm() {
   const me = ME.name, all = () => true;
   let h = '';
   if (CG_KIND === 'swap') {
-    h = '<div class="form-row"><div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
-      '<div><label class="f">入れ替える日（1つ目）</label><select id="cg-d1"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
-      '<div><label class="f">入れ替える日（2つ目・あれば）</label><select id="cg-d2"><option value="">なし</option>' + dateOptions(all) + '</select></div></div>' +
-      '<p class="hint">選んだ日ごとに、あなたと相手の勤務がそっくり入れ替わります（例：あなたの土曜の日直と、相手の日曜の日直を交換するなら、両方の日を選びます）。夜勤（入）を選ぶと、翌日の「明」も一緒に入れ替わります。</p>';
+    const duties = CG.sv.dates.filter(d => SWAP_DUTIES_C.indexOf(cellOf(me, d.date)) >= 0);
+    h = duties.length
+      ? '<div class="form-row"><div><label class="f">自分が渡す勤務</label><select id="cg-my"><option value="">選んでください</option>' +
+        duties.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(me, d.date))) + '</option>').join('') + '</select></div>' +
+        '<div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
+        '<div><label class="f">代わりに引き受ける相手の勤務</label><select id="cg-pd"><option value="">先に相手を選んでください</option></select></div></div>' +
+        '<p class="hint">承認されると、あなたの勤務は相手に、相手の勤務はあなたに、同時に入れ替わります（例：あなたの2/21（日）の日直 ⇄ 相手の2/7（日）の日直）。夜勤（入）は翌日の「明」も一緒に移ります。</p>'
+      : '<p class="notice">この期間に、あなたの日直・夜勤・残り当番はありません。</p>';
   } else if (CG_KIND === 'furi') {
     const mine = CG.sv.dates.filter(d => isFuriLabelC(cellOf(me, d.date)));
     h = mine.length
@@ -1354,11 +1359,14 @@ function renderChgForm() {
   if (h.indexOf('select') >= 0) h += '<button class="btn" onclick="previewChg()">内容を確認</button>';
   f.innerHTML = h;
   const ps = document.getElementById('cg-partner');
-  if (ps && CG_KIND === 'furi') ps.onchange = () => {
+  if (ps) ps.onchange = () => {
+    // 相手の振休（振休の交換）または相手の日直・夜勤・残り当番（交代）を並べる
     const pd = document.getElementById('cg-pd'), pn = ps.value;
-    const list = pn ? CG.sv.dates.filter(d => isFuriLabelC(cellOf(pn, d.date))) : [];
-    pd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '（' + esc(markText(cellOf(pn, d.date))) + '）</option>').join('')
-      : '<option value="">' + (pn ? 'この人には日付つきの振休がありません' : '先に相手を選んでください') + '</option>';
+    const pick = CG_KIND === 'furi' ? (d => isFuriLabelC(cellOf(pn, d.date))) : (d => SWAP_DUTIES_C.indexOf(cellOf(pn, d.date)) >= 0);
+    const list = pn ? CG.sv.dates.filter(pick) : [];
+    const none = CG_KIND === 'furi' ? 'この人には日付つきの振休がありません' : 'この人には日直・夜勤・残り当番がありません';
+    pd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(pn, d.date))) + '</option>').join('')
+      : '<option value="">' + (pn ? none : '先に相手を選んでください') + '</option>';
   };
   const ds = document.getElementById('cg-date');
   if (ds) ds.onchange = () => {
@@ -1368,7 +1376,7 @@ function renderChgForm() {
 }
 function chgPayload() {
   const v = id => (document.getElementById(id) || {}).value || '';
-  if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), dates: [v('cg-d1'), v('cg-d2')].filter(Boolean) };
+  if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
   if (CG_KIND === 'furi') return { kind: 'furi', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
   return { kind: 'self', date: v('cg-date'), mark: v('cg-mark') };
 }
