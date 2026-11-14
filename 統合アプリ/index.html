@@ -114,6 +114,15 @@ table.list tr.inactive td { color: #AAA; }
 .grid td.lv { background: #E8E8E8; color: #777; }
 .grid td.mine-row, .grid tr.mine td.nm { background: #FFFBE6; }
 .grid td.chg { box-shadow: inset 0 0 0 2px var(--orange); }
+/* 申請・承認の画面の小さな勤務表 */
+.grid td.mgc { background: var(--orange-light) !important; line-height: 1.05; font-weight: bold; color: var(--orange); }
+.grid td.mgc s { display: block; font-size: 9px; color: #999; font-weight: normal; }
+.grid td.sel { outline: 2px solid var(--blue); outline-offset: -2px; }
+.grid td.pick { cursor: pointer; }
+.grid td.pick:hover { background: var(--blue-light); }
+.grid tr.me td.nm { background: #FFFBE6; }
+.mg-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 8px; margin: 8px 0; background: #FAFBFC; }
+.mg-box .scroll { max-height: 50vh; }
 .kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
 .kind-cards label { border: 2px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; font-size: 13px; line-height: 1.5; display: block; }
 .kind-cards label b { font-size: 15px; color: var(--blue); display: block; }
@@ -348,6 +357,7 @@ table.list tr.inactive td { color: #AAA; }
         <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど。承認者の承認が必要です。</label>
       </div>
       <div id="cg-form"></div>
+      <div id="cg-grid"></div>
       <div id="cg-preview"></div>
     </div>
     <div class="card">
@@ -1298,6 +1308,45 @@ function renderSchedule() {
 /* ============================================================
    勤務変更（申請・承認）
    ============================================================ */
+/* 申請・承認の画面の小さな勤務表（cells＝申請の中身 [{name,date,before,after}] を重ねて表示） */
+let CHG_SV = null;   // 勤務表（確定版＋承認済みの変更）
+const DAY_CAP_C = 5;
+function gridMark(mk) { return mk ? (mk.length > 3 ? '振' : mk) : ''; }
+function miniGrid(sv, names, month, o) {
+  o = o || {};
+  const c = sv.confirmed, days = sv.dates.filter(d => d.date.slice(0, 7) === month);
+  const chg = {}; (o.cells || []).forEach(x => { chg[x.name + '|' + x.date] = x; });
+  const base = (n, d) => (c.data[n] || {})[d] || '';
+  const before = (n, d) => { const x = chg[n + '|' + d]; return x ? x.before : base(n, d); };
+  const after = (n, d) => { const x = chg[n + '|' + d]; return x ? x.after : base(n, d); };
+  let h = '<div class="scroll"><table class="grid"><thead><tr><th class="nm">' + Number(month.slice(5)) + '月</th>' +
+    days.map(d => '<th class="' + (d.rest ? 'rest' : '') + '" title="' + esc(d.holiday) + '">' + Number(d.date.slice(8)) + '<br>' + YOBI[d.dow] + '</th>').join('') + '</tr></thead><tbody>';
+  names.forEach(n => {
+    h += '<tr class="' + (n === ME.name ? 'me' : '') + '"><td class="nm">' + esc(n) + '</td>' + days.map(d => {
+      const x = chg[n + '|' + d.date], cls = [d.rest ? 'rest' : ''];
+      if (o.selected && o.selected[n + '|' + d.date]) cls.push('sel');
+      if (o.clickable) cls.push('pick');
+      const attrs = o.clickable ? ' data-n="' + esc(n) + '" data-d="' + d.date + '"' : '';
+      if (x) return '<td class="' + cls.join(' ') + ' mgc"' + attrs + ' title="' + esc((markText(x.before) || '空き') + ' → ' + (markText(x.after) || '空き')) + '"><s>' + esc(gridMark(x.before) || '－') + '</s>' + esc(gridMark(x.after) || '－') + '</td>';
+      const mk = base(n, d.date), st = TYPE_STYLE[mk];
+      return '<td class="' + cls.join(' ') + '"' + attrs + ' title="' + esc(markText(mk)) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + esc(gridMark(mk)) + '</td>';
+    }).join('') + '</tr>';
+  });
+  // 平日の休み人数（変わる日は「変更前→変更後」）
+  const all = [].concat.apply([], c.teams.map(t => t[1]));
+  h += '<tr class="cnt"><td class="nm">休み人数</td>' + days.map(d => {
+    if (d.rest) return '<td class="rest"></td>';
+    const b = all.filter(n => isCountMark(before(n, d.date))).length, a = all.filter(n => isCountMark(after(n, d.date))).length;
+    return '<td class="' + (a > DAY_CAP_C ? 'over' : '') + '">' + (a === b ? (a || '') : b + '→' + a) + '</td>';
+  }).join('') + '</tr></tbody></table></div>';
+  return h;
+}
+function monthsOfCells(cells) {
+  const out = [];
+  cells.forEach(x => { const k = x.date.slice(0, 7); if (out.indexOf(k) < 0) out.push(k); });
+  return out.sort();
+}
+
 let CG = null, CG_KIND = null;
 const SELF_LABELS = { '': '勤務（休みなどを取り消す）', '有': '有（年次有給休暇）', '夏': '夏（夏期休暇）', '特': '特（特別休暇）',
   '業': '業（業務）', '出': '出（出張）', '研': '研（研修）', '×': '×（土日祝の休み）' };
@@ -1307,7 +1356,7 @@ async function loadChg() {
   document.getElementById('cg-period').textContent = '読み込み中…';
   try {
     const [sv, list] = await Promise.all([call('scheduleView'), call('chgList')]);
-    CG = { sv: sv, list: list };
+    CG = { sv: sv, list: list }; CHG_SV = sv; CGG.month = null; CGG.cells = null; CGG.all = false;
     if (!sv.confirmed) {
       document.getElementById('cg-period').textContent = 'まだ確定・配布された勤務表がないため、勤務変更は申請できません。';
       document.getElementById('cg-kinds').style.display = 'none';
@@ -1330,8 +1379,8 @@ function dateOptions(filterFn) {
 function renderChgForm() {
   document.querySelectorAll('#cg-kinds label').forEach(l => l.classList.toggle('on', l.dataset.k === CG_KIND));
   const f = document.getElementById('cg-form');
-  document.getElementById('cg-preview').innerHTML = '';
-  if (!CG || !CG.sv.confirmed || !CG_KIND) { f.innerHTML = ''; return; }
+  clearChgPreview();
+  if (!CG || !CG.sv.confirmed || !CG_KIND) { f.innerHTML = ''; document.getElementById('cg-grid').innerHTML = ''; return; }
   const me = ME.name, all = () => true;
   let h = '';
   if (CG_KIND === 'swap') {
@@ -1358,6 +1407,7 @@ function renderChgForm() {
   }
   if (h.indexOf('select') >= 0) h += '<button class="btn" onclick="previewChg()">内容を確認</button>';
   f.innerHTML = h;
+  f.querySelectorAll('select').forEach(sel => { sel.addEventListener('change', () => { clearChgPreview(); renderChgGrid(); }); });
   const ps = document.getElementById('cg-partner');
   if (ps) ps.onchange = () => {
     // 相手の振休（振休の交換）または相手の日直・夜勤・残り当番（交代）を並べる
@@ -1368,6 +1418,7 @@ function renderChgForm() {
     pd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(pn, d.date))) + '</option>').join('')
       : '<option value="">' + (pn ? none : '先に相手を選んでください') + '</option>';
   };
+  renderChgGrid();
   const ds = document.getElementById('cg-date');
   if (ds) ds.onchange = () => {
     const d = CG.sv.dates.find(x => x.date === ds.value);
@@ -1390,7 +1441,9 @@ async function previewChg() {
   CG_PAYLOAD = chgPayload();
   try {
     const r = await call('chgPreview', CG_PAYLOAD);
-    let h = '<div class="chg-card"><b>この内容で申請します</b>' + cellsTable(r.cells);
+    CGG.cells = r.cells; CGG.month = monthsOfCells(r.cells)[0];
+    renderChgGrid();
+    let h = '<div class="chg-card"><b>この内容で申請します</b>（上の勤務表のオレンジのマスが変わります）' + cellsTable(r.cells);
     if (r.deviations.length) {
       h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>' +
         '<label class="f" for="cg-reason">理由（必須・5文字以上）</label><textarea id="cg-reason" style="min-height:70px;" placeholder="例：家族の通院の付き添いのため。交代できる人がいなかったため。"></textarea>' +
@@ -1399,7 +1452,58 @@ async function previewChg() {
     h += '<p class="hint">' + (r.partner ? r.partner + 'さんの承認 → 承認者の承認' : '承認者の承認') + 'で、勤務表に反映されます。</p>' +
       '<button class="btn btn-green" onclick="submitChg()">申請する</button></div>';
     pv.innerHTML = h;
-  } catch (e) { pv.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+  } catch (e) { pv.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; CGG.cells = null; renderChgGrid(); }
+}
+// 申請フォームの勤務表（マスを押して選べる）
+const CGG = { month: null, all: false, cells: null };
+function clearChgPreview() { const pv = document.getElementById('cg-preview'); if (pv) pv.innerHTML = ''; CGG.cells = null; }
+function renderChgGrid() {
+  const el = document.getElementById('cg-grid');
+  if (!el || !CG || !CG.sv.confirmed || !CG_KIND) { if (el) el.innerHTML = ''; return; }
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const me = ME.name, partner = v('cg-partner');
+  const sel = {};
+  if (v('cg-my')) sel[me + '|' + v('cg-my')] = 1;
+  if (v('cg-date')) sel[me + '|' + v('cg-date')] = 1;
+  if (partner && v('cg-pd')) sel[partner + '|' + v('cg-pd')] = 1;
+  const keys = monthKeys(CG.sv.dates);
+  const pickMonth = v('cg-my') || v('cg-date') || v('cg-pd');
+  if (!CGG.month || keys.indexOf(CGG.month) < 0) CGG.month = pickMonth ? pickMonth.slice(0, 7) : keys[0];
+  const names = CGG.all ? [].concat.apply([], CG.sv.confirmed.teams.map(t => t[1])) : [me].concat(partner ? [partner] : []);
+  const hint = CG_KIND === 'self' ? '自分の行のマスを押すと、その日を選べます。'
+    : '自分の' + (CG_KIND === 'furi' ? '振休' : '日直・夜勤・残り当番') + 'のマスを押すと「自分」の欄に、相手の行のマスを押すと「相手」の欄に入ります。「全員」でほかの人のマスを押すと、その人が相手になります。';
+  el.innerHTML = '<div class="mg-box"><div class="toolbar" style="margin-bottom:6px;"><div class="tabs" id="cgg-tabs" style="margin:0;"></div>' +
+    '<span class="seg"><button id="cgg-two" class="' + (CGG.all ? '' : 'on') + '">自分と相手</button><button id="cgg-all" class="' + (CGG.all ? 'on' : '') + '">全員</button></span></div>' +
+    miniGrid(CG.sv, names, CGG.month, { selected: sel, clickable: true, cells: CGG.cells }) +
+    '<p class="hint" id="cgg-hint" style="margin:4px 0 0;">' + esc(hint) + (CGG.cells ? '　オレンジのマスは変わるところ（上の小さな字が今の勤務）です。' : '') + '</p></div>';
+  monthTabs('cgg-tabs', keys, CGG.month, k => { CGG.month = k; renderChgGrid(); });
+  document.getElementById('cgg-two').onclick = () => { CGG.all = false; renderChgGrid(); };
+  document.getElementById('cgg-all').onclick = () => { CGG.all = true; renderChgGrid(); };
+  el.querySelectorAll('td.pick').forEach(td => { td.onclick = () => chgGridClick(td.dataset.n, td.dataset.d); });
+}
+function chgGridClick(n, d) {
+  const me = ME.name;
+  const setSel = (id, val) => {
+    const s = document.getElementById(id);
+    if (!s || ![...s.options].some(o => o.value === val)) return false;
+    s.value = val; return true;
+  };
+  const say = t => { const h = document.getElementById('cgg-hint'); if (h) h.textContent = t; };
+  const okMark = mk => CG_KIND === 'furi' ? isFuriLabelC(mk) : SWAP_DUTIES_C.indexOf(mk) >= 0;
+  const what = CG_KIND === 'furi' ? '日付つきの振休' : '日直・夜勤・残り当番';
+  clearChgPreview();
+  if (CG_KIND === 'self') {
+    if (n !== me) { say('自分の勤務の変更では、自分の行のマスを押してください。'); return; }
+    setSel('cg-date', d); const ds = document.getElementById('cg-date'); if (ds && ds.onchange) ds.onchange();
+  } else if (n === me) {
+    if (!okMark(cellOf(me, d)) || !setSel('cg-my', d)) { say(mdw(d) + 'はあなたの' + what + 'ではありません。'); return; }
+  } else {
+    if (!okMark(cellOf(n, d))) { say(mdw(d) + 'は' + n + 'さんの' + what + 'ではありません。'); return; }
+    const ps = document.getElementById('cg-partner');
+    if (ps.value !== n) { ps.value = n; ps.onchange(); }
+    setSel('cg-pd', d);
+  }
+  renderChgGrid();
 }
 async function submitChg() {
   const rs = document.getElementById('cg-reason');
@@ -1428,10 +1532,22 @@ function renderChgList(elId, list, mode) {
       act = '<button class="btn btn-green btn-sm" data-ok="' + c.id + '">' + (canPartner && mode === 'adm' ? '受け手の代わりに承認' : '承認する') + '</button> <button class="btn btn-red btn-sm" data-ng="' + c.id + '">却下する</button>';
     return '<div class="chg-card"><div class="top"><b>' + esc(c.kindLabel) + '</b><span class="pill ' + c.status + '">' + esc(c.statusLabel) + '</span><span>' + esc(c.summary) + '</span></div>' +
       cellsTable(c.cells) +
+      (CHG_SV && CHG_SV.confirmed ? '<button class="btn btn-gray btn-sm" data-mg="' + c.id + '">勤務表で確認 ▼</button><div class="mg-box" id="mg-' + c.id + '" style="display:none;"></div>' : '') +
       (c.deviations.length ? '<div class="dev">⚠ 条件から外れます：' + c.deviations.map(esc).join('／') + '</div>' : '') +
       (c.reason ? '<div class="reason">理由：' + esc(c.reason) + '</div>' : '') +
       '<div class="hint">' + steps.join(' → ') + '</div>' + (act ? '<div style="margin-top:6px;">' + act + '</div>' : '') + '</div>';
   }).join('');
+  el.querySelectorAll('button[data-mg]').forEach(b => { b.onclick = () => {
+    const box = document.getElementById('mg-' + b.dataset.mg), c = list.find(x => x.id === b.dataset.mg);
+    const open = box.style.display === 'none';
+    if (open && !box.innerHTML) {
+      const names = c.cells.map(x => x.name).filter((v, i, a) => a.indexOf(v) === i);
+      box.innerHTML = monthsOfCells(c.cells).map(m => miniGrid(CHG_SV, names, m, { cells: c.cells })).join('') +
+        '<p class="hint" style="margin:4px 0 0;">オレンジのマスが変わるところです（上の小さな字が変更前）。最後の行は平日の休み人数（変わる日は 変更前→変更後）です。</p>';
+    }
+    box.style.display = open ? '' : 'none';
+    b.textContent = open ? '勤務表を閉じる ▲' : '勤務表で確認 ▼';
+  }; });
   el.querySelectorAll('button[data-w]').forEach(b => { b.onclick = () => withdrawChg(b.dataset.w); });
   el.querySelectorAll('button[data-ok]').forEach(b => { b.onclick = () => decideChg(b.dataset.ok, 'approve', mode); });
   el.querySelectorAll('button[data-ng]').forEach(b => { b.onclick = () => decideChg(b.dataset.ng, 'reject', mode); });
@@ -1451,7 +1567,7 @@ async function decideChg(id, decision, mode) {
   } catch (e) { alert(e.message); }
 }
 async function loadChgMe() {
-  try { const l = await call('chgList'); renderChgList('cm-list', l.toMe, 'toMe'); }
+  try { const [l, sv] = await Promise.all([call('chgList'), call('scheduleView')]); CHG_SV = sv; renderChgList('cm-list', l.toMe, 'toMe'); }
   catch (e) { document.getElementById('cm-list').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 let CA_FILTER = 'wait', CA_LIST = [];
@@ -1463,7 +1579,7 @@ function renderCa() {
   renderChgList('ca-list', list, 'adm');
 }
 async function loadChgAdm() {
-  try { const l = await call('chgList'); CA_LIST = l.approvals || []; renderCa(); }
+  try { const [l, sv] = await Promise.all([call('chgList'), call('scheduleView')]); CHG_SV = sv; CA_LIST = l.approvals || []; renderCa(); }
   catch (e) { document.getElementById('ca-list').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 
@@ -1479,6 +1595,7 @@ function resetViews() {
   VIEWS.forEach(v => { if (v !== 'login' && VIEW_TEMPLATES[v] !== undefined) document.getElementById('v-' + v).innerHTML = VIEW_TEMPLATES[v]; });
   ['pk-body', 'pw-list'].forEach(id => { document.getElementById(id).innerHTML = ''; });
   ['pick-modal', 'pw-modal', 'user-modal', 'bulk-modal'].forEach(closeModal);
+  CHG_SV = null; CGG.month = null; CGG.cells = null; CGG.all = false;
   USERS = []; RV = null; AV = null; _eff = null; WF = null; SV = null; CG = null; CG_KIND = null; CG_PAYLOAD = null; CA_LIST = []; PICK = null;
   RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait';
 }
