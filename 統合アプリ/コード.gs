@@ -70,13 +70,20 @@ const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
 // kind: swap＝交代（自分の勤務と相手の勤務を同時に入れ替える）／furi＝振休の交換（2人の振休の日を入れ替える）／self＝自分の勤務の変更
 // status: wait_partner（受け手の承認待ち）→ wait_approver（承認者の承認待ち）→ approved（承認・実績に反映）
 //         rejected（却下）／withdrawn（申請者が取り下げ）
-const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更' };
+const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休' };
 const CHANGE_STATUS = { wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち', approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
 const SWAP_MARKS = ['', '×', '○', '入', '明', '残'];              // 交代で入れ替えられる記号
 const SWAP_DUTIES = ['○', '入', '残'];                           // 交代で渡す・引き受ける勤務（日直・夜勤・残り当番）
 const SELF_MARKS = ['', '有', '夏', '特', '業', '出', '研', '×'];   // 自分の勤務の変更で使える記号
 const MAX_STREAK = 6;                                            // 連続勤務は6日まで
 const FURI_AFTER_DAYS = 14, FURI_BEFORE_DAYS = 7;                // 振休の付与期限
+
+// ---- 時間休（時間単位の有給。遅く来る・早く帰るの2通り）----
+// 勤務表のマスには「有12-17」（12時から17時まで休む）の形で入れる。勤務の日として扱い、休み人数には数えない。
+// 取る時間は1時間単位（始業・終業・休憩の時刻から計算し、1時間に満たない端数は切り上げ）。
+// 年度ごとの上限は「yearDays 日 × dayHours 時間」（申請中のものも含めて数える）
+const HOURLY_DEFAULT = { start: '8:30', end: '17:15', breakFrom: '12:00', breakTo: '13:00', dayHours: 8, yearDays: 5, yearStartMonth: 4 };
+const HOURLY_WAYS = { late: '遅く来る', early: '早く帰る' };
 
 // ------------------------------------------------------------
 // 画面の配信
@@ -540,6 +547,45 @@ const ACTIONS = {
     return true;
   }) },
 
+  // ---- 時間休 ----
+  // 申請画面用: 勤務時間の設定・選べる時刻・自分の使用時間（確定した勤務表の期間にかかる年度ごと）
+  hourlyGet: { run: me => {
+    const cfg = hourlyCfg_(), conf = docGet_('confirmed');
+    const days = conf ? periodDates_(conf.period) : [todayJst_()];
+    const fys = [];
+    days.forEach(d => { const f = fiscalOf_(d, cfg); if (!fys.some(x => x.fy === f.fy)) fys.push(f); });
+    return { cfg: cfg, options: hourlyOptions_(cfg), cap: hourlyCap_(cfg), ways: HOURLY_WAYS,
+      usage: fys.map(f => ({ fy: f.fy, label: f.label, from: f.from, to: f.to, used: hourlyUsed_(me.name, f, cfg) })) };
+  } },
+
+  // システム管理者: 勤務時間と年度の上限、全員の使用時間
+  hourlyAdmin: { role: 'sysadmin', run: () => {
+    const cfg = hourlyCfg_(), f = fiscalOf_(todayJst_(), cfg);
+    const names = [];
+    rows_('changes').forEach(r => JSON.parse(r.cells || '[]').forEach(x => { if ((isHourly_(x.before) || isHourly_(x.after)) && names.indexOf(x.name) < 0) names.push(x.name); }));
+    return { cfg: cfg, cap: hourlyCap_(cfg), options: hourlyOptions_(cfg), fiscal: f,
+      usage: names.map(n => ({ name: n, used: hourlyUsed_(n, f, cfg) })).filter(u => u.used > 0).sort((a, b) => b.used - a.used) };
+  } },
+
+  hourlySave: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const cfg = {};
+    ['start', 'end', 'breakFrom', 'breakTo'].forEach(k => {
+      const v = String(p[k] || '').trim();
+      if (isNaN(toMin_(v))) throw new Error('時刻は「8:30」のように入れてください。');
+      cfg[k] = fmtClock_(toMin_(v));
+    });
+    const st = toMin_(cfg.start), en = toMin_(cfg.end), bf = toMin_(cfg.breakFrom), bt = toMin_(cfg.breakTo);
+    if (!(st < en)) throw new Error('終業は始業より後にしてください。');
+    if (bt < bf || (bt > bf && (bf <= st || bt >= en))) throw new Error('休憩は始業と終業の間にしてください（休憩なしは、始まりと終わりを同じ時刻に）。');
+    cfg.dayHours = Number(p.dayHours); cfg.yearDays = Number(p.yearDays); cfg.yearStartMonth = Number(p.yearStartMonth);
+    if (!(cfg.dayHours >= 1 && cfg.dayHours <= 12 && cfg.dayHours % 1 === 0)) throw new Error('1日分の時間数は1〜12の整数にしてください。');
+    if (!(cfg.yearDays >= 0 && cfg.yearDays <= 40 && cfg.yearDays % 1 === 0)) throw new Error('1年度の上限日数は0〜40の整数にしてください。');
+    if (!(cfg.yearStartMonth >= 1 && cfg.yearStartMonth <= 12 && cfg.yearStartMonth % 1 === 0)) throw new Error('年度の始まりの月は1〜12にしてください。');
+    docPut_('hourly', cfg);
+    log_(me, '時間休の設定', '勤務 ' + cfg.start + '〜' + cfg.end + '・休憩 ' + cfg.breakFrom + '〜' + cfg.breakTo + '・上限 ' + cfg.yearDays + '日×' + cfg.dayHours + '時間・年度は' + cfg.yearStartMonth + '月から');
+    return true;
+  }) },
+
   // ---- システム管理者: 申請の一覧・代理入力・取り込み ----
   reqAdminView: { role: 'sysadmin', run: () => {
     const c = ctx_();
@@ -729,6 +775,72 @@ function furiDuty_(mk, conf) {
   return best;
 }
 function daysBetween_(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+// ---- 時間休 ----
+function hourlyCfg_() { return Object.assign({}, HOURLY_DEFAULT, docGet_('hourly') || {}); }
+function toMin_(t) { const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; }
+function fmtMin_(min) { const h = Math.floor(min / 60), m = min % 60; return m ? h + ':' + pad2_(m) : String(h); }        // 12 または 8:30
+function fmtClock_(min) { return Math.floor(min / 60) + ':' + pad2_(min % 60); }                                     // 12:00
+function parseHourly_(mk) {
+  const m = String(mk || '').match(/^有(\d{1,2})(?::(\d{2}))?-(\d{1,2})(?::(\d{2}))?$/);
+  return m ? { from: Number(m[1]) * 60 + Number(m[2] || 0), to: Number(m[3]) * 60 + Number(m[4] || 0) } : null;
+}
+function isHourly_(mk) { return !!parseHourly_(mk); }
+function hourlyMark_(from, to) { return '有' + fmtMin_(from) + '-' + fmtMin_(to); }
+// 実際に勤務する時間（休憩を除く）の分数
+function workMin_(cfg, from, to) {
+  const bf = toMin_(cfg.breakFrom), bt = toMin_(cfg.breakTo);
+  const overlap = bt > bf ? Math.max(0, Math.min(to, bt) - Math.max(from, bf)) : 0;
+  return Math.max(0, to - from - overlap);
+}
+function hourlyHours_(cfg, mk) {
+  const h = parseHourly_(mk);
+  return h ? Math.ceil(workMin_(cfg, h.from, h.to) / 60) : 0;
+}
+function hourlyText_(cfg, mk) {
+  const h = parseHourly_(mk);
+  return h ? fmtClock_(h.from) + '〜' + fmtClock_(h.to) + '（' + hourlyHours_(cfg, mk) + '時間）' : '';
+}
+// 選べる時刻（遅く来る＝始業から○時まで休む／早く帰る＝○時から終業まで休む）。1日分以上になるものは出さない
+function hourlyOptions_(cfg) {
+  const st = toMin_(cfg.start), en = toMin_(cfg.end), bf = toMin_(cfg.breakFrom), bt = toMin_(cfg.breakTo);
+  const cand = [];
+  for (let t = Math.ceil((st + 1) / 60) * 60; t < en; t += 60) cand.push(t);
+  [bf, bt].forEach(t => { if (t > st && t < en && cand.indexOf(t) < 0) cand.push(t); });
+  cand.sort((a, b) => a - b);
+  const inBreak = t => bt > bf && t > bf && t < bt;
+  const make = (way, from, to) => {
+    const hours = Math.ceil(workMin_(cfg, from, to) / 60);
+    if (hours < 1 || hours >= Number(cfg.dayHours)) return null;
+    const mark = hourlyMark_(from, to);
+    const at = way === 'late' ? fmtClock_(to) + 'に出勤' : fmtClock_(from) + 'に退勤';
+    return { way: way, mark: mark, hours: hours, label: at + '（' + fmtClock_(from) + '〜' + fmtClock_(to) + '・' + hours + '時間）' };
+  };
+  return {
+    late: cand.filter(t => !inBreak(t) && t !== bf).map(t => make('late', st, t)).filter(Boolean),
+    early: cand.filter(t => !inBreak(t) && t !== bt).map(t => make('early', t, en)).filter(Boolean).reverse(),
+  };
+}
+// その日が入る年度（yearStartMonth 月はじまり）
+function fiscalOf_(iso, cfg) {
+  const y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), sm = Number(cfg.yearStartMonth) || 4;
+  const fy = m >= sm ? y : y - 1;
+  const from = fy + '-' + pad2_(sm) + '-01', to = (fy + 1) + '-' + pad2_(sm) + '-01';
+  return { fy: fy, from: from, to: to, label: fy + '年度（' + fy + '年' + sm + '月〜）' };
+}
+// その年度に使った時間休（承認済み＋申請中。変更のたびの増減を足し合わせる）
+function hourlyUsed_(name, fy, cfg) {
+  let used = 0;
+  rows_('changes').filter(r => r.status === 'approved' || r.status === 'wait_partner' || r.status === 'wait_approver').forEach(r => {
+    JSON.parse(r.cells || '[]').forEach(x => {
+      if (x.name !== name || x.date < fy.from || x.date >= fy.to) return;
+      const a = x.afterHours !== undefined ? Number(x.afterHours) : hourlyHours_(cfg, x.after);
+      const b = x.beforeHours !== undefined ? Number(x.beforeHours) : hourlyHours_(cfg, x.before);
+      used += a - b;
+    });
+  });
+  return Math.max(0, used);
+}
+function hourlyCap_(cfg) { return Number(cfg.yearDays) * Number(cfg.dayHours); }
 // 確定版に、確定後に承認された変更を順に重ねる
 function actual_(conf) {
   const data = JSON.parse(JSON.stringify(conf.data || {}));
@@ -770,7 +882,7 @@ function buildChange_(conf, act, me, p) {
   if (roster.indexOf(name) < 0) throw new Error('あなたの名前（' + name + '）が勤務表の名簿にありません。システム管理者に確認してください。');
   const cell = (n, d) => (act[n] || {})[d] || '';
   const cells = [];
-  let partner = '', summary = '';
+  let partner = '', summary = '', hoursNote = '';
   if (kind === 'swap' || kind === 'furi') {
     partner = String(p.partner || '');
     if (!partner || roster.indexOf(partner) < 0) throw new Error('交代する相手を選んでください。');
@@ -795,6 +907,7 @@ function buildChange_(conf, act, me, p) {
       [name, partner].forEach(n => {
         const mk = cell(n, d);
         if (String(mk).indexOf('振') >= 0) throw new Error(md_(d) + 'の' + n + 'さんは振休です。振休は「振休の交換」で、振休同士で入れ替えてください。');
+        if (isHourly_(mk)) throw new Error(md_(d) + 'の' + n + 'さんには時間休（' + mk + '）があります。時間休のある日は交代できません（先に「時間休」で取り消してください）。');
         if (SWAP_MARKS.indexOf(mk) < 0) throw new Error(md_(d) + 'の' + n + 'さんの「' + mk + '」は人と入れ替えられません（休み・出張などは「自分の勤務の変更」で行います）。');
       });
       // 受け取る側は、その日に別の勤務が入っていないこと（同じ日の勤務どうしの入れ替えは可）
@@ -820,12 +933,38 @@ function buildChange_(conf, act, me, p) {
     cells.push({ name: name, date: myDate, before: myLb, after: '' }, { name: name, date: pDate, before: '', after: myLb },
                { name: partner, date: pDate, before: pLb, after: '' }, { name: partner, date: myDate, before: '', after: pLb });
     summary = name + 'の振休 ' + md_(myDate) + '→' + md_(pDate) + '、' + partner + 'の振休 ' + md_(pDate) + '→' + md_(myDate);
+  } else if (kind === 'hourly') {
+    // 時間休: 平日の勤務の日（空きマス）に「有12-17」を入れる／時刻を変える／取り消す
+    const cfg = hourlyCfg_();
+    const d = String(p.date || '');
+    if (!dateSet.has(d)) throw new Error('時間休を取る日を選んでください。');
+    if (confRest_(conf, d)) throw new Error('時間休は平日の勤務の日だけ取れます。');
+    if ((conf.leaves || []).some(l => l.name === name && l.from <= d && d <= l.to)) throw new Error(md_(d) + 'は長期休暇の期間です。');
+    const from = cell(name, d);
+    if (from && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」が入っています。時間休は、ふつうの勤務の日だけ取れます。');
+    let to = '';
+    if (p.way === 'cancel') {
+      if (!from) throw new Error(md_(d) + 'に時間休はありません。');
+    } else {
+      if (!HOURLY_WAYS[p.way]) throw new Error('「遅く来る」か「早く帰る」を選んでください。');
+      const opt = hourlyOptions_(cfg)[p.way].find(o => o.mark === String(p.mark || ''));
+      if (!opt) throw new Error('時刻を選んでください。');
+      to = opt.mark;
+    }
+    if (to === from) throw new Error('今と同じ内容です。');
+    const add = hourlyHours_(cfg, to) - hourlyHours_(cfg, from);
+    const fy = fiscalOf_(d, cfg), used = hourlyUsed_(name, fy, cfg), cap = hourlyCap_(cfg);
+    if (add > 0 && used + add > cap)
+      throw new Error('時間休は1年度に' + cfg.yearDays + '日分（' + cap + '時間）までです。' + fy.label + 'は申請中を含めて' + used + '時間使っているため、あと' + Math.max(0, cap - used) + '時間までです。');
+    cells.push({ name: name, date: d, before: from, after: to });
+    summary = name + ' ' + md_(d) + '：' + (to ? '時間休 ' + hourlyText_(cfg, to) + (from ? '（' + hourlyText_(cfg, from) + 'から変更）' : '') : '時間休の取り消し ' + hourlyText_(cfg, from));
+    hoursNote = fy.label + 'の時間休：申請中を含めて' + used + '時間' + (add ? (add > 0 ? '＋今回' + add : '－今回' + (-add)) + '時間＝' + Math.max(0, used + add) + '時間' : '') + '（上限' + cap + '時間＝' + cfg.yearDays + '日×' + cfg.dayHours + '時間）';
   } else {
     const d = String(p.date || ''), to = String(p.mark || '');
     if (!dateSet.has(d)) throw new Error('変更する日を選んでください。');
     const from = cell(name, d), rest = confRest_(conf, d);
     if (String(from).indexOf('振') >= 0) throw new Error('振休は「振休の交換」で、ほかの人の振休と入れ替えてください。');
-    if (SELF_MARKS.indexOf(from) < 0) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」で、ほかの人と入れ替えてください。');
+    if (SELF_MARKS.indexOf(from) < 0 && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」で、ほかの人と入れ替えてください。');
     if (SELF_MARKS.indexOf(to) < 0) throw new Error('変更後の勤務を選んでください。');
     if (to === from) throw new Error('今と同じ内容です。');
     if (rest && ['有', '夏', '特'].indexOf(to) >= 0) throw new Error('土日祝に「' + to + '」は入れられません。');
@@ -835,8 +974,18 @@ function buildChange_(conf, act, me, p) {
     summary = name + ' ' + md_(d) + '：' + (from || empty) + ' → ' + (to || empty);
   }
   const deviations = deviations_(conf, act, cells);
-  cells.forEach(x => { x.rest = confRest_(conf, x.date); });   // 画面で空きマスを「勤務」「休み」と書き分けるため
-  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations };
+  const hcfg = hourlyCfg_();
+  cells.forEach(x => {
+    x.rest = confRest_(conf, x.date);   // 画面で空きマスを「勤務」「休み」と書き分けるため
+    // 時間休の時間数は申請時の設定で記録する（あとで勤務時間の設定を変えても、使った時間が変わらないように）
+    if (isHourly_(x.before)) {
+      const prev = rows_('changes').filter(r => r.status === 'approved').map(r => JSON.parse(r.cells || '[]'))
+        .reduce((a, cs) => a.concat(cs), []).filter(y => y.name === x.name && y.date === x.date && y.after === x.before && y.afterHours !== undefined).pop();
+      x.beforeHours = prev ? Number(prev.afterHours) : hourlyHours_(hcfg, x.before);
+    }
+    if (isHourly_(x.after)) x.afterHours = hourlyHours_(hcfg, x.after);
+  });
+  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote };
 }
 // 変更によって新しく起きる、きまりから外れること
 function deviations_(conf, act, cells) {
@@ -860,7 +1009,7 @@ function deviations_(conf, act, cells) {
     if (onLeave(n, d)) return false;
     const mk = (data[n] || {})[d] || '';
     if (['○', '入', '明', '残', '業', '出', '研'].indexOf(mk) >= 0) return true;
-    if (!mk) return !confRest_(conf, d);
+    if (!mk || isHourly_(mk)) return !confRest_(conf, d);   // 時間休の日も勤務の日
     return false;   // 有・夏・特・×・振休
   };
   const longest = (data, n) => { let best = 0, cur = 0; dates.forEach(d => { cur = isWork(data, n, d) ? cur + 1 : 0; best = Math.max(best, cur); }); return best; };

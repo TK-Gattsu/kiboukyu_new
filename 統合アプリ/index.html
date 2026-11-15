@@ -121,6 +121,7 @@ table.list tr.inactive td { color: #AAA; }
 .grid td.pick { cursor: pointer; }
 .grid td.pick:hover { background: var(--blue-light); }
 .grid tr.me td.nm { background: #FFFBE6; }
+.grid .hr { display: block; font-size: 9px; line-height: 1.1; white-space: nowrap; letter-spacing: -.3px; }
 .mg-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 8px; margin: 8px 0; background: #FAFBFC; }
 .mg-box .scroll { max-height: 50vh; }
 .kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
@@ -287,6 +288,23 @@ table.list tr.inactive td { color: #AAA; }
       <p class="hint" id="wf-roundhint"></p>
     </div>
     <div class="card">
+      <h2>時間休の設定</h2>
+      <div class="form-row">
+        <div style="min-width:120px;"><label class="f" for="hr-start">始業</label><input type="time" id="hr-start" step="300"></div>
+        <div style="min-width:120px;"><label class="f" for="hr-end">終業</label><input type="time" id="hr-end" step="300"></div>
+        <div style="min-width:120px;"><label class="f" for="hr-bf">休憩の始まり</label><input type="time" id="hr-bf" step="300"></div>
+        <div style="min-width:120px;"><label class="f" for="hr-bt">休憩の終わり</label><input type="time" id="hr-bt" step="300"></div>
+      </div>
+      <div class="form-row">
+        <div style="min-width:120px;"><label class="f" for="hr-days">1年度の上限（日）</label><input type="number" id="hr-days" min="0" max="40"></div>
+        <div style="min-width:120px;"><label class="f" for="hr-hours">1日分の時間数</label><input type="number" id="hr-hours" min="1" max="12"></div>
+        <div style="min-width:120px;"><label class="f" for="hr-month">年度の始まりの月</label><input type="number" id="hr-month" min="1" max="12"></div>
+        <button class="btn" onclick="saveHourly()">時間休の設定を保存</button>
+      </div>
+      <p class="hint" id="hr-info"></p>
+      <div id="hr-usage"></div>
+    </div>
+    <div class="card">
       <h2>勤務表データ（勤務表作成アプリとの受け渡し）</h2>
       <p id="wf-state" class="hint"></p>
       <div class="toolbar">
@@ -355,6 +373,7 @@ table.list tr.inactive td { color: #AAA; }
         <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>自分の日直・夜勤・残り当番と、相手の勤務を入れ替えます（同時に入れ替わります）。相手と承認者の承認が必要です。</label>
         <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手と承認者の承認が必要です。</label>
         <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど。承認者の承認が必要です。</label>
+        <label data-k="hourly"><input type="radio" name="cg-kind" value="hourly"><b>時間休</b>遅く来る・早く帰るときの、時間単位の有給です（1時間単位）。時刻の変更・取り消しもここで行います。承認者の承認が必要です。</label>
       </div>
       <div id="cg-form"></div>
       <div id="cg-grid"></div>
@@ -588,12 +607,12 @@ function renderMenu() {
   const items = [
     { title: '希望休の申請', desc: '希望休（有・夏・特・×など）を申請します。日ごとの残り人数を見ながら申請できます。', go: 'req' },
     { title: '勤務表を見る', desc: '確定して配布された勤務表を見ます（自分の勤務・全員）。', go: 'schedule' },
-    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、振休の交換（振休同士）、自分の勤務の変更を申請します。', go: 'chg' },
+    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、振休の交換（振休同士）、自分の勤務の変更、時間休（遅く来る・早く帰る）を申請します。', go: 'chg' },
     { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
   ];
   if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件から外れる申請の理由も確認できます。', go: 'chgadm', key: 'approvals' });
   if (isAdmin()) {
-    items.push({ title: '期間・流れ・受付の設定', desc: '期間、作成の流れ（希望休が先／当番が先）、申請の受付開始・締め切り、勤務表作成アプリとの受け渡し。', go: 'wf' });
+    items.push({ title: '期間・流れ・受付の設定', desc: '期間、作成の流れ（希望休が先／当番が先）、申請の受付開始・締め切り、時間休の設定、勤務表作成アプリとの受け渡し。', go: 'wf' });
     items.push({ title: '申請の一覧・取り込み', desc: '全員の申請を日ごとに確認し、代わりに入力したり、勤務表に取り込んだりします。', go: 'reqadmin' });
     items.push({ title: '勤務表の作成', desc: '勤務表作成アプリで日直・夜勤・振休・残り当番を作り、確定してスタッフに配布します。', go: 'kinmu' });
     items.push({ title: 'スタッフ・権限の管理', desc: 'スタッフのID登録、仮パスワードの発行、承認者・システム管理者の指名。', go: 'users' });
@@ -755,12 +774,16 @@ function isCountMark(mk) { return !!mk && (COUNT_MARKS.indexOf(mk) >= 0 || Strin
 function md(iso) { return Number(iso.slice(5, 7)) + '/' + Number(iso.slice(8, 10)); }
 function mdw(iso) { const a = iso.split('-').map(Number); return md(iso) + '（' + YOBI[new Date(a[0], a[1] - 1, a[2]).getDay()] + '）'; }
 function chip(type) {
-  const s = TYPE_STYLE[type] || ['#EEE', '#444'];
+  const s = TYPE_STYLE[type] || (isHourlyC(type) ? TYPE_STYLE['有'] : ['#EEE', '#444']);
   return '<span class="chip" style="background:' + s[0] + ';color:' + s[1] + ';border-color:' + s[1] + ';">' + esc(type) + '</span>';
 }
 // 勤務表の記号を読みやすく
+// 時間休（「有12-17」＝12時から17時まで休む）
+function isHourlyC(mk) { return /^有\d{1,2}(:\d{2})?-\d{1,2}(:\d{2})?$/.test(String(mk || '')); }
+function hourlyClock(mk) { return String(mk).slice(1).split('-').map(t => t.indexOf(':') >= 0 ? t : t + ':00').join('〜'); }
 function markText(mk) {
   if (!mk) return '';
+  if (isHourlyC(mk)) return '時間休 ' + hourlyClock(mk);
   const t = { '○': '日直', '入': '夜勤入り', '明': '夜勤明け', '残': '残り当番', '振': '振休（夜勤明け）' }[mk];
   if (t) return t;
   if (mk.indexOf('振') >= 0 && mk !== '振◆') return '振休（' + mk.replace('振', '') + '出勤分）';
@@ -969,6 +992,33 @@ let WF = null;
 async function loadWf() {
   try { WF = await call('wfGet'); renderWf(); }
   catch (e) { document.getElementById('wf-period').textContent = e.message; }
+  loadHourlyAdmin();
+}
+async function loadHourlyAdmin() {
+  try {
+    const H = await call('hourlyAdmin');
+    const pad = t => (t.length === 4 ? '0' : '') + t;
+    document.getElementById('hr-start').value = pad(H.cfg.start); document.getElementById('hr-end').value = pad(H.cfg.end);
+    document.getElementById('hr-bf').value = pad(H.cfg.breakFrom); document.getElementById('hr-bt').value = pad(H.cfg.breakTo);
+    document.getElementById('hr-days').value = H.cfg.yearDays; document.getElementById('hr-hours').value = H.cfg.dayHours;
+    document.getElementById('hr-month').value = H.cfg.yearStartMonth;
+    document.getElementById('hr-info').innerHTML = '時間休は「勤務変更・追加の申請」の「時間休」から申請し、承認者が承認すると勤務表に「有12-17」のように入ります（休み人数には数えません）。' +
+      '取る時間は、勤務時間から休憩を除いて1時間単位で数えます（1時間に満たない分は切り上げ）。1年度の上限は ' + H.cap + '時間（' + H.cfg.yearDays + '日×' + H.cfg.dayHours + '時間）で、申請中のものも含めて数えます。<br>' +
+      '選べる時刻: 遅く来る ' + (H.options.late.map(o => o.label.split('（')[0]).join('・') || 'なし') + '／早く帰る ' + (H.options.early.map(o => o.label.split('（')[0]).join('・') || 'なし');
+    document.getElementById('hr-usage').innerHTML = '<p class="hint" style="margin-bottom:2px;"><b>' + esc(H.fiscal.label) + 'の使用時間</b>（承認済み＋申請中）</p>' +
+      (H.usage.length ? '<table class="list" style="max-width:360px;"><tr><th>名前</th><th>使用</th><th>残り</th></tr>' +
+        H.usage.map(u => '<tr><td>' + esc(u.name) + '</td><td>' + u.used + '時間</td><td>' + Math.max(0, H.cap - u.used) + '時間</td></tr>').join('') + '</table>'
+        : '<p class="hint">まだ時間休を取った人はいません。</p>');
+  } catch (e) { document.getElementById('hr-info').textContent = e.message; }
+}
+async function saveHourly() {
+  const v = id => document.getElementById(id).value;
+  try {
+    await call('hourlySave', { start: v('hr-start'), end: v('hr-end'), breakFrom: v('hr-bf'), breakTo: v('hr-bt'),
+      yearDays: v('hr-days'), dayHours: v('hr-hours'), yearStartMonth: v('hr-month') });
+    alert('時間休の設定を保存しました。');
+    loadHourlyAdmin();
+  } catch (e) { alert(e.message); }
 }
 function renderWf() {
   document.getElementById('wf-period').textContent = WF.period.label;
@@ -1104,7 +1154,7 @@ function renderReqAdmin() {
         const mk = (AV.data[n] || {})[d.date];
         let c = '';
         if (r) c = r.kind === 'move' ? '<b style="color:#7B5EA7;" title="' + esc(md(r.fromDate)) + 'の振休をこの日へ">移</b>' : '<b style="color:' + (TYPE_STYLE[r.type] || ['', '#000'])[1] + ';">' + esc(r.type) + '</b>';
-        else if (mk) c = '<span class="dm"' + (from ? ' style="text-decoration:line-through;"' : '') + '>' + esc(mk.length > 3 ? '振' : mk) + '</span>';
+        else if (mk) c = '<span class="dm"' + (from ? ' style="text-decoration:line-through;"' : '') + '>' + gridHtml(mk) + '</span>';
         return '<td class="cell' + (d.rest ? ' rest' : '') + '" data-n="' + esc(n) + '" data-d="' + d.date + '" title="' + esc(mk || '') + '">' + c + '</td>';
       }).join('') + '</tr>';
     });
@@ -1244,7 +1294,7 @@ async function loadScheduleView() {
 function setScMode(m) { SC_MODE = m; renderSchedule(); }
 function leaveOf(c, name, d) { const l = (c.leaves || []).find(x => x.name === name && x.from <= d && d <= x.to); return l ? l.type : ''; }
 function markChip(mk) {
-  if (TYPE_STYLE[mk]) return chip(mk);
+  if (TYPE_STYLE[mk] || isHourlyC(mk)) return chip(mk);
   return '<span class="chip mark" title="' + esc(markText(mk)) + '">' + esc(markShort(mk)) + '</span>';
 }
 function renderSchedule() {
@@ -1296,8 +1346,8 @@ function renderSchedule() {
       h += '<tr class="' + (n === ME.name ? 'mine' : '') + '"><td class="nm">' + esc(n) + '</td>' + days.map(d => {
         const lv = leaveOf(c, n, d.date), mk = (c.data[n] || {})[d.date] || '';
         if (lv) return '<td class="lv" title="' + esc(lv) + '">' + esc(lv.slice(0, 1)) + '</td>';
-        const st = TYPE_STYLE[mk], ch = (SV.changed || {})[n + '|' + d.date];
-        return '<td class="' + (d.rest ? 'rest' : '') + (ch ? ' chg' : '') + '" title="' + esc(markText(mk) + (ch ? '（確定後に変更）' : '')) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + esc(mk.length > 3 ? '振' : mk) + '</td>';
+        const st = markStyle(mk), ch = (SV.changed || {})[n + '|' + d.date];
+        return '<td class="' + (d.rest ? 'rest' : '') + (ch ? ' chg' : '') + '" title="' + esc(markText(mk) + (ch ? '（確定後に変更）' : '')) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + gridHtml(mk) + '</td>';
       }).join('') + '</tr>';
     });
   });
@@ -1311,7 +1361,10 @@ function renderSchedule() {
 /* 申請・承認の画面の小さな勤務表（cells＝申請の中身 [{name,date,before,after}] を重ねて表示） */
 let CHG_SV = null;   // 勤務表（確定版＋承認済みの変更）
 const DAY_CAP_C = 5;
-function gridMark(mk) { return mk ? (mk.length > 3 ? '振' : mk) : ''; }
+function gridMark(mk) { return mk ? (isHourlyC(mk) ? mk : mk.length > 3 ? '振' : mk) : ''; }
+// 表のマスの中身（時間休は「有」と時刻を2段で小さく）
+function gridHtml(mk) { return isHourlyC(mk) ? '<span class="hr">有</span><span class="hr">' + esc(mk.slice(1)) + '</span>' : esc(gridMark(mk)); }
+function markStyle(mk) { return TYPE_STYLE[mk] || (isHourlyC(mk) ? TYPE_STYLE['有'] : null); }
 function miniGrid(sv, names, month, o) {
   o = o || {};
   const c = sv.confirmed, days = sv.dates.filter(d => d.date.slice(0, 7) === month);
@@ -1327,9 +1380,9 @@ function miniGrid(sv, names, month, o) {
       if (o.selected && o.selected[n + '|' + d.date]) cls.push('sel');
       if (o.clickable) cls.push('pick');
       const attrs = o.clickable ? ' data-n="' + esc(n) + '" data-d="' + d.date + '"' : '';
-      if (x) return '<td class="' + cls.join(' ') + ' mgc"' + attrs + ' title="' + esc((markText(x.before) || '空き') + ' → ' + (markText(x.after) || '空き')) + '"><s>' + esc(gridMark(x.before) || '－') + '</s>' + esc(gridMark(x.after) || '－') + '</td>';
-      const mk = base(n, d.date), st = TYPE_STYLE[mk];
-      return '<td class="' + cls.join(' ') + '"' + attrs + ' title="' + esc(markText(mk)) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + esc(gridMark(mk)) + '</td>';
+      if (x) return '<td class="' + cls.join(' ') + ' mgc"' + attrs + ' title="' + esc((markText(x.before) || '空き') + ' → ' + (markText(x.after) || '空き')) + '"><s>' + (x.before ? gridHtml(x.before) : '－') + '</s>' + (x.after ? gridHtml(x.after) : '－') + '</td>';
+      const mk = base(n, d.date), st = markStyle(mk);
+      return '<td class="' + cls.join(' ') + '"' + attrs + ' title="' + esc(markText(mk)) + '"' + (st ? ' style="color:' + st[1] + '; font-weight:bold;"' : '') + '>' + gridHtml(mk) + '</td>';
     }).join('') + '</tr>';
   });
   // 平日の休み人数（変わる日は「変更前→変更後」）
@@ -1355,8 +1408,8 @@ function isFuriLabelC(mk) { return !!mk && mk.slice(-1) === '振' && mk.indexOf(
 async function loadChg() {
   document.getElementById('cg-period').textContent = '読み込み中…';
   try {
-    const [sv, list] = await Promise.all([call('scheduleView'), call('chgList')]);
-    CG = { sv: sv, list: list }; CHG_SV = sv; CGG.month = null; CGG.cells = null; CGG.all = false;
+    const [sv, list, hourly] = await Promise.all([call('scheduleView'), call('chgList'), call('hourlyGet')]);
+    CG = { sv: sv, list: list, hourly: hourly }; CHG_SV = sv; CGG.month = null; CGG.cells = null; CGG.all = false;
     if (!sv.confirmed) {
       document.getElementById('cg-period').textContent = 'まだ確定・配布された勤務表がないため、勤務変更は申請できません。';
       document.getElementById('cg-kinds').style.display = 'none';
@@ -1400,6 +1453,16 @@ function renderChgForm() {
         '<div><label class="f">相手の振休</label><select id="cg-pd"><option value="">先に相手を選んでください</option></select></div></div>' +
         '<p class="hint">あなたの振休は相手の振休の日へ、相手の振休はあなたの振休の日へ移ります。それぞれ、移る先の日に勤務が入っていないことが必要です。</p>'
       : '<p class="notice">この期間に、あなたの日付つきの振休はありません。</p>';
+  } else if (CG_KIND === 'hourly') {
+    const H = CG.hourly, onLv = d => (CG.sv.confirmed.leaves || []).some(l => l.name === me && l.from <= d.date && d.date <= l.to);
+    const days = CG.sv.dates.filter(d => !d.rest && !onLv(d) && (!cellOf(me, d.date) || isHourlyC(cellOf(me, d.date))));
+    h = '<div class="form-row"><div><label class="f">日付（平日の勤務の日）</label><select id="cg-date"><option value="">選んでください</option>' +
+      days.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + (isHourlyC(cellOf(me, d.date)) ? '　' + esc(markText(cellOf(me, d.date))) : '') + '</option>').join('') + '</select></div>' +
+      '<div><label class="f">種類</label><select id="cg-way"><option value="late">遅く来る（始業から休む）</option><option value="early">早く帰る（終業まで休む）</option></select></div>' +
+      '<div><label class="f">時刻</label><select id="cg-hmark"></select></div></div>' +
+      '<p class="hint" id="cg-now"></p>' +
+      '<p class="hint">勤務時間 ' + esc(H.cfg.start) + '〜' + esc(H.cfg.end) + '（休憩 ' + esc(H.cfg.breakFrom) + '〜' + esc(H.cfg.breakTo) + '）。取る時間は1時間単位で、1時間に満たない分は切り上げます。勤務表には「有12-17」（12時から17時まで休み）のように表示され、休み人数には数えません。<br>' +
+      H.usage.map(u => esc(u.label) + 'の時間休：申請中を含めて <b>' + u.used + '時間</b>／上限 ' + H.cap + '時間（' + H.cfg.yearDays + '日×' + H.cfg.dayHours + '時間）').join('<br>') + '</p>';
   } else {
     h = '<div class="form-row"><div><label class="f">日付</label><select id="cg-date"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
       '<div><label class="f">変更後</label><select id="cg-mark">' + Object.keys(SELF_LABELS).map(k => '<option value="' + esc(k) + '">' + esc(SELF_LABELS[k]) + '</option>').join('') + '</select></div></div>' +
@@ -1423,12 +1486,32 @@ function renderChgForm() {
   if (ds) ds.onchange = () => {
     const d = CG.sv.dates.find(x => x.date === ds.value);
     document.getElementById('cg-now').textContent = d ? '今: ' + (markText(cellOf(me, d.date)) || (d.rest ? '休み' : '勤務')) : '';
+    if (CG_KIND === 'hourly') syncHourlyForm();
   };
+  const ws = document.getElementById('cg-way');
+  if (ws) { ws.addEventListener('change', syncHourlyForm); syncHourlyForm(); }
+}
+// 時間休: 種類に合わせて時刻の候補を並べ、その日に時間休があれば「取り消す」も出す
+function syncHourlyForm() {
+  const ws = document.getElementById('cg-way'), hs = document.getElementById('cg-hmark'), d = (document.getElementById('cg-date') || {}).value || '';
+  if (!ws || !hs) return;
+  const cur = d ? cellOf(ME.name, d) : '';
+  const hasCancel = [...ws.options].some(o => o.value === 'cancel');
+  if (isHourlyC(cur) && !hasCancel) ws.insertAdjacentHTML('beforeend', '<option value="cancel">取り消す（ふつうの勤務に戻す）</option>');
+  if (!isHourlyC(cur) && hasCancel) { if (ws.value === 'cancel') ws.value = 'late'; ws.querySelector('option[value=cancel]').remove(); }
+  const prev = hs.value;
+  const list = ws.value === 'cancel' ? [] : (CG.hourly.options[ws.value] || []);
+  hs.innerHTML = ws.value === 'cancel' ? '<option value="">（時刻は選びません）</option>'
+    : list.length ? '<option value="">選んでください</option>' + list.map(o => '<option value="' + esc(o.mark) + '"' + (o.mark === cur ? ' disabled' : '') + '>' + esc(o.label) + (o.mark === cur ? '（今の時間休）' : '') + '</option>').join('')
+    : '<option value="">選べる時刻がありません</option>';
+  if (list.some(o => o.mark === prev)) hs.value = prev;
+  hs.disabled = ws.value === 'cancel';
 }
 function chgPayload() {
   const v = id => (document.getElementById(id) || {}).value || '';
   if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
   if (CG_KIND === 'furi') return { kind: 'furi', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
+  if (CG_KIND === 'hourly') return { kind: 'hourly', date: v('cg-date'), way: v('cg-way'), mark: v('cg-hmark') };
   return { kind: 'self', date: v('cg-date'), mark: v('cg-mark') };
 }
 function cellsTable(cells) {
@@ -1443,7 +1526,8 @@ async function previewChg() {
     const r = await call('chgPreview', CG_PAYLOAD);
     CGG.cells = r.cells; CGG.month = monthsOfCells(r.cells)[0];
     renderChgGrid();
-    let h = '<div class="chg-card"><b>この内容で申請します</b>（上の勤務表のオレンジのマスが変わります）' + cellsTable(r.cells);
+    let h = '<div class="chg-card"><b>この内容で申請します</b>（上の勤務表のオレンジのマスが変わります）' + cellsTable(r.cells) +
+      (r.hoursNote ? '<p class="hint" style="margin:2px 0;">' + esc(r.hoursNote) + '</p>' : '');
     if (r.deviations.length) {
       h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>' +
         '<label class="f" for="cg-reason">理由（必須・5文字以上）</label><textarea id="cg-reason" style="min-height:70px;" placeholder="例：家族の通院の付き添いのため。交代できる人がいなかったため。"></textarea>' +
@@ -1470,7 +1554,7 @@ function renderChgGrid() {
   const pickMonth = v('cg-my') || v('cg-date') || v('cg-pd');
   if (!CGG.month || keys.indexOf(CGG.month) < 0) CGG.month = pickMonth ? pickMonth.slice(0, 7) : keys[0];
   const names = CGG.all ? [].concat.apply([], CG.sv.confirmed.teams.map(t => t[1])) : [me].concat(partner ? [partner] : []);
-  const hint = CG_KIND === 'self' ? '自分の行のマスを押すと、その日を選べます。'
+  const hint = CG_KIND === 'self' || CG_KIND === 'hourly' ? '自分の行のマスを押すと、その日を選べます。'
     : '自分の' + (CG_KIND === 'furi' ? '振休' : '日直・夜勤・残り当番') + 'のマスを押すと「自分」の欄に、相手の行のマスを押すと「相手」の欄に入ります。「全員」でほかの人のマスを押すと、その人が相手になります。';
   el.innerHTML = '<div class="mg-box"><div class="toolbar" style="margin-bottom:6px;"><div class="tabs" id="cgg-tabs" style="margin:0;"></div>' +
     '<span class="seg"><button id="cgg-two" class="' + (CGG.all ? '' : 'on') + '">自分と相手</button><button id="cgg-all" class="' + (CGG.all ? 'on' : '') + '">全員</button></span></div>' +
@@ -1492,8 +1576,9 @@ function chgGridClick(n, d) {
   const okMark = mk => CG_KIND === 'furi' ? isFuriLabelC(mk) : SWAP_DUTIES_C.indexOf(mk) >= 0;
   const what = CG_KIND === 'furi' ? '日付つきの振休' : '日直・夜勤・残り当番';
   clearChgPreview();
-  if (CG_KIND === 'self') {
-    if (n !== me) { say('自分の勤務の変更では、自分の行のマスを押してください。'); return; }
+  if (CG_KIND === 'self' || CG_KIND === 'hourly') {
+    if (n !== me) { say('自分の行のマスを押してください。'); return; }
+    if (CG_KIND === 'hourly' && !setSel('cg-date', d)) { say(mdw(d) + 'は時間休を取れない日です（平日の勤務の日だけ取れます）。'); return; }
     setSel('cg-date', d); const ds = document.getElementById('cg-date'); if (ds && ds.onchange) ds.onchange();
   } else if (n === me) {
     if (!okMark(cellOf(me, d)) || !setSel('cg-my', d)) { say(mdw(d) + 'はあなたの' + what + 'ではありません。'); return; }

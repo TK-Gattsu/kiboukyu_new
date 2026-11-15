@@ -1481,7 +1481,7 @@ function renderLegend() {
   }
 }
 
-const APP_VERSION = "v8.19";
+const APP_VERSION = "v8.20";
 function renderHeaderInfo() {
   document.getElementById("app-subtitle").textContent =
     `${periodLabel(PERIOD)}｜日直・夜勤・振休・残り当番｜${APP_VERSION}`;
@@ -1625,6 +1625,9 @@ function render() {
               td.innerHTML = `<span class="mark mk-振 furi2"><span class="fdate">${fm[1]}</span><span>${fm[2]}</span></span>`;
             } else if (kd) {
               td.innerHTML = `<span class="mark mk-振 furi2"><span class="fdate">${Number(kd.slice(5,7))}/${Number(kd.slice(8,10))}</span><span>振◆</span></span>`;
+            } else if (/^有\d{1,2}(:\d{2})?-\d{1,2}(:\d{2})?$/.test(mk)) {
+              // 統合アプリの時間休（有12-17＝12時から17時まで休み）。勤務の日として扱い、休み人数には数えない
+              td.innerHTML = `<span class="mark mk-有 furi2" title="時間休 ${mk.slice(1)}"><span class="fdate">${mk.slice(1)}</span><span>有</span></span>`;
             } else if (mk.replace("\n","").length >= 3) {
               td.innerHTML = `<span class="mark ${markClass(mk)}"><span class="mkin">${mk.replace("\n","")}</span></span>`;
             } else {
@@ -4317,6 +4320,9 @@ function toggleProgress() {
      GUIDE_UPDATES の先頭が変わると「📖 作り方」に「更新あり」が表示される。
    ============================================================ */
 const GUIDE_UPDATES = [
+  { date: "2026-11-15", ver: "v8.20", items: [
+    "統合アプリで承認された時間休（例：「有12-17」＝12時から17時まで休み）を、マスの中に時刻と「有」の2段で表示するようにしました。時間休の日は勤務の日として扱い、休み人数には数えません。",
+  ] },
   { date: "2026-11-13", ver: "v8.19", items: [
     "統合アプリ（希望休申請・勤務表・勤務変更をまとめたアプリ）の中でも使えるようにしました。統合アプリの「勤務表の作成」から開くと、変更は自動で統合アプリに保存され、確定・配布も統合アプリで行います。",
     "JSON書出のバックアップに、振休の自動配置の記録・祝日扱いの名前なども含めるようにしました（別のPCで読み込んだあとに「3. 振休」をやり直しても重複しません）。",
@@ -4505,7 +4511,7 @@ function guideHtml(tab) {
 
   if (tab === "rules") return `
     <h4>休みの人数</h4>
-    <ul><li>平日の休みは<b>1日5人まで</b>（特・夏・有・業・出・振・振◆ を数えます。×と長期休暇は数えません）。超えた日は「申請数」が赤くなります。</li></ul>
+    <ul><li>平日の休みは<b>1日5人まで</b>（特・夏・有・業・出・振・振◆ を数えます。×と長期休暇、統合アプリの時間休「有12-17」などは数えません）。超えた日は「申請数」が赤くなります。</li></ul>
     <h4>日直（○）</h4>
     <ul>
       <li>土日・祝日に、<b>A→B→C→D→E班の順</b>で1本のサイクルで回します（「班」列に表示）。今の期間の開始班は <b>${"ABCDE"[CYCLE_START_IDX]}班</b>。</li>
