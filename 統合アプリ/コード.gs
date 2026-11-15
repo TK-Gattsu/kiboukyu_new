@@ -38,7 +38,8 @@ const TABLES = {
   requests: ['id', 'name', 'userId', 'date', 'type', 'kind', 'fromDate', 'status', 'createdAt', 'updatedAt', 'by'],
   // 勤務変更（確定後の交代・振休の交換・自分の勤務の変更）。cells は [{name, date, before, after}] のJSON
   changes:  ['id', 'kind', 'requester', 'requesterId', 'partner', 'status', 'cells', 'summary', 'deviations', 'reason',
-             'createdAt', 'updatedAt', 'partnerAt', 'partnerBy', 'approverAt', 'approverBy', 'rejectedBy', 'note', 'appliedAt'],
+             'createdAt', 'updatedAt', 'partnerAt', 'partnerBy', 'approverAt', 'approverBy', 'rejectedBy', 'note', 'appliedAt',
+             'revertOf', 'revertedBy'],   // revertOf＝取り消す元の申請のID（承認後の取り消しの申請）／revertedBy＝取り消した申請のID
 };
 
 // ---- 勤務表のきまり（勤務表作成アプリと同じ）----
@@ -68,9 +69,10 @@ const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
 
 // ---- 勤務変更 ----
 // kind: swap＝交代（自分の勤務と相手の勤務を同時に入れ替える）／furi＝振休の交換（2人の振休の日を入れ替える）／self＝自分の勤務の変更
+//       hourly＝時間休／revert＝承認後の取り消し（承認済みの申請を元に戻す。元の申請と同じ人の承認が必要）
 // status: wait_partner（受け手の承認待ち）→ wait_approver（承認者の承認待ち）→ approved（承認・実績に反映）
 //         rejected（却下）／withdrawn（申請者が取り下げ）
-const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休' };
+const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休', revert: '承認後の取り消し' };
 const CHANGE_STATUS = { wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち', approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
 const SWAP_MARKS = ['', '×', '○', '入', '明', '残'];              // 交代で入れ替えられる記号
 const SWAP_DUTIES = ['○', '入', '残'];                           // 交代で渡す・引き受ける勤務（日直・夜勤・残り当番）
@@ -478,7 +480,7 @@ const ACTIONS = {
     const now = new Date().toISOString();
     const row = { id: Utilities.getUuid().slice(0, 8), kind: ch.kind, requester: me.name, requesterId: me.id, partner: ch.partner || '',
       status: ch.partner ? 'wait_partner' : 'wait_approver', cells: JSON.stringify(ch.cells), summary: ch.summary,
-      deviations: JSON.stringify(ch.deviations), reason: ch.deviations.length ? reason : '', createdAt: now, updatedAt: now };
+      deviations: JSON.stringify(ch.deviations), reason: ch.deviations.length || ch.kind === 'revert' ? reason.slice(0, 500) : '', createdAt: now, updatedAt: now, revertOf: ch.revertOf || '' };
     writeRow_('changes', row);
     log_(me, '勤務変更の申請', CHANGE_KINDS[ch.kind] + '：' + ch.summary + (ch.deviations.length ? '（条件外' + ch.deviations.length + '件・理由あり）' : ''));
     return publicChange_(row, me);
@@ -525,8 +527,14 @@ const ACTIONS = {
         const cells = JSON.parse(r.cells);
         const stale = cells.filter(x => ((act[x.name] || {})[x.date] || '') !== x.before);
         if (stale.length) throw new Error('申請したあとに勤務表が変わったため承認できません（' + stale.map(x => x.name + ' ' + md_(x.date)).join('、') + '）。却下して、申請し直してもらってください。');
+        let orig = null;
+        if (r.kind === 'revert') {
+          orig = rows_('changes').find(x => x.id === r.revertOf);
+          if (!orig || orig.revertedBy) throw new Error('取り消す元の申請が見つからないか、すでに取り消されています。');
+        }
         r.status = 'approved'; r.approverAt = now; r.approverBy = me.name; r.appliedAt = now;
         applyToState_(cells);
+        if (orig) { orig.revertedBy = r.id; orig.updatedAt = now; writeRow_('changes', orig); }
       }
     } else {
       throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
@@ -718,13 +726,19 @@ function db_() {
   props.setProperty(DB_PROP, ss.getId());
   return ss;
 }
+const SHEET_CHECKED = {};
 function sheet_(name) {
   const ss = db_();
   let sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
     sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]);
+  } else if (!SHEET_CHECKED[name]) {
+    // 列を足したときは見出しも足す（前からあるシートでも、新しい列に名前が付くように）
+    const head = sh.getRange(1, 1, 1, TABLES[name].length).getValues()[0];
+    if (TABLES[name].some((k, i) => String(head[i] || '') !== k)) sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]);
   }
+  SHEET_CHECKED[name] = true;
   return sh;
 }
 function rows_(name) {
@@ -858,7 +872,8 @@ function hourlyUsed_(name, fy, cfg) {
       if (x.name !== name || x.date < fy.from || x.date >= fy.to) return;
       const a = x.afterHours !== undefined ? Number(x.afterHours) : hourlyHours_(cfg, x.after);
       const b = x.beforeHours !== undefined ? Number(x.beforeHours) : hourlyHours_(cfg, x.before);
-      used += a - b;
+      // 申請中のものは、増える分だけ数える（取り消し・短くする申請は、承認されてから減らす）
+      used += r.status === 'approved' ? a - b : Math.max(0, a - b);
     });
   });
   return Math.max(0, used);
@@ -902,16 +917,40 @@ function buildChange_(conf, act, me, p) {
   const dates = periodDates_(conf.period), dateSet = new Set(dates);
   const roster = [].concat.apply([], conf.teams.map(t => t[1]));
   const name = me.name;
-  if (roster.indexOf(name) < 0) throw new Error('あなたの名前（' + name + '）が勤務表の名簿にありません。システム管理者に確認してください。');
+  if (kind !== 'revert' && roster.indexOf(name) < 0) throw new Error('あなたの名前（' + name + '）が勤務表の名簿にありません。システム管理者に確認してください。');
   const cell = (n, d) => (act[n] || {})[d] || '';
   const cells = [];
-  let partner = '', summary = '', hoursNote = '';
-  if (kind === 'swap' || kind === 'furi') {
+  let partner = '', summary = '', hoursNote = '', revertOf = '';
+  if (kind === 'revert') {
+    // 承認後の取り消し: 承認済みの申請のマスを、申請前の内容に戻す（その後にマスが変わっていないこと）
+    const orig = rows_('changes').find(r => r.id === String(p.of || ''));
+    if (!orig || orig.status !== 'approved') throw new Error('取り消す、承認済みの申請を選んでください。');
+    if (orig.kind === 'revert') throw new Error('「承認後の取り消し」は取り消せません。元に戻したいときは、新しく申請してください。');
+    if (orig.revertedBy) throw new Error('この申請は、すでに取り消されています。');
+    if (orig.requester !== name && !hasRole_(me, 'sysadmin')) throw new Error('自分の申請だけ取り消せます。');
+    const oc = JSON.parse(orig.cells || '[]');
+    const out = oc.filter(x => !dateSet.has(x.date));
+    if (out.length) throw new Error('今の勤務表の期間の外の日（' + out.map(x => md_(x.date)).join('、') + '）が含まれるため、取り消せません。');
+    const moved = oc.filter(x => cell(x.name, x.date) !== (x.after || ''));
+    if (moved.length) throw new Error('承認されたあとに、' + moved.map(x => x.name + 'さんの' + md_(x.date)).join('、') + 'が変わっているため、取り消せません（今の勤務表から、新しく申請してください）。');
+    oc.forEach(x => {
+      const y = { name: x.name, date: x.date, before: x.after || '', after: x.before || '' };
+      if (x.afterHours !== undefined) y.beforeHours = x.afterHours;
+      if (x.beforeHours !== undefined) y.afterHours = x.beforeHours;
+      cells.push(y);
+    });
+    partner = orig.partner || '';
+    if (partner === name) partner = orig.requester;   // 念のため（相手側が取り消すことはできないが、システム管理者のとき）
+    revertOf = orig.id;
+    summary = '取り消し：' + orig.summary;
+  } else if (kind === 'swap' || kind === 'furi') {
     partner = String(p.partner || '');
     if (!partner || roster.indexOf(partner) < 0) throw new Error('交代する相手を選んでください。');
     if (partner === name) throw new Error('相手には自分以外の人を選んでください。');
   }
-  if (kind === 'swap') {
+  if (kind === 'revert') {
+    // 上で組み立て済み
+  } else if (kind === 'swap') {
     // 交代: 自分が渡す勤務（myDate）と、代わりに引き受ける相手の勤務（partnerDate）を同時に入れ替える。
     // 夜勤（入）は翌日の「明」も一緒に移す
     const myDate = String(p.myDate || ''), pDate = String(p.partnerDate || '');
@@ -1007,7 +1046,7 @@ function buildChange_(conf, act, me, p) {
     if (isHourly_(x.before) && x.beforeHours === undefined) x.beforeHours = recordedHours_(x.name, x.date, x.before, hcfg);
     if (isHourly_(x.after) && x.afterHours === undefined) x.afterHours = hourlyHours_(hcfg, x.after);
   });
-  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote };
+  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote, revertOf: revertOf };
 }
 // 変更によって新しく起きる、きまりから外れること
 function deviations_(conf, act, cells) {
@@ -1062,7 +1101,7 @@ function publicChange_(r, me) {
     statusLabel: CHANGE_STATUS[r.status] || r.status, cells: JSON.parse(r.cells || '[]'), summary: r.summary,
     deviations: JSON.parse(r.deviations || '[]'), reason: canSeeReason ? r.reason : (r.reason ? '（理由は管理者だけが見られます）' : ''),
     createdAt: r.createdAt, updatedAt: r.updatedAt, partnerAt: r.partnerAt, partnerBy: r.partnerBy, approverAt: r.approverAt,
-    approverBy: r.approverBy, rejectedBy: r.rejectedBy, note: r.note };
+    approverBy: r.approverBy, rejectedBy: r.rejectedBy, note: r.note, revertOf: r.revertOf || '', revertedBy: r.revertedBy || '' };
 }
 
 // 勤務表（state）を保存するたびに版（rev）を1つ上げる。作成画面の自動保存が古い内容で上書きしないための目印

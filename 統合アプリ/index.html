@@ -1640,11 +1640,15 @@ function renderChgList(elId, list, mode) {
     if (c.status === 'rejected') steps.push('却下（' + esc(c.rejectedBy) + '）' + (c.note ? '：' + esc(c.note) : ''));
     let act = '';
     if (mode === 'mine' && (c.status === 'wait_partner' || c.status === 'wait_approver')) act = '<button class="btn btn-gray btn-sm" data-w="' + c.id + '">取り下げる</button>';
+    // 承認後の取り消し（申請者本人、またはシステム管理者）
+    if (c.status === 'approved' && c.kind !== 'revert' && !c.revertedBy && (mode === 'mine' || (mode === 'adm' && isAdmin())))
+      act = '<button class="btn btn-orange btn-sm" data-rv="' + c.id + '">承認後の取り消しを申請</button><div id="rvbox-' + c.id + '"></div>';
     const canPartner = c.status === 'wait_partner' && (mode === 'toMe' || (mode === 'adm' && isAdmin()));
     const canApprove = c.status === 'wait_approver' && mode === 'adm' && (isAdmin() || (c.requester !== ME.name && c.partner !== ME.name));
     if (canPartner || canApprove)
       act = '<button class="btn btn-green btn-sm" data-ok="' + c.id + '">' + (canPartner && mode === 'adm' ? '受け手の代わりに承認' : '承認する') + '</button> <button class="btn btn-red btn-sm" data-ng="' + c.id + '">却下する</button>';
-    return '<div class="chg-card"><div class="top"><b>' + esc(c.kindLabel) + '</b><span class="pill ' + c.status + '">' + esc(c.statusLabel) + '</span><span>' + esc(c.summary) + '</span></div>' +
+    return '<div class="chg-card"><div class="top"><b>' + esc(c.kindLabel) + '</b><span class="pill ' + c.status + '">' + esc(c.statusLabel) + '</span>' +
+      (c.revertedBy ? '<span class="pill withdrawn">取り消し済み</span>' : '') + '<span>' + esc(c.summary) + '</span></div>' +
       cellsTable(c.cells) +
       (CHG_SV && CHG_SV.confirmed ? '<button class="btn btn-gray btn-sm" data-mg="' + c.id + '">勤務表で確認 ▼</button><div class="mg-box" id="mg-' + c.id + '" style="display:none;"></div>' : '') +
       (c.deviations.length ? '<div class="dev">⚠ 条件から外れます：' + c.deviations.map(esc).join('／') + '</div>' : '') +
@@ -1663,8 +1667,32 @@ function renderChgList(elId, list, mode) {
     b.textContent = open ? '勤務表を閉じる ▲' : '勤務表で確認 ▼';
   }; });
   el.querySelectorAll('button[data-w]').forEach(b => { b.onclick = () => withdrawChg(b.dataset.w); });
+  el.querySelectorAll('button[data-rv]').forEach(b => { b.onclick = () => previewRevert(b.dataset.rv, mode); });
   el.querySelectorAll('button[data-ok]').forEach(b => { b.onclick = () => decideChg(b.dataset.ok, 'approve', mode); });
   el.querySelectorAll('button[data-ng]').forEach(b => { b.onclick = () => decideChg(b.dataset.ng, 'reject', mode); });
+}
+// 承認後の取り消し: 元に戻す内容を確かめてから申請する（元の申請と同じく、相手→承認者の承認が必要）
+async function previewRevert(id, mode) {
+  const box = document.getElementById('rvbox-' + id);
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  try {
+    const r = await call('chgPreview', { kind: 'revert', of: id });
+    let h = '<div class="mg-box"><b>この申請を取り消して、申請前の勤務に戻します</b>' + cellsTable(r.cells) +
+      (r.hoursNote ? '<p class="hint">' + esc(r.hoursNote) + '</p>' : '');
+    if (r.deviations.length) h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>';
+    h += '<label class="f" for="rv-reason-' + id + '">取り消す理由' + (r.deviations.length ? '（必須・5文字以上）' : '（任意）') + '</label>' +
+      '<textarea id="rv-reason-' + id + '" style="min-height:60px;" placeholder="例：家族の予定が変わったため。"></textarea>' +
+      '<p class="hint">' + (r.partner ? esc(r.partner) + 'さんの承認 → 承認者の承認' : '承認者の承認') + 'で、勤務表が元に戻ります。理由は、システム管理者と承認者（とあなた）だけが見られます。</p>' +
+      '<button class="btn btn-orange" id="rv-go-' + id + '">取り消しを申請する</button></div>';
+    box.innerHTML = h;
+    document.getElementById('rv-go-' + id).onclick = async () => {
+      try {
+        await call('chgCreate', { kind: 'revert', of: id, reason: document.getElementById('rv-reason-' + id).value });
+        alert('取り消しを申請しました。' + (r.partner ? r.partner + 'さんの承認を待っています。' : '承認者の承認を待っています。'));
+        if (mode === 'adm') await loadChgAdm(); else await loadChg();
+      } catch (e) { alert(e.message); }
+    };
+  } catch (e) { box.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 async function withdrawChg(id) {
   if (!confirm('この申請を取り下げますか？')) return;
