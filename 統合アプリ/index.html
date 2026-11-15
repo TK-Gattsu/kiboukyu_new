@@ -296,6 +296,11 @@ table.list tr.inactive td { color: #AAA; }
         <div style="min-width:120px;"><label class="f" for="hr-bt">休憩の終わり</label><input type="time" id="hr-bt" step="300"></div>
       </div>
       <div class="form-row">
+        <div style="min-width:120px;"><label class="f" for="hr-b2f">別の休憩の始まり</label><input type="time" id="hr-b2f" step="300"></div>
+        <div style="min-width:120px;"><label class="f" for="hr-b2t">別の休憩の終わり</label><input type="time" id="hr-b2t" step="300"></div>
+        <div class="hint" style="min-width:200px; flex:1;">休憩が日によって違う場合（例：12:00〜13:00 または 13:00〜14:00）に入れます。申請するときに、その日の休憩を選びます。ない場合は空欄にします。</div>
+      </div>
+      <div class="form-row">
         <div style="min-width:120px;"><label class="f" for="hr-days">1年度の上限（日）</label><input type="number" id="hr-days" min="0" max="40"></div>
         <div style="min-width:120px;"><label class="f" for="hr-hours">1日分の時間数</label><input type="number" id="hr-hours" min="1" max="12"></div>
         <div style="min-width:120px;"><label class="f" for="hr-month">年度の始まりの月</label><input type="number" id="hr-month" min="1" max="12"></div>
@@ -373,7 +378,7 @@ table.list tr.inactive td { color: #AAA; }
         <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>自分の日直・夜勤・残り当番と、相手の勤務を入れ替えます（同時に入れ替わります）。相手と承認者の承認が必要です。</label>
         <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手と承認者の承認が必要です。</label>
         <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど。承認者の承認が必要です。</label>
-        <label data-k="hourly"><input type="radio" name="cg-kind" value="hourly"><b>時間休</b>遅く来る・早く帰るときの、時間単位の有給です（1時間単位）。時刻の変更・取り消しもここで行います。承認者の承認が必要です。</label>
+        <label data-k="hourly"><input type="radio" name="cg-kind" value="hourly"><b>時間休</b>遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です（1時間単位）。時刻の変更・取り消しもここで行います。承認者の承認が必要です。</label>
       </div>
       <div id="cg-form"></div>
       <div id="cg-grid"></div>
@@ -1000,11 +1005,12 @@ async function loadHourlyAdmin() {
     const pad = t => (t.length === 4 ? '0' : '') + t;
     document.getElementById('hr-start').value = pad(H.cfg.start); document.getElementById('hr-end').value = pad(H.cfg.end);
     document.getElementById('hr-bf').value = pad(H.cfg.breakFrom); document.getElementById('hr-bt').value = pad(H.cfg.breakTo);
+    document.getElementById('hr-b2f').value = H.cfg.break2From ? pad(H.cfg.break2From) : ''; document.getElementById('hr-b2t').value = H.cfg.break2To ? pad(H.cfg.break2To) : '';
     document.getElementById('hr-days').value = H.cfg.yearDays; document.getElementById('hr-hours').value = H.cfg.dayHours;
     document.getElementById('hr-month').value = H.cfg.yearStartMonth;
     document.getElementById('hr-info').innerHTML = '時間休は「勤務変更・追加の申請」の「時間休」から申請し、承認者が承認すると勤務表に「有12-17」のように入ります（休み人数には数えません）。' +
       '取る時間は、勤務時間から休憩を除いて1時間単位で数えます（1時間に満たない分は切り上げ）。1年度の上限は ' + H.cap + '時間（' + H.cfg.yearDays + '日×' + H.cfg.dayHours + '時間）で、申請中のものも含めて数えます。<br>' +
-      '選べる時刻: 遅く来る ' + (H.options.late.map(o => o.label.split('（')[0]).join('・') || 'なし') + '／早く帰る ' + (H.options.early.map(o => o.label.split('（')[0]).join('・') || 'なし');
+      '選べる時刻: ' + H.times.map(t => t.label).join('・') + '（始業・終業と、ちょうどの時刻）。休憩: ' + H.breaks.map(b => b.label).join(' または ');
     document.getElementById('hr-usage').innerHTML = '<p class="hint" style="margin-bottom:2px;"><b>' + esc(H.fiscal.label) + 'の使用時間</b>（承認済み＋申請中）</p>' +
       (H.usage.length ? '<table class="list" style="max-width:360px;"><tr><th>名前</th><th>使用</th><th>残り</th></tr>' +
         H.usage.map(u => '<tr><td>' + esc(u.name) + '</td><td>' + u.used + '時間</td><td>' + Math.max(0, H.cap - u.used) + '時間</td></tr>').join('') + '</table>'
@@ -1014,7 +1020,7 @@ async function loadHourlyAdmin() {
 async function saveHourly() {
   const v = id => document.getElementById(id).value;
   try {
-    await call('hourlySave', { start: v('hr-start'), end: v('hr-end'), breakFrom: v('hr-bf'), breakTo: v('hr-bt'),
+    await call('hourlySave', { start: v('hr-start'), end: v('hr-end'), breakFrom: v('hr-bf'), breakTo: v('hr-bt'), break2From: v('hr-b2f'), break2To: v('hr-b2t'),
       yearDays: v('hr-days'), dayHours: v('hr-hours'), yearStartMonth: v('hr-month') });
     alert('時間休の設定を保存しました。');
     loadHourlyAdmin();
@@ -1458,10 +1464,13 @@ function renderChgForm() {
     const days = CG.sv.dates.filter(d => !d.rest && !onLv(d) && (!cellOf(me, d.date) || isHourlyC(cellOf(me, d.date))));
     h = '<div class="form-row"><div><label class="f">日付（平日の勤務の日）</label><select id="cg-date"><option value="">選んでください</option>' +
       days.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + (isHourlyC(cellOf(me, d.date)) ? '　' + esc(markText(cellOf(me, d.date))) : '') + '</option>').join('') + '</select></div>' +
-      '<div><label class="f">種類</label><select id="cg-way"><option value="late">遅く来る（始業から休む）</option><option value="early">早く帰る（終業まで休む）</option></select></div>' +
-      '<div><label class="f">時刻</label><select id="cg-hmark"></select></div></div>' +
+      '<div><label class="f">種類</label><select id="cg-way"><option value="late">遅く来る（始業から休む）</option><option value="early">早く帰る（終業まで休む）</option><option value="middle">途中で抜ける</option></select></div></div>' +
+      '<div class="form-row"><div style="min-width:120px;"><label class="f">休む時刻（から）</label><select id="cg-hfrom"></select></div>' +
+      '<div style="min-width:120px;"><label class="f">休む時刻（まで）</label><select id="cg-hto"></select></div>' +
+      (H.breaks.length > 1 ? '<div><label class="f">その日の休憩</label><select id="cg-hbrk">' + H.breaks.map((b, i) => '<option value="' + i + '">' + esc(b.label) + '</option>').join('') + '</select></div>' : '') + '</div>' +
+      '<p id="cg-hcalc" style="font-weight:bold; margin:4px 0;"></p>' +
       '<p class="hint" id="cg-now"></p>' +
-      '<p class="hint">勤務時間 ' + esc(H.cfg.start) + '〜' + esc(H.cfg.end) + '（休憩 ' + esc(H.cfg.breakFrom) + '〜' + esc(H.cfg.breakTo) + '）。取る時間は1時間単位で、1時間に満たない分は切り上げます。勤務表には「有12-17」（12時から17時まで休み）のように表示され、休み人数には数えません。<br>' +
+      '<p class="hint">勤務時間 ' + esc(H.cfg.start) + '〜' + esc(H.cfg.end) + '（休憩 ' + esc(H.breaks.map(b => b.label).join(' または ')) + '）。取る時間は、休憩を除いて1時間単位で数え、1時間に満たない分は切り上げます。勤務表には「有12-17」（12時から17時まで休み）のように表示され、休み人数には数えません。<br>' +
       H.usage.map(u => esc(u.label) + 'の時間休：申請中を含めて <b>' + u.used + '時間</b>／上限 ' + H.cap + '時間（' + H.cfg.yearDays + '日×' + H.cfg.dayHours + '時間）').join('<br>') + '</p>';
   } else {
     h = '<div class="form-row"><div><label class="f">日付</label><select id="cg-date"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
@@ -1489,29 +1498,49 @@ function renderChgForm() {
     if (CG_KIND === 'hourly') syncHourlyForm();
   };
   const ws = document.getElementById('cg-way');
-  if (ws) { ws.addEventListener('change', syncHourlyForm); syncHourlyForm(); }
+  if (ws) { ['cg-way', 'cg-hfrom', 'cg-hto', 'cg-hbrk'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', syncHourlyForm); }); syncHourlyForm(); }
 }
-// 時間休: 種類に合わせて時刻の候補を並べ、その日に時間休があれば「取り消す」も出す
+// 時間休: 種類に合わせて「から」「まで」の時刻を並べ、その日に時間休があれば「取り消す」も出す
+function hourlyHoursC(from, to, bi) {
+  const b = CG.hourly.breaks[bi] || CG.hourly.breaks[0];
+  const ov = b ? Math.max(0, Math.min(to, b.to) - Math.max(from, b.from)) : 0;
+  return Math.ceil(Math.max(0, to - from - ov) / 60);
+}
 function syncHourlyForm() {
-  const ws = document.getElementById('cg-way'), hs = document.getElementById('cg-hmark'), d = (document.getElementById('cg-date') || {}).value || '';
-  if (!ws || !hs) return;
-  const cur = d ? cellOf(ME.name, d) : '';
+  const H = CG.hourly, ws = document.getElementById('cg-way'), fs = document.getElementById('cg-hfrom'), ts = document.getElementById('cg-hto');
+  if (!ws || !fs || !ts) return;
+  const d = (document.getElementById('cg-date') || {}).value || '', cur = d ? cellOf(ME.name, d) : '';
   const hasCancel = [...ws.options].some(o => o.value === 'cancel');
   if (isHourlyC(cur) && !hasCancel) ws.insertAdjacentHTML('beforeend', '<option value="cancel">取り消す（ふつうの勤務に戻す）</option>');
   if (!isHourlyC(cur) && hasCancel) { if (ws.value === 'cancel') ws.value = 'late'; ws.querySelector('option[value=cancel]').remove(); }
-  const prev = hs.value;
-  const list = ws.value === 'cancel' ? [] : (CG.hourly.options[ws.value] || []);
-  hs.innerHTML = ws.value === 'cancel' ? '<option value="">（時刻は選びません）</option>'
-    : list.length ? '<option value="">選んでください</option>' + list.map(o => '<option value="' + esc(o.mark) + '"' + (o.mark === cur ? ' disabled' : '') + '>' + esc(o.label) + (o.mark === cur ? '（今の時間休）' : '') + '</option>').join('')
-    : '<option value="">選べる時刻がありません</option>';
-  if (list.some(o => o.mark === prev)) hs.value = prev;
-  hs.disabled = ws.value === 'cancel';
+  const way = ws.value, T = H.times, st = T[0].min, en = T[T.length - 1].min;
+  const inner = T.filter(t => t.min > st && t.min < en);
+  const opts = (list, keep) => list.map(t => '<option value="' + t.label + '"' + (t.label === keep ? ' selected' : '') + '>' + esc(t.label) + '</option>').join('');
+  const pf = fs.value, pt = ts.value;
+  if (way === 'cancel') {
+    fs.innerHTML = ts.innerHTML = '<option value="">－</option>'; fs.disabled = ts.disabled = true;
+  } else {
+    fs.disabled = way === 'late'; ts.disabled = way === 'early';
+    fs.innerHTML = way === 'late' ? opts([T[0]]) : '<option value="">選んでください</option>' + opts(inner, pf);
+    const f = way === 'late' ? st : (T.find(t => t.label === fs.value) || {}).min;
+    ts.innerHTML = way === 'early' ? opts([T[T.length - 1]]) : '<option value="">選んでください</option>' + opts(inner.filter(t => f === undefined || t.min > f), pt);
+  }
+  const bs = document.getElementById('cg-hbrk'), bi = bs ? Number(bs.value) : 0;
+  const calc = document.getElementById('cg-hcalc');
+  const f = (T.find(t => t.label === fs.value) || {}).min, t = (T.find(x => x.label === ts.value) || {}).min;
+  if (way === 'cancel') calc.textContent = '';
+  else if (f === undefined || t === undefined) calc.textContent = '';
+  else {
+    const h = hourlyHoursC(f, t, bi), mk = '有' + fs.value.replace(/:00$/, '') + '-' + ts.value.replace(/:00$/, '');
+    calc.innerHTML = h < 1 ? '<span class="err">休憩の時間だけになっています。</span>' : h >= H.dayHours ? '<span class="err">1日分以上になります（1日休むときは「自分の勤務の変更」で「有」に）。</span>'
+      : esc(fs.value + '〜' + ts.value) + ' を休む：<span style="color:var(--green);">' + h + '時間</span>　<span class="hint">勤務表の表示「' + esc(mk) + '」</span>' + (mk === cur ? ' <span class="err">（今と同じです）</span>' : '');
+  }
 }
 function chgPayload() {
   const v = id => (document.getElementById(id) || {}).value || '';
   if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
   if (CG_KIND === 'furi') return { kind: 'furi', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
-  if (CG_KIND === 'hourly') return { kind: 'hourly', date: v('cg-date'), way: v('cg-way'), mark: v('cg-hmark') };
+  if (CG_KIND === 'hourly') return { kind: 'hourly', date: v('cg-date'), way: v('cg-way'), from: v('cg-hfrom'), to: v('cg-hto'), brk: Number(v('cg-hbrk') || 0) };
   return { kind: 'self', date: v('cg-date'), mark: v('cg-mark') };
 }
 function cellsTable(cells) {

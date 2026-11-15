@@ -78,12 +78,14 @@ const SELF_MARKS = ['', '有', '夏', '特', '業', '出', '研', '×'];   // �
 const MAX_STREAK = 6;                                            // 連続勤務は6日まで
 const FURI_AFTER_DAYS = 14, FURI_BEFORE_DAYS = 7;                // 振休の付与期限
 
-// ---- 時間休（時間単位の有給。遅く来る・早く帰るの2通り）----
+// ---- 時間休（時間単位の有給。遅く来る・早く帰る・途中で抜けるの3通り）----
 // 勤務表のマスには「有12-17」（12時から17時まで休む）の形で入れる。勤務の日として扱い、休み人数には数えない。
 // 取る時間は1時間単位（始業・終業・休憩の時刻から計算し、1時間に満たない端数は切り上げ）。
 // 年度ごとの上限は「yearDays 日 × dayHours 時間」（申請中のものも含めて数える）
-const HOURLY_DEFAULT = { start: '8:30', end: '17:15', breakFrom: '12:00', breakTo: '13:00', dayHours: 8, yearDays: 5, yearStartMonth: 4 };
-const HOURLY_WAYS = { late: '遅く来る', early: '早く帰る' };
+// 休憩は2通りまで（例: 12:00〜13:00 または 13:00〜14:00）。申請するときに、その日の休憩を選ぶ
+const HOURLY_DEFAULT = { start: '8:15', end: '17:00', breakFrom: '12:00', breakTo: '13:00', break2From: '13:00', break2To: '14:00',
+  dayHours: 8, yearDays: 5, yearStartMonth: 4 };
+const HOURLY_WAYS = { late: '遅く来る', early: '早く帰る', middle: '途中で抜ける' };
 
 // ------------------------------------------------------------
 // 画面の配信
@@ -554,8 +556,8 @@ const ACTIONS = {
     const days = conf ? periodDates_(conf.period) : [todayJst_()];
     const fys = [];
     days.forEach(d => { const f = fiscalOf_(d, cfg); if (!fys.some(x => x.fy === f.fy)) fys.push(f); });
-    return { cfg: cfg, options: hourlyOptions_(cfg), cap: hourlyCap_(cfg), ways: HOURLY_WAYS,
-      usage: fys.map(f => ({ fy: f.fy, label: f.label, from: f.from, to: f.to, used: hourlyUsed_(me.name, f, cfg) })) };
+    return Object.assign(hourlyInfo_(cfg), {
+      usage: fys.map(f => ({ fy: f.fy, label: f.label, from: f.from, to: f.to, used: hourlyUsed_(me.name, f, cfg) })) });
   } },
 
   // システム管理者: 勤務時間と年度の上限、全員の使用時間
@@ -563,26 +565,32 @@ const ACTIONS = {
     const cfg = hourlyCfg_(), f = fiscalOf_(todayJst_(), cfg);
     const names = [];
     rows_('changes').forEach(r => JSON.parse(r.cells || '[]').forEach(x => { if ((isHourly_(x.before) || isHourly_(x.after)) && names.indexOf(x.name) < 0) names.push(x.name); }));
-    return { cfg: cfg, cap: hourlyCap_(cfg), options: hourlyOptions_(cfg), fiscal: f,
-      usage: names.map(n => ({ name: n, used: hourlyUsed_(n, f, cfg) })).filter(u => u.used > 0).sort((a, b) => b.used - a.used) };
+    return Object.assign(hourlyInfo_(cfg), { fiscal: f,
+      usage: names.map(n => ({ name: n, used: hourlyUsed_(n, f, cfg) })).filter(u => u.used > 0).sort((a, b) => b.used - a.used) });
   } },
 
   hourlySave: { role: 'sysadmin', run: (me, p) => withLock_(() => {
     const cfg = {};
-    ['start', 'end', 'breakFrom', 'breakTo'].forEach(k => {
+    ['start', 'end', 'breakFrom', 'breakTo', 'break2From', 'break2To'].forEach(k => {
       const v = String(p[k] || '').trim();
-      if (isNaN(toMin_(v))) throw new Error('時刻は「8:30」のように入れてください。');
+      if (!v && (k === 'break2From' || k === 'break2To')) { cfg[k] = ''; return; }   // 2つ目の休憩はなくてもよい
+      if (isNaN(toMin_(v))) throw new Error('時刻は「8:15」のように入れてください。');
       cfg[k] = fmtClock_(toMin_(v));
     });
-    const st = toMin_(cfg.start), en = toMin_(cfg.end), bf = toMin_(cfg.breakFrom), bt = toMin_(cfg.breakTo);
+    if (!cfg.break2From || !cfg.break2To) cfg.break2From = cfg.break2To = '';
+    const st = toMin_(cfg.start), en = toMin_(cfg.end);
     if (!(st < en)) throw new Error('終業は始業より後にしてください。');
-    if (bt < bf || (bt > bf && (bf <= st || bt >= en))) throw new Error('休憩は始業と終業の間にしてください（休憩なしは、始まりと終わりを同じ時刻に）。');
+    [['breakFrom', 'breakTo'], ['break2From', 'break2To']].forEach(k => {
+      if (!cfg[k[0]]) return;
+      const bf = toMin_(cfg[k[0]]), bt = toMin_(cfg[k[1]]);
+      if (bt < bf || (bt > bf && (bf <= st || bt >= en))) throw new Error('休憩は始業と終業の間にしてください（休憩なしは、始まりと終わりを同じ時刻に）。');
+    });
     cfg.dayHours = Number(p.dayHours); cfg.yearDays = Number(p.yearDays); cfg.yearStartMonth = Number(p.yearStartMonth);
     if (!(cfg.dayHours >= 1 && cfg.dayHours <= 12 && cfg.dayHours % 1 === 0)) throw new Error('1日分の時間数は1〜12の整数にしてください。');
     if (!(cfg.yearDays >= 0 && cfg.yearDays <= 40 && cfg.yearDays % 1 === 0)) throw new Error('1年度の上限日数は0〜40の整数にしてください。');
     if (!(cfg.yearStartMonth >= 1 && cfg.yearStartMonth <= 12 && cfg.yearStartMonth % 1 === 0)) throw new Error('年度の始まりの月は1〜12にしてください。');
     docPut_('hourly', cfg);
-    log_(me, '時間休の設定', '勤務 ' + cfg.start + '〜' + cfg.end + '・休憩 ' + cfg.breakFrom + '〜' + cfg.breakTo + '・上限 ' + cfg.yearDays + '日×' + cfg.dayHours + '時間・年度は' + cfg.yearStartMonth + '月から');
+    log_(me, '時間休の設定', '勤務 ' + cfg.start + '〜' + cfg.end + '・休憩 ' + cfg.breakFrom + '〜' + cfg.breakTo + (cfg.break2From ? 'または' + cfg.break2From + '〜' + cfg.break2To : '') + '・上限 ' + cfg.yearDays + '日×' + cfg.dayHours + '時間・年度は' + cfg.yearStartMonth + '月から');
     return true;
   }) },
 
@@ -786,39 +794,54 @@ function parseHourly_(mk) {
 }
 function isHourly_(mk) { return !!parseHourly_(mk); }
 function hourlyMark_(from, to) { return '有' + fmtMin_(from) + '-' + fmtMin_(to); }
-// 実際に勤務する時間（休憩を除く）の分数
-function workMin_(cfg, from, to) {
-  const bf = toMin_(cfg.breakFrom), bt = toMin_(cfg.breakTo);
-  const overlap = bt > bf ? Math.max(0, Math.min(to, bt) - Math.max(from, bf)) : 0;
+// 休憩の一覧（[{from, to}]、分）。2つ目は設定したときだけ
+function breaks_(cfg) {
+  return [[cfg.breakFrom, cfg.breakTo], [cfg.break2From, cfg.break2To]].map(x => ({ from: toMin_(x[0]), to: toMin_(x[1]) }))
+    .filter((x, i) => x.to > x.from || i === 0).map(x => x.to > x.from ? x : { from: 0, to: 0 });
+}
+// 実際に勤務する時間（休憩を除く）の分数。bi＝その日の休憩（0 または 1）
+function workMin_(cfg, from, to, bi) {
+  const bs = breaks_(cfg), b = bs[bi] || bs[0];
+  const overlap = b.to > b.from ? Math.max(0, Math.min(to, b.to) - Math.max(from, b.from)) : 0;
   return Math.max(0, to - from - overlap);
 }
-function hourlyHours_(cfg, mk) {
+function hoursOf_(cfg, from, to, bi) { return Math.ceil(workMin_(cfg, from, to, bi) / 60); }
+// 記録がないときの時間数（1つ目の休憩で計算）
+function hourlyHours_(cfg, mk) { const h = parseHourly_(mk); return h ? hoursOf_(cfg, h.from, h.to, 0) : 0; }
+function hourlyWay_(cfg, from, to) { return from === toMin_(cfg.start) ? 'late' : to === toMin_(cfg.end) ? 'early' : 'middle'; }
+function hourlyText_(cfg, mk, hours) {
   const h = parseHourly_(mk);
-  return h ? Math.ceil(workMin_(cfg, h.from, h.to) / 60) : 0;
+  return h ? HOURLY_WAYS[hourlyWay_(cfg, h.from, h.to)] + ' ' + fmtClock_(h.from) + '〜' + fmtClock_(h.to) + '（' + hours + '時間）' : '';
 }
-function hourlyText_(cfg, mk) {
-  const h = parseHourly_(mk);
-  return h ? fmtClock_(h.from) + '〜' + fmtClock_(h.to) + '（' + hourlyHours_(cfg, mk) + '時間）' : '';
+// 選べる時刻: 始業・ちょうどの時刻・終業（休憩の区切りがちょうどでなければそれも）
+function hourlyTimes_(cfg) {
+  const st = toMin_(cfg.start), en = toMin_(cfg.end), out = [st];
+  for (let t = Math.floor(st / 60) * 60 + 60; t < en; t += 60) out.push(t);
+  breaks_(cfg).forEach(b => [b.from, b.to].forEach(t => { if (t > st && t < en && out.indexOf(t) < 0) out.push(t); }));
+  out.push(en);
+  return out.sort((x, y) => x - y);
 }
-// 選べる時刻（遅く来る＝始業から○時まで休む／早く帰る＝○時から終業まで休む）。1日分以上になるものは出さない
-function hourlyOptions_(cfg) {
-  const st = toMin_(cfg.start), en = toMin_(cfg.end), bf = toMin_(cfg.breakFrom), bt = toMin_(cfg.breakTo);
-  const cand = [];
-  for (let t = Math.ceil((st + 1) / 60) * 60; t < en; t += 60) cand.push(t);
-  [bf, bt].forEach(t => { if (t > st && t < en && cand.indexOf(t) < 0) cand.push(t); });
-  cand.sort((a, b) => a - b);
-  const inBreak = t => bt > bf && t > bf && t < bt;
-  const make = (way, from, to) => {
-    const hours = Math.ceil(workMin_(cfg, from, to) / 60);
-    if (hours < 1 || hours >= Number(cfg.dayHours)) return null;
-    const mark = hourlyMark_(from, to);
-    const at = way === 'late' ? fmtClock_(to) + 'に出勤' : fmtClock_(from) + 'に退勤';
-    return { way: way, mark: mark, hours: hours, label: at + '（' + fmtClock_(from) + '〜' + fmtClock_(to) + '・' + hours + '時間）' };
-  };
-  return {
-    late: cand.filter(t => !inBreak(t) && t !== bf).map(t => make('late', st, t)).filter(Boolean),
-    early: cand.filter(t => !inBreak(t) && t !== bt).map(t => make('early', t, en)).filter(Boolean).reverse(),
-  };
+// 申請画面に渡す形
+function hourlyInfo_(cfg) {
+  return { cfg: cfg, cap: hourlyCap_(cfg), ways: HOURLY_WAYS, dayHours: Number(cfg.dayHours),
+    times: hourlyTimes_(cfg).map(t => ({ min: t, label: fmtClock_(t) })),
+    breaks: breaks_(cfg).filter(b => b.to > b.from).map(b => ({ from: b.from, to: b.to, label: fmtClock_(b.from) + '〜' + fmtClock_(b.to) })) };
+}
+// 申請された時刻を確かめて、時間数を返す
+function checkHourly_(cfg, from, to, bi) {
+  const times = hourlyTimes_(cfg), st = toMin_(cfg.start), en = toMin_(cfg.end);
+  if (times.indexOf(from) < 0 || times.indexOf(to) < 0 || !(from < to)) throw new Error('休む時刻（開始と終了）を選んでください。');
+  if (from === st && to === en) throw new Error('1日休む場合は、「自分の勤務の変更」で「有」にしてください。');
+  const hours = hoursOf_(cfg, from, to, bi);
+  if (hours < 1) throw new Error('休憩の時間だけになっています。休む時刻を選び直してください。');
+  if (hours >= Number(cfg.dayHours)) throw new Error('1日分（' + cfg.dayHours + '時間）以上になるため、「自分の勤務の変更」で「有」にしてください。');
+  return hours;
+}
+// その日の時間休の、記録された時間数（承認済みの変更から探す）
+function recordedHours_(name, date, mk, cfg) {
+  const prev = rows_('changes').filter(r => r.status === 'approved').map(r => JSON.parse(r.cells || '[]'))
+    .reduce((a, cs) => a.concat(cs), []).filter(y => y.name === name && y.date === date && y.after === mk && y.afterHours !== undefined).pop();
+  return prev ? Number(prev.afterHours) : hourlyHours_(cfg, mk);
 }
 // その日が入る年度（yearStartMonth 月はじまり）
 function fiscalOf_(iso, cfg) {
@@ -942,22 +965,25 @@ function buildChange_(conf, act, me, p) {
     if ((conf.leaves || []).some(l => l.name === name && l.from <= d && d <= l.to)) throw new Error(md_(d) + 'は長期休暇の期間です。');
     const from = cell(name, d);
     if (from && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」が入っています。時間休は、ふつうの勤務の日だけ取れます。');
-    let to = '';
+    const fromH = from ? recordedHours_(name, d, from, cfg) : 0;
+    let to = '', toH = 0;
     if (p.way === 'cancel') {
       if (!from) throw new Error(md_(d) + 'に時間休はありません。');
     } else {
-      if (!HOURLY_WAYS[p.way]) throw new Error('「遅く来る」か「早く帰る」を選んでください。');
-      const opt = hourlyOptions_(cfg)[p.way].find(o => o.mark === String(p.mark || ''));
-      if (!opt) throw new Error('時刻を選んでください。');
-      to = opt.mark;
+      const f = toMin_(p.from), t = toMin_(p.to), bi = Number(p.brk) === 1 && breaks_(cfg).length > 1 ? 1 : 0;
+      toH = checkHourly_(cfg, f, t, bi);
+      to = hourlyMark_(f, t);
     }
     if (to === from) throw new Error('今と同じ内容です。');
-    const add = hourlyHours_(cfg, to) - hourlyHours_(cfg, from);
+    const add = toH - fromH;
     const fy = fiscalOf_(d, cfg), used = hourlyUsed_(name, fy, cfg), cap = hourlyCap_(cfg);
     if (add > 0 && used + add > cap)
       throw new Error('時間休は1年度に' + cfg.yearDays + '日分（' + cap + '時間）までです。' + fy.label + 'は申請中を含めて' + used + '時間使っているため、あと' + Math.max(0, cap - used) + '時間までです。');
-    cells.push({ name: name, date: d, before: from, after: to });
-    summary = name + ' ' + md_(d) + '：' + (to ? '時間休 ' + hourlyText_(cfg, to) + (from ? '（' + hourlyText_(cfg, from) + 'から変更）' : '') : '時間休の取り消し ' + hourlyText_(cfg, from));
+    const x = { name: name, date: d, before: from, after: to };
+    if (from) x.beforeHours = fromH;
+    if (to) x.afterHours = toH;
+    cells.push(x);
+    summary = name + ' ' + md_(d) + '：' + (to ? '時間休（' + hourlyText_(cfg, to, toH) + '）' + (from ? '　変更前：' + hourlyText_(cfg, from, fromH) : '') : '時間休の取り消し（' + hourlyText_(cfg, from, fromH) + '）');
     hoursNote = fy.label + 'の時間休：申請中を含めて' + used + '時間' + (add ? (add > 0 ? '＋今回' + add : '－今回' + (-add)) + '時間＝' + Math.max(0, used + add) + '時間' : '') + '（上限' + cap + '時間＝' + cfg.yearDays + '日×' + cfg.dayHours + '時間）';
   } else {
     const d = String(p.date || ''), to = String(p.mark || '');
@@ -978,12 +1004,8 @@ function buildChange_(conf, act, me, p) {
   cells.forEach(x => {
     x.rest = confRest_(conf, x.date);   // 画面で空きマスを「勤務」「休み」と書き分けるため
     // 時間休の時間数は申請時の設定で記録する（あとで勤務時間の設定を変えても、使った時間が変わらないように）
-    if (isHourly_(x.before)) {
-      const prev = rows_('changes').filter(r => r.status === 'approved').map(r => JSON.parse(r.cells || '[]'))
-        .reduce((a, cs) => a.concat(cs), []).filter(y => y.name === x.name && y.date === x.date && y.after === x.before && y.afterHours !== undefined).pop();
-      x.beforeHours = prev ? Number(prev.afterHours) : hourlyHours_(hcfg, x.before);
-    }
-    if (isHourly_(x.after)) x.afterHours = hourlyHours_(hcfg, x.after);
+    if (isHourly_(x.before) && x.beforeHours === undefined) x.beforeHours = recordedHours_(x.name, x.date, x.before, hcfg);
+    if (isHourly_(x.after) && x.afterHours === undefined) x.afterHours = hourlyHours_(hcfg, x.after);
   });
   return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote };
 }
