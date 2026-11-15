@@ -579,6 +579,12 @@ const ACTIONS = {
     return true;
   }) },
 
+  // ---- 実績の集計・分析（承認者・システム管理者）----
+  statsGet: { run: (me, p) => {
+    if (!hasRole_(me, 'approver') && !hasRole_(me, 'sysadmin')) throw new Error('この操作をする権限がありません。');
+    return statsBuild_(String(p.scope || ''));
+  } },
+
   // ---- お知らせ ----
   noticeList: { run: me => {
     const mine = rows_('notices').filter(n => n.to === me.name).reverse();
@@ -914,6 +920,162 @@ function hourlyUsed_(name, fy, cfg) {
   return Math.max(0, used);
 }
 function hourlyCap_(cfg) { return Number(cfg.yearDays) * Number(cfg.dayHours); }
+// ---- 実績の集計（第5段階）----
+// 集計する項目（勤務表の記号 → 項目）
+const ST_COLS = [['nichoku', '日直'], ['yakin', '夜勤'], ['zan', '残当'], ['yu', '有'], ['hourlyN', '時間休(回)'], ['hourlyH', '時間休(時間)'],
+  ['natsu', '夏'], ['toku', '特'], ['furi', '振休'], ['batsu', '×'], ['shutcho', '出'], ['gyomu', '業'], ['kenshu', '研'], ['leave', '長期休暇'], ['work', '勤務日数']];
+function stCat_(mk) {
+  if (!mk) return '';
+  const m = { '○': 'nichoku', '入': 'yakin', '明': 'ake', '残': 'zan', '有': 'yu', '夏': 'natsu', '特': 'toku', '×': 'batsu', '出': 'shutcho', '業': 'gyomu', '研': 'kenshu' }[mk];
+  if (m) return m;
+  if (String(mk).indexOf('振') >= 0) return 'furi';
+  if (isHourly_(mk)) return 'hourly';
+  return 'other';
+}
+// 確定した勤務表の一覧（期間ごとに最新の版。古い順）
+function confirmedList_() {
+  const groups = {};
+  rows_('archives').filter(r => String(r.key).indexOf('confirmed:') === 0).forEach(r => { (groups[r.key] = groups[r.key] || []).push(r); });
+  const byLabel = {}, revs = {};
+  Object.keys(groups).forEach(k => {
+    let doc;
+    try { doc = JSON.parse(groups[k].sort((a, b) => Number(a.part) - Number(b.part)).map(r => r.text).join('')); } catch (e) { return; }
+    revs[doc.label] = (revs[doc.label] || 0) + 1;
+    if (!byLabel[doc.label] || Number(doc.rev) > Number(byLabel[doc.label].rev)) byLabel[doc.label] = doc;
+  });
+  const cur = docGet_('confirmed');
+  if (cur && (!byLabel[cur.label] || Number(cur.rev) >= Number(byLabel[cur.label].rev))) byLabel[cur.label] = cur;
+  return Object.keys(byLabel).map(k => Object.assign({ revCount: revs[k] || 1 }, byLabel[k])).sort((a, b) => a.confirmedAt < b.confirmedAt ? -1 : 1);
+}
+// 集計の本体。scope: 'fy:2026'（年度）／'label:期間名'／'all'（すべて）。空なら今日の年度（なければ最新の期間）
+function statsBuild_(scope) {
+  const cfg = hourlyCfg_();
+  const confs = confirmedList_();
+  const changes = rows_('changes');
+  const approved = changes.filter(r => r.status === 'approved').sort((a, b) => a.appliedAt < b.appliedAt ? -1 : 1);
+  // 日ごとの実績（期間が重なれば、あとで確定したほうを使う）
+  const day = {}, team = {};
+  confs.forEach(c => {
+    const dates = periodDates_(c.period), set = new Set(dates);
+    const act = JSON.parse(JSON.stringify(c.data || {})), via = {};
+    approved.filter(r => r.appliedAt > c.confirmedAt).forEach(r => JSON.parse(r.cells || '[]').forEach(x => {
+      if (!set.has(x.date)) return;
+      act[x.name] = act[x.name] || {};
+      if (x.after) act[x.name][x.date] = x.after; else delete act[x.name][x.date];
+      via[x.name + '|' + x.date] = r;
+    }));
+    const names = [].concat.apply([], c.teams.map(t => t[1]));
+    c.teams.forEach(t => t[1].forEach(n => { team[n] = t[0]; }));
+    dates.forEach(d => { day[d] = { label: c.label, rest: confRest_(c, d), names: names, leaves: c.leaves || [], act: act, conf: c.data || {}, via: via }; });
+  });
+  const allDates = Object.keys(day).sort();
+  // 選べる範囲
+  const fys = [], labels = confs.map(c => ({ label: c.label, rev: c.rev, revCount: c.revCount, confirmedAt: c.confirmedAt }));
+  allDates.forEach(d => { const f = fiscalOf_(d, cfg); if (!fys.some(x => x.fy === f.fy)) fys.push({ fy: f.fy, label: f.label }); });
+  if (!scope) {
+    const f = fiscalOf_(todayJst_(), cfg).fy;
+    scope = fys.some(x => x.fy === f) ? 'fy:' + f : labels.length ? 'label:' + labels[labels.length - 1].label : 'all';
+  }
+  const inScope = d => scope === 'all' ? true : scope.indexOf('fy:') === 0 ? fiscalOf_(d, cfg).fy === Number(scope.slice(3)) : day[d].label === scope.slice(6);
+  const dates = allDates.filter(inScope), dateSet = new Set(dates);
+  // 時間休の時間数（承認時の記録）
+  const hrs = {};
+  approved.forEach(r => JSON.parse(r.cells || '[]').forEach(x => { if (isHourly_(x.after) && x.afterHours !== undefined) hrs[x.name + '|' + x.date + '|' + x.after] = Number(x.afterHours); }));
+  const hoursAt = (n, d, mk) => hrs[n + '|' + d + '|' + mk] !== undefined ? hrs[n + '|' + d + '|' + mk] : hourlyHours_(cfg, mk);
+  const onLeave = (D, n, d) => D.leaves.some(l => l.name === n && l.from <= d && d <= l.to);
+  const zero = () => { const o = {}; ST_COLS.forEach(c => { o[c[0]] = 0; }); return o; };
+  const monthOf = d => d.slice(0, 7);
+  const months = [], M = {}, P = {};
+  const person = n => (P[n] = P[n] || Object.assign(zero(), { name: n, team: team[n] || '', maxStreak: 0, cur: 0, last: '', changedCells: 0, req: 0, recv: 0 }));
+  dates.forEach(d => {
+    const D = day[d], mo = monthOf(d);
+    if (!M[mo]) { M[mo] = Object.assign(zero(), { month: mo, days: 0, weekdays: 0, restDays: 0, restSum: 0, restMax: 0, overDays: 0, changedCells: 0, changes: 0, deviations: 0, byKind: {} }); months.push(mo); }
+    const m = M[mo];
+    m.days++; if (D.rest) m.restDays++; else m.weekdays++;
+    let restCnt = 0;
+    D.names.forEach(n => {
+      const pp = person(n), mk = (D.act[n] || {})[d] || '';
+      if (D.via[n + '|' + d]) { pp.changedCells++; m.changedCells++; }
+      let work = false;
+      if (onLeave(D, n, d)) { pp.leave++; m.leave++; }
+      else {
+        const c = stCat_(mk);
+        if (c === 'hourly') { const h = hoursAt(n, d, mk); pp.hourlyN++; pp.hourlyH += h; m.hourlyN++; m.hourlyH += h; work = !D.rest; }
+        else if (c && c !== 'ake' && c !== 'other' && pp[c] !== undefined) { pp[c]++; m[c]++; }
+        if (['nichoku', 'yakin', 'ake', 'zan', 'shutcho', 'gyomu', 'kenshu'].indexOf(c) >= 0) work = true;
+        if (!c) work = !D.rest;
+        if (!D.rest && isCountMark_(mk)) restCnt++;
+      }
+      if (work) { pp.work++; m.work++; }
+      // 連続勤務（日付が続いているときだけ数える）
+      pp.cur = work ? (pp.last === addDays_(d, -1) ? pp.cur + 1 : 1) : 0;
+      pp.last = d;
+      if (pp.cur > pp.maxStreak) pp.maxStreak = pp.cur;
+    });
+    if (!D.rest) { m.restSum += restCnt; m.restMax = Math.max(m.restMax, restCnt); if (restCnt > DAY_CAP) m.overDays++; }
+  });
+  // 勤務変更（申請の最初の日で、範囲と月を決める）
+  const chs = changes.map(r => ({ r: r, cells: JSON.parse(r.cells || '[]') })).filter(x => x.cells.length).map(x => Object.assign(x, { first: x.cells.map(y => y.date).sort()[0] }))
+    .filter(x => dateSet.has(x.first));
+  const byKind = {}, devs = [], byReq = {};
+  let apprHours = 0, apprN = 0;
+  chs.forEach(x => {
+    const r = x.r, k = byKind[r.kind] = byKind[r.kind] || { label: CHANGE_KINDS[r.kind] || r.kind, approved: 0, rejected: 0, withdrawn: 0, waiting: 0, reverted: 0 };
+    const st = r.status === 'wait_partner' || r.status === 'wait_approver' ? 'waiting' : r.status;
+    if (k[st] !== undefined) k[st]++;
+    if (r.revertedBy) k.reverted++;
+    const q = byReq[r.requester] = byReq[r.requester] || { name: r.requester, total: 0, approved: 0, deviations: 0 };
+    q.total++;
+    const dv = JSON.parse(r.deviations || '[]');
+    if (r.status === 'approved') {
+      q.approved++;
+      const m = M[monthOf(x.first)];
+      if (m) { m.changes++; m.byKind[r.kind] = (m.byKind[r.kind] || 0) + 1; if (dv.length) m.deviations++; }
+      if (P[r.requester]) P[r.requester].req++;
+      if (r.partner && P[r.partner]) P[r.partner].recv++;
+      if (r.approverAt && r.createdAt) { apprHours += (new Date(r.approverAt) - new Date(r.createdAt)) / 3600000; apprN++; }
+    }
+    if (dv.length) {
+      q.deviations++;
+      devs.push({ date: x.first, requester: r.requester, partner: r.partner, kind: CHANGE_KINDS[r.kind] || r.kind, status: CHANGE_STATUS[r.status] || r.status,
+        summary: r.summary, deviations: dv, reason: r.reason, createdAt: r.createdAt });
+    }
+  });
+  // 確定版と実績の違い
+  const diff = [];
+  dates.forEach(d => {
+    const D = day[d];
+    D.names.forEach(n => {
+      const c = (D.conf[n] || {})[d] || '', a = (D.act[n] || {})[d] || '';
+      if (c === a) return;
+      const r = D.via[n + '|' + d];
+      diff.push({ date: d, name: n, team: team[n] || '', rest: D.rest, confirmed: c, actual: a, kind: r ? CHANGE_KINDS[r.kind] || r.kind : '', summary: r ? r.summary : '', requester: r ? r.requester : '' });
+    });
+  });
+  // 時間休（人×月）
+  const hourly = {};
+  Object.keys(P).forEach(n => { hourly[n] = {}; });
+  dates.forEach(d => { const D = day[d]; D.names.forEach(n => { const mk = (D.act[n] || {})[d] || ''; if (isHourly_(mk) && !onLeave(D, n, d)) hourly[n][monthOf(d)] = (hourly[n][monthOf(d)] || 0) + hoursAt(n, d, mk); }); });
+  const order = Object.keys(team);
+  const persons = Object.keys(P).map(n => { const o = P[n]; delete o.cur; delete o.last; return o; })
+    .sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  const monthly = months.map(mo => { const m = M[mo]; m.restAvg = m.weekdays ? Math.round(m.restSum / m.weekdays * 10) / 10 : 0; return m; });
+  const total = Object.assign(zero(), { month: '計', days: 0, weekdays: 0, restDays: 0, restSum: 0, restMax: 0, overDays: 0, changedCells: 0, changes: 0, deviations: 0, byKind: {} });
+  monthly.forEach(m => {
+    Object.keys(total).forEach(k => { if (typeof total[k] === 'number' && k !== 'restMax') total[k] += m[k]; });
+    total.restMax = Math.max(total.restMax, m.restMax);
+    Object.keys(m.byKind).forEach(k => { total.byKind[k] = (total.byKind[k] || 0) + m.byKind[k]; });
+  });
+  total.restAvg = total.weekdays ? Math.round(total.restSum / total.weekdays * 10) / 10 : 0;
+  return {
+    scope: scope, scopes: { fys: fys, labels: labels }, cols: ST_COLS, kinds: CHANGE_KINDS, cap: DAY_CAP,
+    hourlyCap: hourlyCap_(cfg), from: dates[0] || '', to: dates[dates.length - 1] || '', days: dates.length,
+    monthly: monthly, total: total, persons: persons, diff: diff.slice(0, 3000), diffCount: diff.length,
+    changes: { byKind: byKind, deviations: devs.reverse(), byRequester: Object.keys(byReq).map(k => byReq[k]).sort((a, b) => b.total - a.total),
+      count: chs.length, avgApprovalHours: apprN ? Math.round(apprHours / apprN * 10) / 10 : null },
+    hourly: hourly,
+  };
+}
 // 確定版に、確定後に承認された変更を順に重ねる
 function actual_(conf) {
   const data = JSON.parse(JSON.stringify(conf.data || {}));

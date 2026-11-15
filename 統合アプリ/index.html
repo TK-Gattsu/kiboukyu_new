@@ -130,6 +130,29 @@ table.list tr.inactive td { color: #AAA; }
 .ntc li.unread { font-weight: bold; }
 .ntc li.unread::before { content: '●'; color: var(--red); font-size: 10px; }
 .ntc li.read { color: #666; }
+/* 実績の集計・分析 */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 8px 0 12px; }
+.tile { border: 1px solid #E3E3E3; border-radius: 8px; padding: 8px 10px; background: #FAFBFC; }
+.tile .v { font-size: 20px; font-weight: bold; color: var(--blue); }
+.tile .k { font-size: 11px; color: var(--muted); }
+table.st { border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+table.st th, table.st td { border: 1px solid #E3E3E3; padding: 3px 6px; text-align: right; }
+table.st th { background: var(--gray); position: sticky; top: 0; z-index: 1; cursor: default; }
+table.st th.sort { cursor: pointer; }
+table.st th.sort:hover { background: var(--blue-light); }
+table.st td.l, table.st th.l { text-align: left; }
+table.st tr.tot td { font-weight: bold; background: #F0F0F0; }
+table.st tr.avg td { color: #555; background: #FAFAFA; font-style: italic; }
+table.st td.bad { color: var(--red); font-weight: bold; }
+.bars { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 14px; }
+.bars .row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.bars .lb { width: 64px; text-align: right; color: #555; flex-shrink: 0; }
+.bars .tr { flex: 1; display: flex; height: 16px; background: #F3F3F3; border-radius: 3px; overflow: hidden; }
+.bars .tr span { display: block; height: 100%; }
+.bars .vv { width: 44px; font-size: 11px; color: #555; flex-shrink: 0; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #555; margin-top: 2px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 .mg-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 8px; margin: 8px 0; background: #FAFBFC; }
 .mg-box .scroll { max-height: 50vh; }
 .kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
@@ -425,6 +448,24 @@ table.list tr.inactive td { color: #AAA; }
   </div>
 </section>
 
+<!-- 実績の集計・分析（承認者・システム管理者） -->
+<section id="v-stats" style="display:none;">
+  <div style="max-width:1200px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>実績の集計・分析</h2>
+      <p class="hint">確定した勤務表に、確定後に承認された勤務変更を重ねた「実績」を集計します。期間ごとに最後に確定した版を使います。</p>
+      <div class="toolbar">
+        <label style="font-size:13px; font-weight:bold;">範囲 <select id="st-scope" style="width:auto; font-size:13px; padding:4px 6px;"></select></label>
+        <button class="btn btn-green btn-sm" onclick="exportStats()">Excelで書き出す</button>
+        <span class="hint" id="st-range"></span>
+      </div>
+      <div class="tabs" id="st-tabs"></div>
+      <div id="st-body"><p class="hint">読み込み中…</p></div>
+    </div>
+  </div>
+</section>
+
 <!-- 申請する種類を選ぶ -->
 <div class="modal" id="pick-modal" onclick="if(event.target===this)closeModal('pick-modal')">
   <div class="box">
@@ -536,12 +577,12 @@ const isApprover = () => ME && (ME.roles.indexOf('approver') >= 0 || isAdmin());
 /* ============================================================
    画面の切り替え
    ============================================================ */
-const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule', 'chg', 'chgme', 'chgadm'];
+const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule', 'chg', 'chgme', 'chgadm', 'stats'];
 let CUR_VIEW = null;
 function show(v) {
   if (CUR_VIEW === 'kinmu' && v !== 'kinmu') kinmuFlush();   // 作成画面を離れるときは保存を急がせる
   CUR_VIEW = v;
-  document.querySelector('main').style.display = ['kinmu', 'schedule', 'chg', 'chgme', 'chgadm'].indexOf(v) >= 0 ? 'none' : '';
+  document.querySelector('main').style.display = ['kinmu', 'schedule', 'chg', 'chgme', 'chgadm', 'stats'].indexOf(v) >= 0 ? 'none' : '';
   for (const x of VIEWS) document.getElementById('v-' + x).style.display = x === v ? '' : 'none';
   document.getElementById('logout-btn').style.display = v === 'login' ? 'none' : '';
   document.getElementById('who').innerHTML = ME && v !== 'login'
@@ -558,6 +599,7 @@ function show(v) {
   if (v === 'chg') loadChg();
   if (v === 'chgme') loadChgMe();
   if (v === 'chgadm') loadChgAdm();
+  if (v === 'stats') loadStats();
   if (v === 'password') {
     for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
     document.getElementById('pw-err').textContent = '';
@@ -625,6 +667,7 @@ function renderMenu() {
     { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
   ];
   if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件から外れる申請の理由も確認できます。', go: 'chgadm', key: 'approvals' });
+  if (isApprover()) items.push({ title: '実績の集計・分析', desc: '月別・年度の全体の集計、個人別の回数、確定版と実績の違い、勤務変更・時間休の分析。Excelにも書き出せます。', go: 'stats' });
   if (isAdmin()) {
     items.push({ title: '期間・流れ・受付の設定', desc: '期間、作成の流れ（希望休が先／当番が先）、申請の受付開始・締め切り、時間休の設定、勤務表作成アプリとの受け渡し。', go: 'wf' });
     items.push({ title: '申請の一覧・取り込み', desc: '全員の申請を日ごとに確認し、代わりに入力したり、勤務表に取り込んだりします。', go: 'reqadmin' });
@@ -1763,6 +1806,162 @@ async function loadChgAdm() {
 }
 
 /* ============================================================
+   実績の集計・分析（承認者・システム管理者）
+   ============================================================ */
+let ST = null, ST_TAB = 'overview', ST_SORT = null;
+const ST_TABS = [['overview', '全体（月別・年度）'], ['persons', '個人別'], ['diff', '確定版と実績の違い'], ['changes', '勤務変更'], ['hourly', '時間休']];
+const ST_COLOR = { yu: '#70AD47', natsu: '#F4B183', toku: '#A5A5A5', furi: '#B4A7D6', hourlyH: '#C5E0B4', nichoku: '#5B9BD5', yakin: '#1F4E79', zan: '#9DC3E6' };
+async function loadStats(scope) {
+  document.getElementById('st-body').innerHTML = '<p class="hint">集計しています…</p>';
+  try { ST = await call('statsGet', { scope: scope || (ST && ST.scope) || '' }); renderStats(); }
+  catch (e) { document.getElementById('st-body').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+function stMonth(mo) { return mo === '計' ? '計' : Number(mo.slice(0, 4)) + '/' + Number(mo.slice(5)); }
+function renderStats() {
+  const sel = document.getElementById('st-scope');
+  sel.innerHTML = '<optgroup label="年度">' + ST.scopes.fys.map(f => '<option value="fy:' + f.fy + '">' + esc(f.label) + '</option>').join('') + '</optgroup>' +
+    '<optgroup label="勤務表の期間">' + ST.scopes.labels.map(l => '<option value="label:' + esc(l.label) + '">' + esc(l.label) + '（第' + l.rev + '版）</option>').join('') + '</optgroup>' +
+    '<option value="all">すべて</option>';
+  sel.value = ST.scope;
+  sel.onchange = () => loadStats(sel.value);
+  document.getElementById('st-range').textContent = ST.days ? ST.from.replace(/-0?/g, '/') + '〜' + ST.to.replace(/-0?/g, '/') + '（' + ST.days + '日）' : '';
+  const tabs = document.getElementById('st-tabs');
+  tabs.innerHTML = ST_TABS.map(t => '<button data-k="' + t[0] + '" class="' + (t[0] === ST_TAB ? 'on' : '') + '">' + t[1] + '</button>').join('');
+  tabs.querySelectorAll('button').forEach(b => { b.onclick = () => { ST_TAB = b.dataset.k; renderStats(); }; });
+  const body = document.getElementById('st-body');
+  if (!ST.days) { body.innerHTML = '<p class="notice">集計できる、確定した勤務表がまだありません。</p>'; return; }
+  body.innerHTML = { overview: stOverview, persons: stPersons, diff: stDiff, changes: stChanges, hourly: stHourly }[ST_TAB]();
+  body.querySelectorAll('th.sort').forEach(th => { th.onclick = () => {
+    const k = th.dataset.k; ST_SORT = ST_SORT && ST_SORT.k === k ? { k: k, desc: !ST_SORT.desc } : { k: k, desc: true }; renderStats();
+  }; });
+  const tf = document.getElementById('st-team'); if (tf) tf.onchange = () => { ST.teamFilter = tf.value; renderStats(); };
+  const nf = document.getElementById('st-name'); if (nf) { nf.oninput = () => { ST.nameFilter = nf.value; const p = nf.selectionStart; renderStats(); const n2 = document.getElementById('st-name'); n2.focus(); n2.setSelectionRange(p, p); }; }
+}
+// 横棒グラフ（series ごとに色分けして積み上げる）
+function stBars(rows, labelOf, series) {
+  const max = Math.max(1, ...rows.map(r => series.reduce((a, s) => a + (r[s[0]] || 0), 0)));
+  return '<div class="bars">' + rows.map(r => {
+    const tot = series.reduce((a, s) => a + (r[s[0]] || 0), 0);
+    return '<div class="row"><span class="lb">' + esc(labelOf(r)) + '</span><span class="tr">' +
+      series.map(s => (r[s[0]] ? '<span title="' + esc(s[1] + ' ' + r[s[0]]) + '" style="width:' + (r[s[0]] / max * 100) + '%; background:' + s[2] + ';"></span>' : '')).join('') +
+      '</span><span class="vv">' + (Math.round(tot * 10) / 10) + '</span></div>';
+  }).join('') + '<div class="legend">' + series.map(s => '<span><i style="background:' + s[2] + ';"></i>' + esc(s[1]) + '</span>').join('') + '</div></div>';
+}
+function stOverview() {
+  const t = ST.total;
+  const tile = (v, k) => '<div class="tile"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
+  let h = '<div class="tiles">' + tile(t.days + '日', '平日 ' + t.weekdays + '日／土日祝 ' + t.restDays + '日') + tile(t.nichoku, '日直（回）') + tile(t.yakin, '夜勤（回）') + tile(t.zan, '残り当番（回）') +
+    tile(t.restAvg + '人', '平日の休み 1日平均（最大 ' + t.restMax + '人）') + tile(t.overDays + '日', '平日の休みが' + ST.cap + '人を超えた日') +
+    tile(t.yu + '日', '有給（1日）') + tile(t.hourlyH + '時間', '時間休（' + t.hourlyN + '回）') + tile(t.changes + '件', '承認された勤務変更（条件外 ' + t.deviations + '件）') + tile(t.changedCells, '確定後に変更があったマス（延べ）') + '</div>';
+  h += '<h3 class="st">休みの延べ人数（月別）</h3>' + stBars(ST.monthly, r => stMonth(r.month), [['yu', '有', ST_COLOR.yu], ['natsu', '夏', ST_COLOR.natsu], ['toku', '特', ST_COLOR.toku], ['furi', '振休', ST_COLOR.furi]]);
+  h += '<h3 class="st">当番の回数（月別）</h3>' + stBars(ST.monthly, r => stMonth(r.month), [['nichoku', '日直', ST_COLOR.nichoku], ['yakin', '夜勤', ST_COLOR.yakin], ['zan', '残当', ST_COLOR.zan]]);
+  h += '<h3 class="st">平日の休み 1日平均（月別）</h3>' + stBars(ST.monthly, r => stMonth(r.month), [['restAvg', '平日の休み（人／日）', '#ED7D31']]);
+  h += '<h3 class="st">月別の集計</h3><div class="scroll" style="max-height:none;"><table class="st"><tr><th class="l">月</th><th>日数</th><th>平日</th><th>土日祝</th>' +
+    ST.cols.filter(c => c[0] !== 'work').map(c => '<th>' + esc(c[1]) + '</th>').join('') + '<th>平日の休み<br>平均</th><th>最大</th><th>' + ST.cap + '人超え<br>の日</th><th>勤務変更</th><th>条件外</th><th>変更が<br>あったマス</th></tr>' +
+    ST.monthly.concat([t]).map(m => '<tr class="' + (m === t ? 'tot' : '') + '"><td class="l">' + stMonth(m.month) + '</td><td>' + m.days + '</td><td>' + m.weekdays + '</td><td>' + m.restDays + '</td>' +
+      ST.cols.filter(c => c[0] !== 'work').map(c => '<td>' + (m[c[0]] || '') + '</td>').join('') + '<td>' + m.restAvg + '</td><td class="' + (m.restMax > ST.cap ? 'bad' : '') + '">' + m.restMax + '</td>' +
+      '<td class="' + (m.overDays ? 'bad' : '') + '">' + (m.overDays || '') + '</td><td>' + (m.changes || '') + '</td><td>' + (m.deviations || '') + '</td><td>' + (m.changedCells || '') + '</td></tr>').join('') + '</table></div>';
+  h += '<p class="hint">「休み」は有・夏・特・振休（×と長期休暇は含めません）。時間休は休み人数に数えません。勤務変更は、変更する最初の日の月で数えます。</p>';
+  return h;
+}
+const ST_PCOLS = () => ST.cols.concat([['maxStreak', '最長連続勤務'], ['req', '勤務変更の申請(承認)'], ['recv', '交代などを受けた'], ['changedCells', '変更があったマス']]);
+function stPersons() {
+  const cols = ST_PCOLS(), teams = [...new Set(ST.persons.map(p => p.team))];
+  let list = ST.persons.filter(p => !ST.teamFilter || p.team === ST.teamFilter);
+  if (ST_SORT && ST_SORT.k) list = list.slice().sort((a, b) => ((b[ST_SORT.k] || 0) - (a[ST_SORT.k] || 0)) * (ST_SORT.desc ? 1 : -1));
+  const max = {}, avg = {};
+  cols.forEach(c => { const v = list.map(p => p[c[0]] || 0); max[c[0]] = Math.max(1, ...v); avg[c[0]] = v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0; });
+  const shade = (k, v) => v ? 'background:rgba(31,78,121,' + (0.06 + 0.32 * v / max[k]).toFixed(2) + ');' : '';
+  let h = '<div class="toolbar" style="margin-top:6px;"><label style="font-size:13px;">チーム <select id="st-team" style="width:auto; font-size:13px; padding:4px;"><option value="">すべて</option>' +
+    teams.map(t => '<option' + (t === ST.teamFilter ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select></label>' +
+    '<span class="hint">見出しを押すと並べ替えます。色が濃いほど回数が多い人です（担当の偏りの確認に）。</span></div>';
+  h += '<div class="scroll" style="max-height:70vh;"><table class="st"><tr><th class="l">名前</th><th class="l">チーム</th>' +
+    cols.map(c => '<th class="sort" data-k="' + c[0] + '">' + esc(c[1]) + (ST_SORT && ST_SORT.k === c[0] ? (ST_SORT.desc ? ' ▼' : ' ▲') : '') + '</th>').join('') + '</tr>' +
+    list.map(p => '<tr><td class="l"><b>' + esc(p.name) + '</b></td><td class="l">' + esc(p.team) + '</td>' +
+      cols.map(c => '<td style="' + shade(c[0], p[c[0]] || 0) + '" class="' + (c[0] === 'maxStreak' && p.maxStreak > 6 ? 'bad' : '') + '">' + (p[c[0]] || '') + '</td>').join('') + '</tr>').join('') +
+    '<tr class="avg"><td class="l">平均</td><td></td>' + cols.map(c => '<td>' + avg[c[0]] + '</td>').join('') + '</tr></table></div>';
+  h += '<p class="hint">勤務日数は、平日の勤務（時間休の日を含む）と日直・夜勤・明け・残り当番・出・業・研の日。最長連続勤務が7日以上は赤字です。</p>';
+  return h;
+}
+function stCellText(mk, rest) { return markText(mk) || (rest ? '休み' : '勤務'); }
+function stDiff() {
+  const q = (ST.nameFilter || '').trim();
+  const list = ST.diff.filter(x => !q || x.name.indexOf(q) >= 0);
+  let h = '<div class="toolbar" style="margin-top:6px;"><input type="text" id="st-name" placeholder="名前で絞り込み" value="' + esc(q) + '">' +
+    '<span class="hint">確定したときの勤務表と、今の実績が違うマス ' + ST.diffCount + '件' + (ST.diffCount > ST.diff.length ? '（先頭の' + ST.diff.length + '件を表示）' : '') + '</span></div>';
+  if (!list.length) return h + '<p class="hint">違いはありません。</p>';
+  h += '<div class="scroll" style="max-height:70vh;"><table class="st"><tr><th class="l">日付</th><th class="l">名前</th><th class="l">確定版</th><th></th><th class="l">実績</th><th class="l">変更の種類</th><th class="l">内容</th></tr>' +
+    list.map(x => '<tr><td class="l">' + esc(mdw(x.date)) + '</td><td class="l">' + esc(x.name) + '</td><td class="l">' + esc(stCellText(x.confirmed, x.rest)) + '</td><td>→</td><td class="l"><b>' + esc(stCellText(x.actual, x.rest)) + '</b></td>' +
+      '<td class="l">' + esc(x.kind) + '</td><td class="l" style="white-space:normal; min-width:240px;">' + esc(x.summary) + '</td></tr>').join('') + '</table></div>';
+  return h;
+}
+function stChanges() {
+  const C = ST.changes, kinds = Object.keys(C.byKind);
+  let h = '<div class="tiles"><div class="tile"><div class="v">' + C.count + '件</div><div class="k">申請（取り下げ・却下を含む）</div></div>' +
+    '<div class="tile"><div class="v">' + (C.avgApprovalHours === null ? '－' : C.avgApprovalHours + '時間') + '</div><div class="k">申請から承認までの平均</div></div>' +
+    '<div class="tile"><div class="v">' + C.deviations.length + '件</div><div class="k">条件から外れる申請</div></div></div>';
+  h += '<h3 class="st">種類ごとの件数</h3>' + (kinds.length ? '<table class="st"><tr><th class="l">種類</th><th>承認</th><th>却下</th><th>取り下げ</th><th>承認待ち</th><th>あとで取り消し</th></tr>' +
+    kinds.map(k => { const x = C.byKind[k]; return '<tr><td class="l">' + esc(x.label) + '</td><td>' + x.approved + '</td><td>' + x.rejected + '</td><td>' + x.withdrawn + '</td><td>' + x.waiting + '</td><td>' + x.reverted + '</td></tr>'; }).join('') + '</table>' : '<p class="hint">申請はありません。</p>');
+  h += '<h3 class="st">月別の承認件数</h3>' + stBars(ST.monthly.map(m => Object.assign({ month: m.month }, m.byKind)), r => stMonth(r.month),
+    Object.keys(ST.kinds).map((k, i) => [k, ST.kinds[k], ['#5B9BD5', '#B4A7D6', '#70AD47', '#C5E0B4', '#F4B183'][i % 5]]));
+  h += '<h3 class="st">申請した人</h3>' + (C.byRequester.length ? '<table class="st"><tr><th class="l">名前</th><th>申請</th><th>承認</th><th>条件外</th></tr>' +
+    C.byRequester.map(x => '<tr><td class="l">' + esc(x.name) + '</td><td>' + x.total + '</td><td>' + x.approved + '</td><td class="' + (x.deviations ? 'bad' : '') + '">' + (x.deviations || '') + '</td></tr>').join('') + '</table>' : '<p class="hint">なし</p>');
+  h += '<h3 class="st">条件から外れる申請（理由つき）</h3>' + (C.deviations.length ? '<div class="scroll" style="max-height:50vh;"><table class="st"><tr><th class="l">日付</th><th class="l">申請者</th><th class="l">種類</th><th class="l">状態</th><th class="l">内容</th><th class="l">条件外</th><th class="l">理由</th></tr>' +
+    C.deviations.map(x => '<tr><td class="l">' + esc(mdw(x.date)) + '</td><td class="l">' + esc(x.requester) + '</td><td class="l">' + esc(x.kind) + '</td><td class="l">' + esc(x.status) + '</td>' +
+      '<td class="l" style="white-space:normal; min-width:200px;">' + esc(x.summary) + '</td><td class="l bad" style="white-space:normal; min-width:200px;">' + x.deviations.map(esc).join('<br>') + '</td><td class="l" style="white-space:normal; min-width:160px;">' + esc(x.reason) + '</td></tr>').join('') + '</table></div>' : '<p class="hint">なし</p>');
+  h += '<p class="hint">条件外の理由は、システム管理者と承認者だけが見られます。</p>';
+  return h;
+}
+function stHourly() {
+  const months = ST.monthly.map(m => m.month), fy = ST.scope.indexOf('fy:') === 0;
+  const rows = ST.persons.map(p => { const o = { name: p.name, team: p.team, total: 0 }; months.forEach(mo => { o[mo] = (ST.hourly[p.name] || {})[mo] || 0; o.total += o[mo]; }); return o; }).filter(o => o.total);
+  let h = '<p class="hint" style="margin-top:6px;">時間休の時間数（人×月）。' + (fy ? '年度の上限は ' + ST.hourlyCap + '時間です。' : '上限との比較は、範囲で「年度」を選ぶと表示します。') + '</p>';
+  if (!rows.length) return h + '<p class="hint">この範囲に時間休はありません。</p>';
+  const tot = { total: 0 }; months.forEach(mo => { tot[mo] = rows.reduce((a, r) => a + r[mo], 0); tot.total += tot[mo]; });
+  h += '<div class="scroll" style="max-height:70vh;"><table class="st"><tr><th class="l">名前</th><th class="l">チーム</th>' + months.map(mo => '<th>' + stMonth(mo) + '</th>').join('') + '<th>計</th>' + (fy ? '<th>残り</th>' : '') + '</tr>' +
+    rows.map(r => '<tr><td class="l"><b>' + esc(r.name) + '</b></td><td class="l">' + esc(r.team) + '</td>' + months.map(mo => '<td>' + (r[mo] || '') + '</td>').join('') + '<td><b>' + r.total + '</b></td>' +
+      (fy ? '<td class="' + (ST.hourlyCap - r.total <= 8 ? 'bad' : '') + '">' + Math.max(0, ST.hourlyCap - r.total) + '</td>' : '') + '</tr>').join('') +
+    '<tr class="tot"><td class="l">計</td><td></td>' + months.map(mo => '<td>' + (tot[mo] || '') + '</td>').join('') + '<td>' + tot.total + '</td>' + (fy ? '<td></td>' : '') + '</tr></table></div>';
+  h += stBars(rows, r => r.name, [['total', '時間休（時間）', ST_COLOR.hourlyH]]);
+  return h;
+}
+// Excel（SheetJS をこの画面を開いたときだけ読み込む）
+function loadXlsxLib() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((ok, ng) => {
+    const sc = document.createElement('script');
+    sc.src = 'https:\/\/cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    sc.onload = () => ok(); sc.onerror = () => ng(new Error('Excelの部品を読み込めませんでした。ネット接続を確認してください。'));
+    document.head.appendChild(sc);
+  });
+}
+async function exportStats() {
+  if (!ST || !ST.days) { alert('集計がありません。'); return; }
+  try { await loadXlsxLib(); } catch (e) { alert(e.message); return; }
+  const wb = XLSX.utils.book_new();
+  const add = (name, aoa) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
+  const cols = ST.cols.filter(c => c[0] !== 'work');
+  add('全体（月別）', [['月', '日数', '平日', '土日祝'].concat(cols.map(c => c[1])).concat(['平日の休み平均', '平日の休み最大', ST.cap + '人超えの日', '勤務変更', '条件外', '変更があったマス'])]
+    .concat(ST.monthly.concat([ST.total]).map(m => [stMonth(m.month), m.days, m.weekdays, m.restDays].concat(cols.map(c => m[c[0]] || 0)).concat([m.restAvg, m.restMax, m.overDays, m.changes, m.deviations, m.changedCells]))));
+  const pc = ST_PCOLS();
+  add('個人別', [['名前', 'チーム'].concat(pc.map(c => c[1]))].concat(ST.persons.map(p => [p.name, p.team].concat(pc.map(c => p[c[0]] || 0)))));
+  add('確定版と実績', [['日付', '名前', 'チーム', '確定版', '実績', '変更の種類', '内容']].concat(ST.diff.map(x => [x.date, x.name, x.team, stCellText(x.confirmed, x.rest), stCellText(x.actual, x.rest), x.kind, x.summary])));
+  const C = ST.changes;
+  add('勤務変更', [['種類', '承認', '却下', '取り下げ', '承認待ち', 'あとで取り消し']].concat(Object.keys(C.byKind).map(k => { const x = C.byKind[k]; return [x.label, x.approved, x.rejected, x.withdrawn, x.waiting, x.reverted]; }))
+    .concat([[], ['申請した人', '申請', '承認', '条件外']]).concat(C.byRequester.map(x => [x.name, x.total, x.approved, x.deviations])));
+  add('条件外の申請', [['日付', '申請者', '相手', '種類', '状態', '内容', '条件外', '理由']].concat(C.deviations.map(x => [x.date, x.requester, x.partner, x.kind, x.status, x.summary, x.deviations.join('／'), x.reason])));
+  const months = ST.monthly.map(m => m.month);
+  add('時間休', [['名前', 'チーム'].concat(months.map(stMonth)).concat(['計'])].concat(ST.persons.map(p => {
+    const v = months.map(mo => (ST.hourly[p.name] || {})[mo] || 0); return [p.name, p.team].concat(v).concat([v.reduce((a, b) => a + b, 0)]);
+  }).filter(r => r[r.length - 1])));
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = '実績集計_' + (ST.scope === 'all' ? 'すべて' : ST.scope.replace(/^fy:/, '').replace(/^label:/, '')) + (ST.scope.indexOf('fy:') === 0 ? '年度' : '') + '.xlsx';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ============================================================
    モーダル・起動
    ============================================================ */
 function openModal(id) { document.getElementById(id).style.display = 'block'; }
@@ -1776,7 +1975,7 @@ function resetViews() {
   ['pick-modal', 'pw-modal', 'user-modal', 'bulk-modal'].forEach(closeModal);
   CHG_SV = null; CGG.month = null; CGG.cells = null; CGG.all = false;
   USERS = []; RV = null; AV = null; _eff = null; WF = null; SV = null; CG = null; CG_KIND = null; CG_PAYLOAD = null; CA_LIST = []; PICK = null;
-  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait'; NTC_ALL = false;
+  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait'; NTC_ALL = false; ST = null; ST_TAB = 'overview'; ST_SORT = null;
 }
 
 (async function init() {
