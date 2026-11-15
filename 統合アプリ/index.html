@@ -153,6 +153,16 @@ table.st td.bad { color: var(--red); font-weight: bold; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #555; margin-top: 2px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
 h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
+/* 使い方 */
+.help details { border-top: 1px solid #EEE; padding: 6px 0; }
+.help summary { cursor: pointer; font-weight: bold; font-size: 14px; color: #333; padding: 4px 0; }
+.help summary:hover { color: var(--blue); }
+.help ol, .help ul { margin: 6px 0 6px 0; padding-left: 22px; line-height: 1.8; font-size: 13px; }
+.help p { font-size: 13px; line-height: 1.8; margin: 6px 0; }
+.help-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 自分の集計: 平均との比較 */
+.cmp { font-size: 11px; color: var(--muted); }
+.cmp.up { color: var(--orange); }
 .mg-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 8px; margin: 8px 0; background: #FAFBFC; }
 .mg-box .scroll { max-height: 50vh; }
 .kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
@@ -190,6 +200,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 <header>
   <h1>勤務管理アプリ</h1>
   <span class="who" id="who"></span>
+  <button id="help-btn" style="display:none;" onclick="show('help')">使い方</button>
   <button id="logout-btn" style="display:none;" onclick="logout()">ログアウト</button>
 </header>
 
@@ -466,6 +477,192 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
   </div>
 </section>
 
+<!-- 自分の集計（全員） -->
+<section id="v-mystats" style="display:none;">
+  <div style="max-width:1000px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>自分の集計</h2>
+      <p class="hint">確定した勤務表に、承認された勤務変更を重ねた「実績」から、あなたの回数を集計します。「全員の平均」と比べられます（ほかの人の回数は見えません）。</p>
+      <div class="toolbar">
+        <label style="font-size:13px; font-weight:bold;">範囲 <select id="ms-scope" style="width:auto; font-size:13px; padding:4px 6px;"></select></label>
+        <span class="hint" id="ms-range"></span>
+      </div>
+      <div id="ms-body"><p class="hint">読み込み中…</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 使い方 -->
+<section id="v-help" style="display:none;">
+  <div style="max-width:900px; margin:0 auto; padding:16px;">
+    <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card">
+      <h2>使い方</h2>
+      <p class="hint">あなたの権限に合わせた説明を表示しています。見出しを押すと開閉します。ボタンの名前は画面の表記どおりです。</p>
+      <div class="help-nav" id="help-nav"></div>
+    </div>
+
+    <div class="card help" data-role="staff">
+      <h2>スタッフ向け</h2>
+
+      <details open><summary>はじめてのログイン・パスワード</summary>
+        <ol>
+          <li>システム管理者から配られた <b>ID</b> と <b>仮パスワード</b> でログインします。</li>
+          <li>はじめてのときは「パスワード変更」の画面になります。英字と数字を含む8文字以上の、自分だけが知っているパスワードに変えてください。</li>
+          <li>パスワードを忘れたときは、システム管理者に「パスワード再発行」を頼んでください。</li>
+          <li>共用のパソコンでは、使い終わったら右上の「ログアウト」を押してください。</li>
+        </ol>
+      </details>
+
+      <details open><summary>メニューとお知らせ</summary>
+        <ul>
+          <li>ログインするとメニューが出ます。上に「<b>お知らせ</b>」が出ているときは、交代を頼まれた・申請が承認された・却下された、などの知らせです。押すとその画面が開きます。</li>
+          <li>メニューに「承認待ち ○件」「⚠ 人数超過」などの赤い印が出たら、その画面を確認してください。</li>
+        </ul>
+      </details>
+
+      <details><summary>希望休の申請</summary>
+        <ol>
+          <li>メニューの「<b>希望休の申請</b>」を開きます。受付中の期間だけ申請できます（受付の期間は画面の上に出ます）。</li>
+          <li>カレンダーの日付を押し、種類（有・夏・特・×など）を選んで申請します。平日の「残り」は、その日にあと何人休めるかです（1日5人まで）。土日祝は「×」だけです。</li>
+          <li>受付中は5人を超えても申請できますが、超えた日に申請している人には注意が出ます。同じ日の人どうしで相談して、取り消すか別の日に移してください。</li>
+          <li>受付が終わると「調整中」になります。調整中は、5人を超えた日に申請していた人だけが、取り消し・5人未満の日への移動をできます。</li>
+          <li>申請を取り消すときは、その日付を押して「取り消す」を押します。下の「自分の申請」で一覧を確認できます。</li>
+          <li>日直・夜勤・振休が先に決まっている場合は、その日は申請できません（灰色の表示）。振休は、移したい平日を押して「振休をこの日へ移動」を選ぶと、別の日へ移す申請ができます。</li>
+        </ol>
+      </details>
+
+      <details><summary>勤務表を見る</summary>
+        <ul>
+          <li>メニューの「<b>勤務表を見る</b>」で、確定して配布された勤務表を見られます。「自分の勤務」はカレンダー、「全員」は一覧表です。</li>
+          <li>確定後の勤務変更で変わったマスには、オレンジの枠（自分の勤務では「変更あり」）が付きます。</li>
+          <li>時間休は「有12-17」（12時から17時まで休み）のように表示されます。</li>
+        </ul>
+      </details>
+
+      <details><summary>勤務変更・追加の申請（交代・振休の交換・自分の勤務の変更・時間休）</summary>
+        <p>メニューの「<b>勤務変更・追加の申請</b>」で、確定した勤務表を変える申請をします。下の小さな勤務表のマスを押しても選べます。選んだら「<b>内容を確認</b>」→ 変わるマスがオレンジで表示されるので、確かめて「<b>申請する</b>」を押します。</p>
+        <ul>
+          <li><b>交代</b>：自分の日直・夜勤・残り当番と、相手の日直・夜勤・残り当番を同時に入れ替えます。「自分が渡す勤務」「相手」「代わりに引き受ける相手の勤務」を選びます。夜勤（入）は翌日の「明」も一緒に移ります。相手 → 承認者の順に承認されると反映されます。</li>
+          <li><b>振休の交換</b>：自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手 → 承認者の承認が必要です。</li>
+          <li><b>自分の勤務の変更</b>：有・夏・特を取る／取り消す、出張・業務・研修などに変えます。承認者の承認が必要です。</li>
+          <li><b>時間休</b>：遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です。
+            <ul>
+              <li>日付・種類を選び、「休む時刻（から）」「休む時刻（まで）」を選びます。休憩が日によって違う場合は「その日の休憩」も選びます。</li>
+              <li>時間は休憩を除いて1時間単位で数え、1時間に満たない分は切り上げます。選ぶと「○時間」と表示されます。</li>
+              <li>1年度（4月から）の上限は40時間（5日×8時間）で、申請中の分も含めて数えます。今の使用時間は画面に出ます。</li>
+              <li>時刻を変える・取り消すときも「時間休」で、その日を選んで行います。</li>
+            </ul></li>
+          <li>休みが5人を超える・連続勤務が7日以上になる、などの条件から外れる場合は、理由（5文字以上）が必要です。理由はシステム管理者と承認者だけが見られます（交代の相手には見えません）。</li>
+          <li>承認される前なら、「自分の申請」の「<b>取り下げる</b>」で取り下げられます。</li>
+          <li>承認されたあとに取り消したいときは、「自分の申請」の「<b>承認後の取り消しを申請</b>」を押します。元の申請と同じく、相手（交代・振休の交換のとき）と承認者の承認で、勤務表が元に戻ります。承認後に同じマスがさらに変わっているときは、取り消せません。</li>
+        </ul>
+      </details>
+
+      <details><summary>自分あての承認</summary>
+        <ul>
+          <li>ほかの人から交代・振休の交換を頼まれると、お知らせが届き、メニューの「<b>自分あての承認</b>」に件数が出ます。</li>
+          <li>内容と「勤務表で確認 ▼」で変わるマスを確かめ、「<b>承認する</b>」か「<b>却下する</b>」を押します。承認すると、承認者の承認に進みます。</li>
+        </ul>
+      </details>
+
+      <details><summary>自分の集計</summary>
+        <ul>
+          <li>メニューの「<b>自分の集計</b>」で、日直・夜勤・残り当番・有給・時間休・振休などの回数を、年度や勤務表の期間ごとに見られます。</li>
+          <li>「全員の平均」と比べられます。時間休は、年度の上限までの残り時間も出ます。</li>
+          <li>確定したときから変わった自分のマスの一覧も見られます。</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="card help" data-role="approver">
+      <h2>承認者向け</h2>
+      <details open><summary>勤務変更を承認する</summary>
+        <ol>
+          <li>承認待ちの申請があると、お知らせが届き、メニューの「<b>管理者の承認</b>」に件数が出ます。</li>
+          <li>「承認待ち」の一覧で、内容・変わるマス（「勤務表で確認 ▼」）・条件から外れる点と理由を確かめます。</li>
+          <li>「<b>承認する</b>」を押すと、すぐに勤務表の実績に反映されます。「<b>却下する</b>」では理由を書けます（申請者に表示されます）。</li>
+          <li>自分が申請者または相手になっている申請は承認できません。ほかの承認者かシステム管理者が承認します。</li>
+          <li>申請したあとに勤務表が変わっていると承認できません。その場合は却下して、申請し直してもらってください。</li>
+          <li>「すべて」に切り替えると、承認済み・却下・取り下げを含む全部の申請を見られます。</li>
+        </ol>
+      </details>
+      <details><summary>実績の集計・分析</summary>
+        <ul>
+          <li>メニューの「<b>実績の集計・分析</b>」で、範囲（年度・勤務表の期間・すべて）を選びます。</li>
+          <li><b>全体（月別・年度）</b>：当番・休み・時間休の回数、平日の休みの平均・最大、5人を超えた日、勤務変更の件数を、月別の表とグラフで見られます。一番下の行が範囲全体（年度なら年間）の合計です。</li>
+          <li><b>個人別</b>：一人ずつの回数です。見出しを押すと並べ替え、色が濃いほど回数が多い人です（担当の偏りの確認に）。</li>
+          <li><b>確定版と実績の違い</b>：確定したときから変わったマスの一覧です。</li>
+          <li><b>勤務変更</b>：種類ごと・申請した人ごとの件数、承認までの平均時間、条件から外れた申請と理由です。</li>
+          <li><b>時間休</b>：人×月の時間数です。年度を選ぶと、上限までの残りも出ます。</li>
+          <li>「<b>Excelで書き出す</b>」で、選んだ範囲の集計をExcelファイルに保存できます。</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="card help" data-role="sysadmin">
+      <h2>システム管理者向け</h2>
+      <details open><summary>1期間の進め方（全体の流れ）</summary>
+        <p><b>希望休が先</b>の場合：</p>
+        <ol>
+          <li>「期間・流れ・受付の設定」で期間を入れて「期間を保存」し、作成の流れで「希望休が先」を選んで「流れを保存」。</li>
+          <li>「申請の受付」に受付期間と調整期間の終わりを入れる（その日付で 受付中 → 調整中 → 締め切り に自動で切り替わります）。</li>
+          <li>締め切ったら「申請の一覧・取り込み」で確認し、「申請を勤務表に取り込む」。</li>
+          <li>「勤務表の作成」で日直・夜勤・振休・残り当番を作り、「確定してスタッフに配布」。</li>
+          <li>配布後の交代・変更・時間休は、スタッフの申請 → 承認で反映されます。</li>
+          <li>期間が終わったら「実績の集計・分析」で確認・Excelに保存。</li>
+        </ol>
+        <p><b>当番が先</b>の場合：日直・夜勤・振休を先に作り、「仮の勤務表」を「スタッフに公開する」にしてから希望休を受け付けます。「申請の受付の分け方」で、「土日祝の×」と「平日の希望休」を2回に分けるか、1回にまとめるかを選べます（あとから変えられます）。</p>
+      </details>
+      <details><summary>スタッフ・権限の管理</summary>
+        <ul>
+          <li>「<b>＋ スタッフを追加</b>」で1人ずつ、「<b>まとめて追加</b>」で名前の一覧から一度に登録できます。仮パスワードが表示されるので、印刷か書き写しをして本人に渡します（閉じると二度と表示されません）。</li>
+          <li>名前は、勤務表の名簿と同じ表記（漢字・空白）にしてください。違うと、その人は申請や集計で正しく扱われません（「期間・流れ・受付の設定」に食い違いの一覧が出ます）。</li>
+          <li>「編集」で「承認者」「システム管理者」にチェックすると、その権限が付きます。辞めた人は「有効」を外します。</li>
+          <li>パスワードを忘れた人は「<b>パスワード再発行</b>」で新しい仮パスワードを発行します。</li>
+        </ul>
+      </details>
+      <details><summary>期間・流れ・受付の設定</summary>
+        <ul>
+          <li><b>期間</b>：勤務表を作る期間（6か月以内）。</li>
+          <li><b>作成の流れ</b>：希望休が先／当番が先。当番が先では「申請の受付の分け方」と「仮の勤務表」を設定します。</li>
+          <li><b>申請の受付</b>：受付期間・調整期間の終わりを入れると日付で自動的に切り替わります。「受付中にする」「調整中にする」「締め切る」「受付前に戻す」で手動にもでき、「日付どおりにする」で自動に戻ります。</li>
+          <li><b>時間休の設定</b>：始業・終業・休憩（日によって違えば「別の休憩」も）、1年度の上限（日）、1日分の時間数、年度の始まりの月。下に今年度の使用時間の一覧が出ます。</li>
+          <li><b>勤務表データ</b>：勤務表作成アプリのJSONの読み込み・書き出し（バックアップにも使えます）。</li>
+        </ul>
+      </details>
+      <details><summary>申請の一覧・取り込み</summary>
+        <ul>
+          <li>全員の希望休を日ごとの表で見られます。マスを押すと、本人の代わりに申請・取り消しができます。</li>
+          <li>締め切ったら「<b>申請を勤務表に取り込む</b>」で勤務表に入れます。勤務表とぶつかって取り込めなかったものは一覧で表示されます。</li>
+        </ul>
+      </details>
+      <details><summary>勤務表の作成・確定・配布</summary>
+        <ul>
+          <li>「<b>勤務表の作成</b>」で勤務表作成アプリが開きます。作り方はアプリ内の「📖 作り方」を見てください。変更は自動で保存されます。</li>
+          <li>別の画面やほかの人の変更とぶつかったときは【更新の衝突】と出ます。「最新の内容を読み込み直す」を押して、直前の変更をもう一度行ってください。</li>
+          <li>できあがったら「<b>確定してスタッフに配布</b>」。確定した版はすべて保存され、配り直すと「第2版」のように版が上がります。集計には期間ごとに最後に確定した版を使います。</li>
+        </ul>
+      </details>
+      <details><summary>承認・取り消しの代理</summary>
+        <ul>
+          <li>システム管理者は、自分が関わる申請も承認できます。「管理者の承認」では、受け手の代わりに承認すること（「受け手の代わりに承認」）もできます。</li>
+          <li>承認済みの申請は、「管理者の承認」の「すべて」から「承認後の取り消しを申請」で、本人に代わって取り消しを申請できます（本人にお知らせが届きます）。</li>
+        </ul>
+      </details>
+      <details><summary>操作記録・困ったとき</summary>
+        <ul>
+          <li>「<b>操作記録</b>」で、ログイン・権限の変更・申請・承認などの記録を確認できます。</li>
+          <li>システム管理者のパスワードを忘れたときは、Apps Scriptの画面で関数「管理者パスワード再発行」を選んで実行すると、実行ログに新しい仮パスワードが出ます。</li>
+          <li>アプリを直したときは、Apps Scriptに「コード.gs」と「index.html」を貼り直し、「デプロイを管理」で「新バージョン」としてデプロイします（URLは変わりません）。</li>
+          <li>データは、初期設定を行ったアカウントのGoogleドライブの「勤務管理データ」に入っています。スタッフには共有しないでください。</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+</section>
+
 <!-- 申請する種類を選ぶ -->
 <div class="modal" id="pick-modal" onclick="if(event.target===this)closeModal('pick-modal')">
   <div class="box">
@@ -577,14 +774,15 @@ const isApprover = () => ME && (ME.roles.indexOf('approver') >= 0 || isAdmin());
 /* ============================================================
    画面の切り替え
    ============================================================ */
-const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule', 'chg', 'chgme', 'chgadm', 'stats'];
+const VIEWS = ['login', 'password', 'home', 'users', 'log', 'req', 'wf', 'reqadmin', 'kinmu', 'schedule', 'chg', 'chgme', 'chgadm', 'stats', 'mystats', 'help'];
 let CUR_VIEW = null;
 function show(v) {
   if (CUR_VIEW === 'kinmu' && v !== 'kinmu') kinmuFlush();   // 作成画面を離れるときは保存を急がせる
   CUR_VIEW = v;
-  document.querySelector('main').style.display = ['kinmu', 'schedule', 'chg', 'chgme', 'chgadm', 'stats'].indexOf(v) >= 0 ? 'none' : '';
+  document.querySelector('main').style.display = ['kinmu', 'schedule', 'chg', 'chgme', 'chgadm', 'stats', 'mystats', 'help'].indexOf(v) >= 0 ? 'none' : '';
   for (const x of VIEWS) document.getElementById('v-' + x).style.display = x === v ? '' : 'none';
   document.getElementById('logout-btn').style.display = v === 'login' ? 'none' : '';
+  document.getElementById('help-btn').style.display = v === 'login' || !ME || ME.mustChange ? 'none' : '';
   document.getElementById('who').innerHTML = ME && v !== 'login'
     ? esc(ME.name) + '（' + esc(ME.id) + '）' + ME.roles.map(r => ' <span class="role ' + r + '" style="font-size:10px;">' + ROLE_LABELS[r] + '</span>').join('')
     : '';
@@ -600,6 +798,8 @@ function show(v) {
   if (v === 'chgme') loadChgMe();
   if (v === 'chgadm') loadChgAdm();
   if (v === 'stats') loadStats();
+  if (v === 'mystats') loadMyStats();
+  if (v === 'help') renderHelp();
   if (v === 'password') {
     for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
     document.getElementById('pw-err').textContent = '';
@@ -665,6 +865,7 @@ function renderMenu() {
     { title: '勤務表を見る', desc: '確定して配布された勤務表を見ます（自分の勤務・全員）。', go: 'schedule' },
     { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、振休の交換（振休同士）、自分の勤務の変更、時間休（遅く来る・早く帰る）を申請します。', go: 'chg' },
     { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
+    { title: '自分の集計', desc: '自分の日直・夜勤・有給・時間休などの回数を、全員の平均と比べて見られます。', go: 'mystats' },
   ];
   if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件から外れる申請の理由も確認できます。', go: 'chgadm', key: 'approvals' });
   if (isApprover()) items.push({ title: '実績の集計・分析', desc: '月別・年度の全体の集計、個人別の回数、確定版と実績の違い、勤務変更・時間休の分析。Excelにも書き出せます。', go: 'stats' });
@@ -675,6 +876,7 @@ function renderMenu() {
     items.push({ title: 'スタッフ・権限の管理', desc: 'スタッフのID登録、仮パスワードの発行、承認者・システム管理者の指名。', go: 'users' });
     items.push({ title: '操作記録', desc: 'ログインや権限変更などの記録を確認します。', go: 'log' });
   }
+  items.push({ title: '使い方', desc: 'この画面の使い方です（' + (isAdmin() ? 'システム管理者・承認者・スタッフ' : isApprover() ? '承認者・スタッフ' : 'スタッフ') + '向け）。', go: 'help' });
   items.push({ title: 'パスワード変更', desc: '自分のパスワードを変更します。', go: 'password' });
   document.getElementById('menu').innerHTML = items.map((it, i) =>
     '<button class="item' + (it.soon ? ' soon' : '') + '" data-i="' + i + '">' +
@@ -1925,6 +2127,56 @@ function stHourly() {
   h += stBars(rows, r => r.name, [['total', '時間休（時間）', ST_COLOR.hourlyH]]);
   return h;
 }
+/* ---- 自分の集計（だれでも）---- */
+let MS = null;
+async function loadMyStats(scope) {
+  document.getElementById('ms-body').innerHTML = '<p class="hint">集計しています…</p>';
+  try { MS = await call('statsMine', { scope: scope || (MS && MS.scope) || '' }); renderMyStats(); }
+  catch (e) { document.getElementById('ms-body').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
+}
+function renderMyStats() {
+  const sel = document.getElementById('ms-scope');
+  sel.innerHTML = '<optgroup label="年度">' + MS.scopes.fys.map(f => '<option value="fy:' + f.fy + '">' + esc(f.label) + '</option>').join('') + '</optgroup>' +
+    '<optgroup label="勤務表の期間">' + MS.scopes.labels.map(l => '<option value="label:' + esc(l.label) + '">' + esc(l.label) + '</option>').join('') + '</optgroup><option value="all">すべて</option>';
+  sel.value = MS.scope;
+  sel.onchange = () => loadMyStats(sel.value);
+  document.getElementById('ms-range').textContent = MS.days ? MS.from.replace(/-0?/g, '/') + '〜' + MS.to.replace(/-0?/g, '/') + '（' + MS.days + '日）' : '';
+  const body = document.getElementById('ms-body');
+  if (!MS.days) { body.innerHTML = '<p class="notice">集計できる、確定した勤務表がまだありません。</p>'; return; }
+  const me = MS.me;
+  if (!me) { body.innerHTML = '<p class="notice">この範囲の勤務表に、あなたの名前（' + esc(ME.name) + '）がありません。</p>'; return; }
+  const cmp = k => { const a = MS.avg[k] || 0, v = me[k] || 0; return '<span class="cmp' + (v > a ? ' up' : '') + '">全員の平均 ' + a + '</span>'; };
+  const tile = (k, label, unit) => '<div class="tile"><div class="v">' + (me[k] || 0) + (unit || '') + '</div><div class="k">' + label + '</div>' + cmp(k) + '</div>';
+  const fy = MS.scope.indexOf('fy:') === 0;
+  let h = '<div class="tiles">' + tile('nichoku', '日直（回）') + tile('yakin', '夜勤（回）') + tile('zan', '残り当番（回）') + tile('yu', '有給（日）', '日') +
+    tile('hourlyH', '時間休（' + (me.hourlyN || 0) + '回）', '時間') + tile('furi', '振休（日）', '日') + tile('work', '勤務日数', '日') + tile('maxStreak', '最長の連続勤務', '日') + '</div>';
+  if (fy) h += '<p class="notice">この年度の時間休：<b>' + (me.hourlyH || 0) + '時間</b>／上限 ' + MS.hourlyCap + '時間（残り <b>' + Math.max(0, MS.hourlyCap - (me.hourlyH || 0)) + '時間</b>）。申請中の分は含みません（申請画面では申請中も含めて表示します）。</p>';
+  // 月別
+  const cols = MS.cols.filter(c => (me[c[0]] || 0) > 0 || ['nichoku', 'yakin', 'zan', 'yu', 'work'].indexOf(c[0]) >= 0);
+  h += '<h3 class="st">月別</h3><div class="scroll" style="max-height:none;"><table class="st"><tr><th class="l">月</th>' + cols.map(c => '<th>' + esc(c[1]) + '</th>').join('') + '</tr>' +
+    MS.months.map(mo => { const b = (me.byMonth || {})[mo] || {}; return '<tr><td class="l">' + stMonth(mo) + '</td>' + cols.map(c => '<td>' + (b[c[0]] || '') + '</td>').join('') + '</tr>'; }).join('') +
+    '<tr class="tot"><td class="l">計</td>' + cols.map(c => '<td>' + (me[c[0]] || 0) + '</td>').join('') + '</tr>' +
+    '<tr class="avg"><td class="l">全員の平均</td>' + cols.map(c => '<td>' + (MS.avg[c[0]] || 0) + '</td>').join('') + '</tr></table></div>';
+  h += '<p class="hint">全員の平均は、この範囲の勤務表に載っている ' + MS.people + '人の平均です（長期休暇の人も含みます）。オレンジの字は平均より多い項目です。</p>';
+  // 勤務変更
+  const ks = Object.keys(MS.kinds);
+  h += '<h3 class="st">勤務変更</h3>' + (ks.length ? '<table class="st"><tr><th class="l">種類</th><th>自分の申請</th><th>頼まれた</th><th>承認された</th></tr>' +
+    ks.map(k => { const x = MS.kinds[k]; return '<tr><td class="l">' + esc(x.label) + '</td><td>' + x.mine + '</td><td>' + x.toMe + '</td><td>' + x.approved + '</td></tr>'; }).join('') + '</table>' : '<p class="hint">この範囲の勤務変更はありません。</p>');
+  // 確定版と実績の違い
+  h += '<h3 class="st">確定したときから変わった自分のマス</h3>' + (MS.diff.length ? '<table class="st"><tr><th class="l">日付</th><th class="l">確定版</th><th></th><th class="l">実績</th><th class="l">変更の種類</th></tr>' +
+    MS.diff.map(x => '<tr><td class="l">' + esc(mdw(x.date)) + '</td><td class="l">' + esc(stCellText(x.confirmed, x.rest)) + '</td><td>→</td><td class="l"><b>' + esc(stCellText(x.actual, x.rest)) + '</b></td><td class="l">' + esc(x.kind) + '</td></tr>').join('') + '</table>' : '<p class="hint">変わったマスはありません。</p>');
+  body.innerHTML = h;
+}
+
+/* ---- 使い方（権限に合う説明だけを出す）---- */
+function renderHelp() {
+  const roles = ['staff'].concat(isApprover() ? ['approver'] : []).concat(isAdmin() ? ['sysadmin'] : []);
+  const label = { staff: 'スタッフ向け', approver: '承認者向け', sysadmin: 'システム管理者向け' };
+  document.querySelectorAll('#v-help .help').forEach(c => { c.style.display = roles.indexOf(c.dataset.role) >= 0 ? '' : 'none'; });
+  document.getElementById('help-nav').innerHTML = roles.length > 1 ? roles.map(r => '<button class="btn btn-sm" data-r="' + r + '">' + label[r] + '</button>').join('') : '';
+  document.querySelectorAll('#help-nav button').forEach(b => { b.onclick = () => document.querySelector('#v-help .help[data-role="' + b.dataset.r + '"]').scrollIntoView({ behavior: 'smooth' }); });
+}
+
 // Excel（SheetJS をこの画面を開いたときだけ読み込む）
 function loadXlsxLib() {
   if (window.XLSX) return Promise.resolve();
@@ -1975,7 +2227,7 @@ function resetViews() {
   ['pick-modal', 'pw-modal', 'user-modal', 'bulk-modal'].forEach(closeModal);
   CHG_SV = null; CGG.month = null; CGG.cells = null; CGG.all = false;
   USERS = []; RV = null; AV = null; _eff = null; WF = null; SV = null; CG = null; CG_KIND = null; CG_PAYLOAD = null; CA_LIST = []; PICK = null;
-  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait'; NTC_ALL = false; ST = null; ST_TAB = 'overview'; ST_SORT = null;
+  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait'; NTC_ALL = false; ST = null; ST_TAB = 'overview'; ST_SORT = null; MS = null;
 }
 
 (async function init() {

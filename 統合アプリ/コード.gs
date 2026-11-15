@@ -585,6 +585,28 @@ const ACTIONS = {
     return statsBuild_(String(p.scope || ''));
   } },
 
+  // 自分の集計（だれでも。自分の分と、全員の平均だけを返す）
+  statsMine: { run: (me, p) => {
+    const st = statsBuild_(String(p.scope || ''));
+    const mine = st.persons.find(x => x.name === me.name) || null;
+    const avg = {};
+    const keys = st.cols.map(c => c[0]).concat(['maxStreak']);
+    keys.forEach(k => { const v = st.persons.map(x => x[k] || 0); avg[k] = v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0; });
+    const myChanges = rows_('changes').filter(r => r.requester === me.name || r.partner === me.name);
+    const kinds = {};
+    myChanges.forEach(r => {
+      const cs = JSON.parse(r.cells || '[]'); if (!cs.length) return;
+      const first = cs.map(y => y.date).sort()[0];
+      if (first < st.from || first > st.to) return;
+      const k = kinds[r.kind] = kinds[r.kind] || { label: CHANGE_KINDS[r.kind] || r.kind, mine: 0, toMe: 0, approved: 0 };
+      if (r.requester === me.name) k.mine++; else k.toMe++;
+      if (r.status === 'approved') k.approved++;
+    });
+    return { scope: st.scope, scopes: st.scopes, cols: st.cols, from: st.from, to: st.to, days: st.days, hourlyCap: st.hourlyCap,
+      months: st.monthly.map(m => m.month), me: mine, avg: avg, people: st.persons.length,
+      diff: st.diff.filter(x => x.name === me.name), hourly: st.hourly[me.name] || {}, kinds: kinds };
+  } },
+
   // ---- お知らせ ----
   noticeList: { run: me => {
     const mine = rows_('notices').filter(n => n.to === me.name).reverse();
@@ -986,7 +1008,7 @@ function statsBuild_(scope) {
   const zero = () => { const o = {}; ST_COLS.forEach(c => { o[c[0]] = 0; }); return o; };
   const monthOf = d => d.slice(0, 7);
   const months = [], M = {}, P = {};
-  const person = n => (P[n] = P[n] || Object.assign(zero(), { name: n, team: team[n] || '', maxStreak: 0, cur: 0, last: '', changedCells: 0, req: 0, recv: 0 }));
+  const person = n => (P[n] = P[n] || Object.assign(zero(), { name: n, team: team[n] || '', maxStreak: 0, cur: 0, last: '', changedCells: 0, req: 0, recv: 0, byMonth: {} }));
   dates.forEach(d => {
     const D = day[d], mo = monthOf(d);
     if (!M[mo]) { M[mo] = Object.assign(zero(), { month: mo, days: 0, weekdays: 0, restDays: 0, restSum: 0, restMax: 0, overDays: 0, changedCells: 0, changes: 0, deviations: 0, byKind: {} }); months.push(mo); }
@@ -995,18 +1017,19 @@ function statsBuild_(scope) {
     let restCnt = 0;
     D.names.forEach(n => {
       const pp = person(n), mk = (D.act[n] || {})[d] || '';
+      const bm = pp.byMonth[mo] = pp.byMonth[mo] || zero();   // 一人ずつの月別（自分の集計用）
       if (D.via[n + '|' + d]) { pp.changedCells++; m.changedCells++; }
       let work = false;
-      if (onLeave(D, n, d)) { pp.leave++; m.leave++; }
+      if (onLeave(D, n, d)) { pp.leave++; m.leave++; bm.leave++; }
       else {
         const c = stCat_(mk);
-        if (c === 'hourly') { const h = hoursAt(n, d, mk); pp.hourlyN++; pp.hourlyH += h; m.hourlyN++; m.hourlyH += h; work = !D.rest; }
-        else if (c && c !== 'ake' && c !== 'other' && pp[c] !== undefined) { pp[c]++; m[c]++; }
+        if (c === 'hourly') { const h = hoursAt(n, d, mk); pp.hourlyN++; pp.hourlyH += h; m.hourlyN++; m.hourlyH += h; bm.hourlyN++; bm.hourlyH += h; work = !D.rest; }
+        else if (c && c !== 'ake' && c !== 'other' && pp[c] !== undefined) { pp[c]++; m[c]++; bm[c]++; }
         if (['nichoku', 'yakin', 'ake', 'zan', 'shutcho', 'gyomu', 'kenshu'].indexOf(c) >= 0) work = true;
         if (!c) work = !D.rest;
         if (!D.rest && isCountMark_(mk)) restCnt++;
       }
-      if (work) { pp.work++; m.work++; }
+      if (work) { pp.work++; m.work++; bm.work++; }
       // 連続勤務（日付が続いているときだけ数える）
       pp.cur = work ? (pp.last === addDays_(d, -1) ? pp.cur + 1 : 1) : 0;
       pp.last = d;
