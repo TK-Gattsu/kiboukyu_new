@@ -39,7 +39,9 @@ const TABLES = {
   // 勤務変更（確定後の交代・振休の交換・自分の勤務の変更）。cells は [{name, date, before, after}] のJSON
   changes:  ['id', 'kind', 'requester', 'requesterId', 'partner', 'status', 'cells', 'summary', 'deviations', 'reason',
              'createdAt', 'updatedAt', 'partnerAt', 'partnerBy', 'approverAt', 'approverBy', 'rejectedBy', 'note', 'appliedAt',
-             'revertOf', 'revertedBy'],   // revertOf＝取り消す元の申請のID（承認後の取り消しの申請）／revertedBy＝取り消した申請のID
+             'revertOf', 'revertedBy'],
+  // アプリ内のお知らせ（勤務変更の承認依頼・承認・却下・取り消しなど）。to は名前、link は開く画面
+  notices:  ['id', 'to', 'at', 'text', 'link', 'changeId', 'read'],   // revertOf＝取り消す元の申請のID（承認後の取り消しの申請）／revertedBy＝取り消した申請のID
 };
 
 // ---- 勤務表のきまり（勤務表作成アプリと同じ）----
@@ -482,6 +484,13 @@ const ACTIONS = {
       status: ch.partner ? 'wait_partner' : 'wait_approver', cells: JSON.stringify(ch.cells), summary: ch.summary,
       deviations: JSON.stringify(ch.deviations), reason: ch.deviations.length || ch.kind === 'revert' ? reason.slice(0, 500) : '', createdAt: now, updatedAt: now, revertOf: ch.revertOf || '' };
     writeRow_('changes', row);
+    const kl = CHANGE_KINDS[ch.kind];
+    if (row.partner) notify_(row.partner, me.name + 'さんから「' + kl + '」の承認を頼まれました：' + ch.summary, 'chgme', row.id, me);
+    else notifyApprovers_(row, me.name + 'さんの「' + kl + '」が承認者の承認待ちになりました：' + ch.summary, me);
+    if (ch.kind === 'revert') {
+      const orig = rows_('changes').find(x => x.id === ch.revertOf);
+      if (orig && orig.requester !== me.name) notify_(orig.requester, me.name + 'さんが、あなたの申請の取り消しを申請しました：' + orig.summary, 'chg', row.id, me);
+    }
     log_(me, '勤務変更の申請', CHANGE_KINDS[ch.kind] + '：' + ch.summary + (ch.deviations.length ? '（条件外' + ch.deviations.length + '件・理由あり）' : ''));
     return publicChange_(row, me);
   }) },
@@ -542,6 +551,17 @@ const ACTIONS = {
     if (!ok) { r.status = 'rejected'; r.rejectedBy = me.name; r.note = String(p.note || '').slice(0, 200); }
     r.updatedAt = now;
     writeRow_('changes', r);
+    // お知らせ: 申請者・相手（・取り消された元の申請の申請者）、承認者の番になったら承認者に
+    const kl = CHANGE_KINDS[r.kind], who = [r.requester].concat(r.partner ? [r.partner] : []);
+    if (r.kind === 'revert') { const o = rows_('changes').find(x => x.id === r.revertOf); if (o && who.indexOf(o.requester) < 0) who.push(o.requester); }
+    if (r.status === 'wait_approver') {
+      notify_(r.requester, me.name + 'さんが「' + kl + '」を承認しました。次は承認者の承認です：' + r.summary, 'chg', r.id, me);
+      notifyApprovers_(r, r.requester + 'さんの「' + kl + '」が承認者の承認待ちになりました：' + r.summary, me);
+    } else if (r.status === 'approved') {
+      who.forEach(n => notify_(n, '「' + kl + '」が承認され、勤務表に反映されました：' + r.summary, n === r.requester ? 'chg' : n === r.partner ? 'chgme' : 'chg', r.id, me));
+    } else if (r.status === 'rejected') {
+      who.forEach(n => notify_(n, me.name + 'さんが「' + kl + '」を却下しました' + (r.note ? '（' + r.note + '）' : '') + '：' + r.summary, n === r.partner ? 'chgme' : 'chg', r.id, me));
+    }
     log_(me, ok ? '勤務変更の承認' : '勤務変更の却下', CHANGE_KINDS[r.kind] + '：' + r.summary + '（' + (CHANGE_STATUS[r.status] || r.status) + '）');
     return publicChange_(r, me);
   }) },
@@ -551,9 +571,24 @@ const ACTIONS = {
     if (!r) throw new Error('申請が見つかりません。');
     if (r.requester !== me.name && !hasRole_(me, 'sysadmin')) throw new Error('自分の申請だけ取り下げられます。');
     if (r.status !== 'wait_partner' && r.status !== 'wait_approver') throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
+    const wasPartner = r.status === 'wait_partner' || !!r.partnerAt;
     r.status = 'withdrawn'; r.updatedAt = new Date().toISOString();
     writeRow_('changes', r);
+    if (r.partner && wasPartner) notify_(r.partner, r.requester + 'さんが「' + CHANGE_KINDS[r.kind] + '」を取り下げました：' + r.summary, 'chgme', r.id, me);
     log_(me, '勤務変更の取り下げ', CHANGE_KINDS[r.kind] + '：' + r.summary);
+    return true;
+  }) },
+
+  // ---- お知らせ ----
+  noticeList: { run: me => {
+    const mine = rows_('notices').filter(n => n.to === me.name).reverse();
+    return { unread: mine.filter(n => n.read !== '1').length,
+      items: mine.slice(0, 30).map(n => ({ id: n.id, at: n.at, text: n.text, link: n.link, read: n.read === '1' })) };
+  } },
+  noticeRead: { run: (me, p) => withLock_(() => {
+    const ids = Array.isArray(p.ids) ? p.ids.map(String) : null;   // 指定がなければ全部
+    rows_('notices').filter(n => n.to === me.name && n.read !== '1' && (!ids || ids.indexOf(n.id) >= 0))
+      .forEach(n => { n.read = '1'; writeRow_('notices', n); });
     return true;
   }) },
 
@@ -1093,6 +1128,18 @@ function deviations_(conf, act, cells) {
       out.push(x.name + 'さんの振休（' + md_(duty) + '出勤分）が' + md_(x.date) + 'になり、付与期限（出勤後' + FURI_AFTER_DAYS + '日・前' + FURI_BEFORE_DAYS + '日）を外れます');
   });
   return out;
+}
+// アプリ内のお知らせを入れる（操作した本人には入れない）
+function notify_(to, text, link, changeId, actor) {
+  if (!to || (actor && to === actor.name)) return;
+  writeRow_('notices', { id: Utilities.getUuid().slice(0, 8), to: to, at: new Date().toISOString(), text: String(text).slice(0, 300),
+    link: link || '', changeId: changeId || '', read: '' });
+}
+// 承認者（とシステム管理者）全員に知らせる（その申請に関わる人は承認できないので除く。ただしシステム管理者は除かない）
+function notifyApprovers_(r, text, actor) {
+  rows_('users').filter(u => u.active === '1' && (hasRole_(u, 'approver') || hasRole_(u, 'sysadmin')))
+    .filter(u => hasRole_(u, 'sysadmin') || (u.name !== r.requester && u.name !== r.partner))
+    .forEach(u => notify_(u.name, text, 'chgadm', r.id, actor));
 }
 // 画面に返す形（理由はシステム管理者・承認者・申請者本人にだけ見せる）
 function publicChange_(r, me) {

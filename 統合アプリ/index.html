@@ -122,6 +122,14 @@ table.list tr.inactive td { color: #AAA; }
 .grid td.pick:hover { background: var(--blue-light); }
 .grid tr.me td.nm { background: #FFFBE6; }
 .grid .hr { display: block; font-size: 9px; line-height: 1.1; white-space: nowrap; letter-spacing: -.3px; }
+/* お知らせ */
+.ntc { list-style: none; margin: 6px 0 0; padding: 0; }
+.ntc li { border-top: 1px solid #EEE; padding: 7px 4px; font-size: 13px; line-height: 1.5; cursor: pointer; display: flex; gap: 8px; }
+.ntc li:hover { background: var(--blue-light); }
+.ntc li .at { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.ntc li.unread { font-weight: bold; }
+.ntc li.unread::before { content: '●'; color: var(--red); font-size: 10px; }
+.ntc li.read { color: #666; }
 .mg-box { border: 1px solid #E3E3E3; border-radius: 6px; padding: 8px; margin: 8px 0; background: #FAFBFC; }
 .mg-box .scroll { max-height: 50vh; }
 .kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
@@ -196,6 +204,7 @@ table.list tr.inactive td { color: #AAA; }
 
   <!-- メニュー -->
   <section id="v-home" style="display:none;">
+    <div id="home-notices"></div>
     <div class="menu" id="menu"></div>
   </section>
 
@@ -632,6 +641,7 @@ function renderMenu() {
     const it = items[Number(el.dataset.i)];
     el.onclick = () => { if (it.go) show(it.go); };
   });
+  loadNotices();
   // 承認待ちの件数をメニューに出す
   call('chgCounts').then(n => {
     items.forEach((it, i) => {
@@ -646,6 +656,33 @@ function renderMenu() {
     if (!el || (!a.overDays && !a.adjusting)) return;
     el.insertAdjacentHTML('beforeend', a.overDays ? '<span class="badge">⚠ 人数超過 ' + a.overDays + '日</span>' : '<span class="badge" style="background:var(--orange);">調整期間中</span>');
   }).catch(() => {});
+}
+
+/* ============================================================
+   お知らせ（勤務変更の承認依頼・承認・却下・取り消しなど）
+   ============================================================ */
+let NTC_ALL = false;
+async function loadNotices() {
+  const el = document.getElementById('home-notices');
+  try {
+    const n = await call('noticeList');
+    if (!n.items.length) { el.innerHTML = ''; return; }
+    const list = NTC_ALL ? n.items : n.items.filter((x, i) => !x.read || i < 5);
+    el.innerHTML = '<div class="card" style="border-color:' + (n.unread ? 'var(--red)' : 'var(--border)') + ';"><div class="toolbar" style="margin:0;"><h2 style="margin:0;">お知らせ' +
+      (n.unread ? '<span class="badge">未読 ' + n.unread + '件</span>' : '') + '</h2><span style="margin-left:auto; display:flex; gap:6px;">' +
+      (n.unread ? '<button class="btn btn-gray btn-sm" id="ntc-readall">すべて既読にする</button>' : '') +
+      (n.items.length > list.length || NTC_ALL ? '<button class="btn btn-gray btn-sm" id="ntc-more">' + (NTC_ALL ? '少なく表示' : 'もっと見る') + '</button>' : '') + '</span></div>' +
+      '<ul class="ntc">' + list.map(x => '<li class="' + (x.read ? 'read' : 'unread') + '" data-id="' + esc(x.id) + '" data-link="' + esc(x.link) + '"><span class="at">' + esc(fmtDateTime(x.at)) + '</span><span>' + esc(x.text) + '</span></li>').join('') + '</ul>' +
+      '<p class="hint" style="margin:4px 0 0;">お知らせを押すと、その画面を開きます。</p></div>';
+    el.querySelectorAll('.ntc li').forEach(li => { li.onclick = async () => {
+      try { if (li.classList.contains('unread')) await call('noticeRead', { ids: [li.dataset.id] }); } catch (e) {}
+      if (li.dataset.link && VIEWS.indexOf(li.dataset.link) >= 0 && (li.dataset.link !== 'chgadm' || isApprover())) show(li.dataset.link); else loadNotices();
+    }; });
+    const ra = document.getElementById('ntc-readall');
+    if (ra) ra.onclick = async () => { try { await call('noticeRead', {}); } catch (e) {} loadNotices(); };
+    const mo = document.getElementById('ntc-more');
+    if (mo) mo.onclick = () => { NTC_ALL = !NTC_ALL; loadNotices(); };
+  } catch (e) { el.innerHTML = ''; }
 }
 
 /* ============================================================
@@ -1739,7 +1776,7 @@ function resetViews() {
   ['pick-modal', 'pw-modal', 'user-modal', 'bulk-modal'].forEach(closeModal);
   CHG_SV = null; CGG.month = null; CGG.cells = null; CGG.all = false;
   USERS = []; RV = null; AV = null; _eff = null; WF = null; SV = null; CG = null; CG_KIND = null; CG_PAYLOAD = null; CA_LIST = []; PICK = null;
-  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait';
+  RQ_MONTH = null; RA_MONTH = null; SC_MONTH = null; SC_MODE = 'me'; CA_FILTER = 'wait'; NTC_ALL = false;
 }
 
 (async function init() {
