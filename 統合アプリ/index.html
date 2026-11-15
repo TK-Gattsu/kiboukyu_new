@@ -251,6 +251,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
       <div class="toolbar">
         <button class="btn btn-green btn-sm" onclick="openUserModal()">＋ スタッフを追加</button>
         <button class="btn btn-sm" onclick="openBulkModal()">まとめて追加</button>
+        <button class="btn btn-sm" onclick="rosterAdd()">勤務表の名簿から登録</button>
         <input type="text" id="u-filter" placeholder="名前・ID・チームで絞り込み" oninput="renderUsers()">
         <label style="font-size:12px;"><input type="checkbox" id="u-show-inactive" onchange="renderUsers()"> 無効の人も表示</label>
         <span class="hint" id="u-count" style="margin-left:auto;"></span>
@@ -617,6 +618,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
       </details>
       <details><summary>スタッフ・権限の管理</summary>
         <ul>
+          <li>「<b>勤務表の名簿から登録</b>」で、読み込んだ勤務表のチーム編成にいてまだIDがない人を、名前とチームのまま一度に登録できます（「勤務表作成アプリのJSONを読み込む」のあとにも、登録するか聞かれます）。</li>
           <li>「<b>＋ スタッフを追加</b>」で1人ずつ、「<b>まとめて追加</b>」で名前の一覧から一度に登録できます。仮のIDと仮パスワードが表示されるので、印刷か書き写しをして本人に渡します（閉じると二度と表示されません）。</li>
           <li>ログインのIDは<b>職員番号（6桁）</b>です。本人が初回ログイン時に、仮のIDから自分の職員番号に変えます（それまでは状態が「初回ログイン前」「職員番号の登録前」）。職員番号がわかっていれば、追加のときに直接入れてもかまいません。番号の間違いは「編集」でも直せます。</li>
           <li>名前は、勤務表の名簿と同じ表記（漢字・空白）にしてください。違うと、その人は申請や集計で正しく扱われません（「期間・流れ・受付の設定」に食い違いの一覧が出ます）。</li>
@@ -1372,7 +1374,8 @@ function renderWf() {
     ? '勤務表のデータ: ' + WF.period.label + '・入力済み ' + WF.cells + 'マス／取り込み前の申請 ' + WF.activeRequests + '件'
     : 'まだ勤務表のデータはありません（期間を保存するか、勤務表作成アプリのJSONを読み込んでください）。';
   let r = '';
-  if (WF.rosterWithoutUser.length) r += '<p class="notice" style="margin-top:8px;">勤務表の名簿にいるが、ログインIDがない人（' + WF.rosterWithoutUser.length + '人）: ' + esc(WF.rosterWithoutUser.join('、')) + '<br><span class="hint">この人たちは自分で申請できません。「スタッフ・権限の管理」で、名簿と同じ名前で登録してください。</span></p>';
+  if (WF.rosterWithoutUser.length) r += '<p class="notice" style="margin-top:8px;">勤務表の名簿にいるが、ログインIDがない人（' + WF.rosterWithoutUser.length + '人）: ' + esc(WF.rosterWithoutUser.join('、')) + '<br><span class="hint">この人たちは自分で申請できません。下のボタンで、名簿の名前とチームのまま登録できます（仮のIDと仮パスワードが出ます）。</span>' +
+    '<br><button class="btn btn-green btn-sm" style="margin-top:6px;" onclick="rosterAdd()">この' + WF.rosterWithoutUser.length + '人をまとめて登録</button></p>';
   if (WF.usersNotInRoster.length) r += '<p class="notice" style="margin-top:8px;">ログインIDはあるが、勤務表の名簿にない人: ' + esc(WF.usersNotInRoster.join('、')) + '<br><span class="hint">名前の表記（漢字・空白）が名簿と同じか確認してください。</span></p>';
   document.getElementById('wf-roster').innerHTML = r;
 }
@@ -1407,10 +1410,27 @@ function importState(input) {
       const r = await call('stateImport', { backup: backupToServer(b) });
       alert('読み込みました: ' + r.period.label + '・名簿' + r.staff + '人・入力済み' + r.cells + 'マス・過去の勤務表' + r.archive + '件');
       await loadWf();
+      if (WF && WF.rosterWithoutUser.length) await rosterAdd();
     } catch (e) { alert(e.message); }
   };
   rd.readAsText(f);
 }
+// 勤務表の名簿にいて、まだIDがない人をまとめて登録する（仮のID・仮パスワードを発行）
+async function rosterAdd() {
+  const names = WF && v_wfShown() ? WF.rosterWithoutUser : null;
+  const msg = names && names.length
+    ? '勤務表の名簿にいて、まだログインIDがない ' + names.length + '人を登録しますか？\n\n' + names.join('、') + '\n\n名前とチームは名簿のとおりに登録し、仮のIDと仮パスワードを発行します。'
+    : '勤務表の名簿（読み込んだ勤務表作成アプリのチーム編成）にいて、まだログインIDがない人を、まとめて登録しますか？\n名前とチームは名簿のとおりに登録し、仮のIDと仮パスワードを発行します。';
+  if (!confirm(msg)) return;
+  try {
+    const r = await call('rosterAddUsers');
+    if (r.skipped.length) alert('同じ名前の無効になっているIDがあるため、登録しなかった人: ' + r.skipped.join('、') + '\n「スタッフ・権限の管理」の「無効の人も表示」で、その人を「編集」して「有効」にしてください。');
+    if (r.created.length) showPasswords(r.created);
+    else alert('新しく登録する人はいませんでした。');
+    if (v_wfShown()) await loadWf(); else await loadUsers();
+  } catch (e) { alert(e.message); }
+}
+function v_wfShown() { return document.getElementById('v-wf').style.display !== 'none'; }
 async function exportState() {
   try {
     const b = backupFromServer(await call('stateExport', { forDownload: true }));

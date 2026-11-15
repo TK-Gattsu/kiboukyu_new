@@ -285,36 +285,35 @@ const ACTIONS = {
     return true;
   }) },
 
-  bulkAddUsers: { role: 'sysadmin', run: (me, p) => {
+  bulkAddUsers: { role: 'sysadmin', run: (me, p) => withLock_(() => {
     // 1行に「チーム名: 名前、名前、…」。IDは start から連番
     const lines = String(p.text || '').split('\n').map(s => s.trim()).filter(Boolean);
-    let next = Number(p.start) || 1001;
-    const exists = new Set(rows_('users').map(u => u.id));
-    const names = new Set(rows_('users').map(u => u.name));
-    const created = [], skipped = [];
-    const now = new Date().toISOString();
+    const list = [];
     for (const line of lines) {
       const sep = line.search(/[:：]/);
       const team = sep >= 0 ? line.slice(0, sep).trim() : '';
       const body = sep >= 0 ? line.slice(sep + 1) : line;
-      for (const raw of body.split(/[、,，\s]+/)) {
-        const name = raw.trim();
-        if (!name) continue;
-        if (names.has(name)) { skipped.push(name); continue; }
-        while (exists.has(String(next))) next++;
-        if (next >= 100000) throw new Error('仮IDの開始番号は5桁以下にしてください（6桁は職員番号と重なるため）。');
-        const id = String(next++);
-        const password = tempPassword_();
-        const salt = Utilities.getUuid();
-        writeRow_('users', { id: id, name: name, team: team, roles: '', salt: salt, hash: hash_(salt, password),
-          active: '1', mustChange: '1', createdAt: now, updatedAt: now });
-        exists.add(id); names.add(name);
-        created.push({ id: id, name: name, team: team, password: password });
-      }
+      body.split(/[、,，\s]+/).forEach(raw => list.push({ name: raw, team: team }));
     }
-    log_(me, 'スタッフ一括追加', created.length + '人' + (skipped.length ? '（登録済みのため省略: ' + skipped.join('、') + '）' : ''));
-    return { created: created, skipped: skipped };
-  } },
+    const r = createTempUsers_(list, Number(p.start) || 0);
+    log_(me, 'スタッフ一括追加', r.created.length + '人' + (r.skipped.length ? '（登録済みのため省略: ' + r.skipped.join('、') + '）' : ''));
+    return r;
+  }) },
+
+  // 勤務表の名簿（読み込んだ勤務表作成アプリのチーム編成）にいて、まだIDがない人をまとめて登録する
+  rosterAddUsers: { role: 'sysadmin', run: (me) => withLock_(() => {
+    const c = ctx_();
+    const teams = Array.isArray(c.settings.teams) ? c.settings.teams : [];
+    const list = [];
+    teams.forEach(t => (t[1] || []).forEach(n => list.push({ name: n, team: String(t[0] || '') })));
+    if (!list.length) throw new Error('勤務表の名簿がありません。先に「勤務表作成アプリのJSONを読み込む」を行ってください。');
+    const r = createTempUsers_(list, 0);
+    // 有効なIDがある人は飛ばしたことを知らせない（無効のIDと名前が重なった人だけ知らせる）
+    const inactive = new Set(rows_('users').filter(u => u.active !== '1').map(u => u.name));
+    r.skipped = r.skipped.filter(n => inactive.has(n));
+    log_(me, 'スタッフを名簿から登録', r.created.length + '人');
+    return r;
+  }) },
 
   resetPassword: { role: 'sysadmin', run: (me, p) => {
     const u = findUser_(String(p.id || ''));
@@ -786,6 +785,30 @@ function guardLastAdmin_(u) {
   const others = rows_('users').filter(x => x._row !== u._row && x.active === '1' && hasRole_(x, 'sysadmin'));
   const stillAdmin = u.active === '1' && hasRole_(u, 'sysadmin');
   if (!others.length && !stillAdmin) throw new Error('システム管理者が1人もいなくなるため、この変更はできません。');
+}
+// 仮のID（5桁以下の連番）と仮パスワードでスタッフを登録する。同じ名前の人がいれば飛ばす
+function createTempUsers_(list, start) {
+  const all = rows_('users');
+  const exists = new Set(all.map(u => u.id));
+  const names = new Set(all.map(u => u.name));
+  let next = start || all.filter(u => /^[0-9]{1,5}$/.test(u.id)).reduce((m, u) => Math.max(m, Number(u.id) + 1), 1001);
+  const created = [], skipped = [];
+  const now = new Date().toISOString();
+  list.forEach(x => {
+    const name = String(x.name || '').trim();
+    if (!name) return;
+    if (names.has(name)) { if (skipped.indexOf(name) < 0) skipped.push(name); return; }
+    while (exists.has(String(next))) next++;
+    if (next >= 100000) throw new Error('仮IDの開始番号は5桁以下にしてください（6桁は職員番号と重なるため）。');
+    const id = String(next++);
+    const password = tempPassword_();
+    const salt = Utilities.getUuid();
+    writeRow_('users', { id: id, name: name, team: x.team || '', roles: '', salt: salt, hash: hash_(salt, password),
+      active: '1', mustChange: '1', createdAt: now, updatedAt: now });
+    exists.add(id); names.add(name);
+    created.push({ id: id, name: name, team: x.team || '', password: password });
+  });
+  return { created: created, skipped: skipped };
 }
 function isValidId_(id) {
   return /^[A-Za-z0-9_-]{1,32}$/.test(id);
