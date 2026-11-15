@@ -658,7 +658,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
         <ul>
           <li>「<b>勤務表の作成</b>」で勤務表作成アプリが開きます。作り方はアプリ内の「📖 作り方」を見てください。変更は自動で保存されます。</li>
           <li>別の画面やほかの人の変更とぶつかったときは【更新の衝突】と出ます。「最新の内容を読み込み直す」を押して、直前の変更をもう一度行ってください。</li>
-          <li>できあがったら「<b>確定してスタッフに配布</b>」。確定した版はすべて保存され、配り直すと「第2版」のように版が上がります。集計には期間ごとに最後に確定した版を使います。</li>
+          <li>できあがったら「<b>確定してスタッフに配布</b>」。確定した版はすべて保存され、配り直すと「第2版」のように版が上がります。集計には期間ごとに最後に確定した版を使います。今配布している版とまったく同じ内容のときは、確定し直す前に確かめる画面が出ます。</li>
         </ul>
       </details>
       <details><summary>承認・取り消しの代理</summary>
@@ -765,7 +765,7 @@ const BUSY_LABEL = {
   saveUser: '保存しています', deleteUser: '削除しています', resetPassword: '再発行しています',
   bulkAddUsers: 'スタッフを登録しています', rosterAddUsers: 'スタッフを登録しています',
   wfSave: '保存しています', periodSave: '保存しています', hourlySave: '保存しています',
-  stateImport: '勤務表のデータを読み込んでいます', stateExport: '書き出しています', scheduleConfirm: '確定して配布しています',
+  stateImport: '勤務表のデータを読み込んでいます', stateExport: '書き出しています', scheduleConfirm: '確定して配布しています', scheduleSame: '前の版と比べています',
   statsGet: '集計しています', statsMine: '集計しています',
 };
 let BUSY_N = 0, BUSY_T1 = null, BUSY_T2 = null, BUSY_OFF_AT = 0;
@@ -1653,7 +1653,13 @@ function requestPublish() {
   kmFrame().contentWindow.postMessage({ type: 'kinmu-publish-request' }, KINMU_ORIGIN);
 }
 async function confirmPublish(pl) {
-  if (!confirm('「' + pl.label + '」をこの内容で確定し、スタッフに配布します。\n\n・スタッフは「勤務表を見る」で確認できるようになります。\n・あとで直して、もう一度配布することもできます（第2版・第3版として残ります）。' +
+  let same = null;
+  try { same = await call('scheduleSame', { payload: pl }); } catch (e) { alert(e.message); return; }
+  if (same.same) {
+    if (!confirm('⚠ 今配布している「' + pl.label + '」第' + same.rev + '版（' + fmtDateTime(same.confirmedAt) + ' 確定）と、まったく同じ内容です。\n\n' +
+      '確定し直すと、中身は同じまま「第' + (same.rev + 1) + '版」になります。勤務表を直していないなら、確定し直す必要はありません。\n\n' +
+      'それでも確定し直しますか？')) return;
+  } else if (!confirm('「' + pl.label + '」をこの内容で確定し、スタッフに配布します。\n\n・スタッフは「勤務表を見る」で確認できるようになります。\n・あとで直して、もう一度配布することもできます（第2版・第3版として残ります）。' +
     (pl.warnings ? '\n\n⚠ 赤い警告が ' + pl.warnings + '件残っています。' : '') + '\n\nよろしいですか？')) return;
   try {
     const r = await call('scheduleConfirm', { payload: pl });

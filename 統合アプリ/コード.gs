@@ -504,14 +504,21 @@ const ACTIONS = {
     if (!pl || !pl.period || !pl.data || !Array.isArray(pl.teams)) throw new Error('確定する内容が正しくありません。');
     const old = docGet_('confirmed');
     const sameLabel = old && old.label === pl.label;
-    const doc = { rev: sameLabel ? (old.rev || 1) + 1 : 1, label: String(pl.label), confirmedAt: new Date().toISOString(), by: me.name,
-      period: pl.period, teams: pl.teams, data: pl.data, jimu: pl.jimu || {}, holidays: pl.holidays || {}, dutyTeam: pl.dutyTeam || {},
-      leaves: pl.leaves || [] };
+    const doc = Object.assign({ rev: sameLabel ? (old.rev || 1) + 1 : 1, label: String(pl.label), confirmedAt: new Date().toISOString(), by: me.name },
+      confirmBody_(pl));
     docPut_('confirmed', doc);
     docPut_('confirmed:' + doc.label + ':' + doc.rev, doc, 'archives');   // 確定した版はすべて残す（実績の比較用）
     log_(me, '勤務表の確定・配布', doc.label + ' 第' + doc.rev + '版' + (pl.warnings ? '（警告' + pl.warnings + '件が残った状態）' : ''));
     return { rev: doc.rev, label: doc.label, confirmedAt: doc.confirmedAt };
   }) },
+
+  // これから確定する内容が、今の確定版と同じかどうか（同じなら画面で確かめてから確定し直す）
+  scheduleSame: { role: 'sysadmin', run: (me, p) => {
+    const pl = p.payload;
+    const old = docGet_('confirmed');
+    if (!pl || !old || old.label !== String(pl.label)) return { same: false };
+    return { same: stableJson_(confirmBody_(old)) === stableJson_(confirmBody_(pl)), rev: old.rev || 1, confirmedAt: old.confirmedAt };
+  } },
 
   // 確定版に、確定後に承認された勤務変更を重ねた「実績」を返す（変更したマスは changed に入る）
   scheduleView: { run: () => {
@@ -1434,6 +1441,18 @@ function saveState_(state) {
   state.rev = (state.rev || 0) + 1;
   docPut_('state', state);
   return state.rev;
+}
+// 確定版の中身（版の番号・日時・確定した人を除いた部分）
+function confirmBody_(pl) {
+  return { period: pl.period, teams: pl.teams, data: pl.data, jimu: pl.jimu || {}, holidays: pl.holidays || {},
+    dutyTeam: pl.dutyTeam || {}, leaves: pl.leaves || [] };
+}
+// 項目の並び順によらず同じ中身なら同じ文字列にする（比べる用）
+function stableJson_(v) {
+  if (Array.isArray(v)) return '[' + v.map(stableJson_).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).filter(k => v[k] !== undefined).sort()
+    .map(k => JSON.stringify(k) + ':' + stableJson_(v[k])).join(',') + '}';
+  return JSON.stringify(v === undefined ? null : v);
 }
 function findUser_(id) {
   id = String(id || '');
