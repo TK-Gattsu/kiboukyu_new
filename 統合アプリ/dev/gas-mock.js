@@ -152,7 +152,7 @@
             checkKeys(res);
             if (ok) ok(res === undefined ? undefined : JSON.parse(JSON.stringify(res)));
           } catch (e) { if (ng) ng(e); else console.error(e); }
-        }, 80);
+        }, window.__gasDelay || 80);   // 本番の遅さを試すときは window.__gasDelay = 3000 など
       },
     });
   }

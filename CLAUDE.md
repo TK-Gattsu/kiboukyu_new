@@ -74,6 +74,7 @@ Tab contents are rebuilt dynamically by `rebuildStaffPanel()` and `rebuildAdminP
 - 使い方（画面 `help`、メニューと右上の「使い方」）: index.html の `#v-help` に静的なHTMLで、`data-role` が staff／approver／sysadmin の3つの説明。`renderHelp()` が権限に合うものだけ表示。画面・ボタン名・手順を変えたら、この説明も同じコミットで直す
 - 本番の開始: スクリプトエディタで `試験データを消す()` を実行すると、スプレッドシートを複製して控えを残し（実行ログにURL）、docs・archives・requests・changes・notices・log を空にする（users と docs の hourly＝時間休の設定は残す）
 - ログインID＝職員番号（6桁の数字、`isStaffNo_`）: システム管理者は仮のID（まとめて追加は5桁以下の連番）で登録し、本人が「パスワード・職員番号の変更」（`changePassword` の `newId`）で職員番号に変える。6桁でない人は `needStaffNo_`（チームなしのシステム管理者だけの共用IDは除く）で、`needsSetup_` が true の間はほかの操作不可（profile の `mustChange`）。番号を変えたら今のセッションを新しい番号に付け替える。システム管理者は「編集」でIDも直せる（`saveUser` の `origId`）。「削除」（`deleteUser`）は行を消す（自分自身・最後のシステム管理者は不可、申請などの記録は名前で残る）。「勤務表の名簿から登録」（`rosterAddUsers`）は state のチーム編成でIDがない人を名前・チームのまま仮ID（`createTempUsers_`、5桁以下の連番）で登録。JSON読み込みのあとにも聞く
+- 処理中の表示: `runServer` が `busyOn`/`busyOff` で画面全体を覆い（`#busy-cover`、250ms後に「○○しています…」を表示、10秒で「時間がかかっています」）、終わるまでクリック・キー操作を受け付けない。文言は `BUSY_LABEL`、自動保存やお知らせの確認など裏の処理は `BUSY_QUIET`（上の細い線だけ）。開発用モックは `window.__gasDelay` で遅さを試せる
 - ログアウト時は `resetViews()` で全画面を初期の中身に戻し、読み込んだデータも消す（次の人に前の人の内容を見せない）
 - 進め方: 第1段階＝基盤（ログイン・権限・スタッフ管理・操作記録）／第2段階＝希望休申請と勤務表作成の統合・確定配布／第3段階＝勤務変更（交代は依頼者→受領者→承認者、追加は申請者→承認者、振休は振休同士のみ、条件逸脱は理由必須でシステム管理者と承認者だけが閲覧）／第4段階＝時間休（遅く来る・早く帰る・途中で抜ける、1時間単位、「有12-17」表示）／第5段階＝実績の集計・分析（全体の月別・年度、個人別、確定版と実績の違い、勤務変更、時間休、Excel）
 
