@@ -57,6 +57,7 @@
       },
       appendRow: vals => { const rows = get(); rows.push(vals.slice()); put(rows); },
       deleteRows: (row, n) => { const rows = get(); rows.splice(row - 1, n); put(rows); },
+      deleteRow: row => { const rows = get(); rows.splice(row - 1, 1); put(rows); },
     };
   }
   function spreadsheet(id) {

@@ -188,7 +188,7 @@ function api(token, action, payload) {
     if (!def) throw new Error('不明な操作です: ' + action);
     const me = requireSession_(token);
     if (def.role && !hasRole_(me, def.role)) throw new Error('この操作をする権限がありません。');
-    if (me.mustChange === '1' && !def.allowBeforeChange) throw new Error('先にパスワードを変更してください。');
+    if (needsSetup_(me) && !def.allowBeforeChange) throw new Error(needStaffNo_(me) && me.mustChange !== '1' ? '先に職員番号（6桁の数字）を登録してください。' : '先にパスワードを変更してください。');
     return { ok: true, data: def.run(me, payload || {}, token) };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -204,29 +204,53 @@ const ACTIONS = {
     return true;
   } },
 
-  changePassword: { allowBeforeChange: true, run: (me, p) => {
+  // パスワードと職員番号（＝ログインID）の変更。はじめてのときは両方とも必須
+  changePassword: { allowBeforeChange: true, run: (me, p, token) => withLock_(() => {
     if (hash_(me.salt, String(p.current || '')) !== me.hash) throw new Error('今のパスワードが違います。');
+    const oldId = me.id;
+    const newId = String(p.newId === undefined ? '' : p.newId).trim();
+    const changeId = newId !== '' && newId !== oldId;
+    if (changeId) {
+      if (!isStaffNo_(newId)) throw new Error('職員番号は6桁の数字で入れてください。');
+      if (findUser_(newId)) throw new Error('職員番号「' + newId + '」はすでに使われています。番号を確かめてください。');
+    } else if (needStaffNo_(me)) {
+      throw new Error('職員番号（6桁の数字）を入れてください。');
+    }
     const next = String(p.next || '');
-    checkPasswordRule_(next);
-    if (next === String(p.current)) throw new Error('今と同じパスワードにはできません。');
-    me.salt = Utilities.getUuid(); me.hash = hash_(me.salt, next); me.mustChange = '';
+    const changePw = next !== '' || me.mustChange === '1';
+    if (changePw) {
+      checkPasswordRule_(next);
+      if (next === String(p.current)) throw new Error('今と同じパスワードにはできません。');
+    } else if (!changeId) {
+      throw new Error('新しいパスワードか、新しい職員番号を入れてください。');
+    }
+    if (changePw) { me.salt = Utilities.getUuid(); me.hash = hash_(me.salt, next); me.mustChange = ''; }
+    if (changeId) me.id = newId;
     me.updatedAt = new Date().toISOString();
     writeRow_('users', me);
-    log_(me, 'パスワード変更', '');
+    if (changeId) {
+      // 今のログインを新しい番号に付け替える（ほかの端末のログインは切れる）
+      const cache = CacheService.getScriptCache();
+      cache.put('sess_' + token, newId, SESSION_SECONDS);
+      cache.remove('fail_' + oldId);
+    }
+    log_(me, changeId && changePw ? 'パスワード・職員番号の変更' : changeId ? '職員番号の変更' : 'パスワード変更',
+      changeId ? 'ID ' + oldId + ' → ' + newId : '');
     return profile_(me);
-  } },
+  }) },
 
   // ---- システム管理者: スタッフ・権限 ----
   listUsers: { role: 'sysadmin', run: () => rows_('users').map(publicUser_) },
 
-  saveUser: { role: 'sysadmin', run: (me, p) => {
+  saveUser: { role: 'sysadmin', run: (me, p, token) => withLock_(() => {
     const id = String(p.id || '').trim();
     const name = String(p.name || '').trim();
     if (!id || !name) throw new Error('IDと名前を入れてください。');
-    if (!isValidId_(id)) throw new Error('IDは半角の英数字（- と _ も可）で入れてください。');
+    if (!isValidId_(id)) throw new Error('IDは職員番号（6桁の数字）か、仮のID（半角の英数字）で入れてください。');
     const roles = normalizeRoles_(p.roles);
     const now = new Date().toISOString();
-    let u = findUser_(id);
+    const origId = p.isNew ? id : String(p.origId || id).trim();
+    let u = findUser_(origId);
     let password = null;
     if (p.isNew) {
       if (u) throw new Error('ID「' + id + '」はすでに使われています。');
@@ -234,16 +258,32 @@ const ACTIONS = {
       const salt = Utilities.getUuid();
       u = { id: id, salt: salt, hash: hash_(salt, password), mustChange: '1', createdAt: now };
     } else if (!u) {
-      throw new Error('ID「' + id + '」のスタッフが見つかりません。');
+      throw new Error('ID「' + origId + '」のスタッフが見つかりません。');
+    } else if (id !== origId) {
+      if (findUser_(id)) throw new Error('ID「' + id + '」はすでに使われています。');
     }
     const before = u._row ? publicUser_(u) : null;
+    u.id = id;
     u.name = name; u.team = String(p.team || '').trim(); u.roles = roles;
     u.active = p.active === false ? '' : '1'; u.updatedAt = now;
     guardLastAdmin_(u);
     writeRow_('users', u);
+    if (!p.isNew && origId === me.id && id !== origId) CacheService.getScriptCache().put('sess_' + token, id, SESSION_SECONDS);
     log_(me, p.isNew ? 'スタッフ追加' : 'スタッフ変更', describeUserChange_(before, publicUser_(u)));
     return { user: publicUser_(u), password: password };
-  } },
+  }) },
+
+  // スタッフの削除（元に戻せない）。申請・勤務変更・勤務表の記録は名前で残る
+  deleteUser: { role: 'sysadmin', run: (me, p) => withLock_(() => {
+    const u = findUser_(String(p.id || ''));
+    if (!u) throw new Error('スタッフが見つかりません。');
+    if (u.id === me.id) throw new Error('自分自身は削除できません。');
+    guardLastAdmin_(Object.assign({}, u, { active: '' }));
+    sheet_('users').deleteRow(u._row);
+    CacheService.getScriptCache().remove('fail_' + u.id);
+    log_(me, 'スタッフ削除', u.id + ' ' + u.name + '（' + (u.team || 'チームなし') + '）');
+    return true;
+  }) },
 
   bulkAddUsers: { role: 'sysadmin', run: (me, p) => {
     // 1行に「チーム名: 名前、名前、…」。IDは start から連番
@@ -262,6 +302,7 @@ const ACTIONS = {
         if (!name) continue;
         if (names.has(name)) { skipped.push(name); continue; }
         while (exists.has(String(next))) next++;
+        if (next >= 100000) throw new Error('仮IDの開始番号は5桁以下にしてください（6桁は職員番号と重なるため）。');
         const id = String(next++);
         const password = tempPassword_();
         const salt = Utilities.getUuid();
@@ -742,12 +783,23 @@ function normalizeRoles_(roles) {
 }
 function guardLastAdmin_(u) {
   // システム管理者が1人もいなくなる変更は不可
-  const others = rows_('users').filter(x => x.id !== u.id && x.active === '1' && hasRole_(x, 'sysadmin'));
+  const others = rows_('users').filter(x => x._row !== u._row && x.active === '1' && hasRole_(x, 'sysadmin'));
   const stillAdmin = u.active === '1' && hasRole_(u, 'sysadmin');
   if (!others.length && !stillAdmin) throw new Error('システム管理者が1人もいなくなるため、この変更はできません。');
 }
 function isValidId_(id) {
   return /^[A-Za-z0-9_-]{1,32}$/.test(id);
+}
+// ログインIDは職員番号（6桁の数字）。仮のIDの人は、パスワード変更の画面で本人が職員番号に変える
+function isStaffNo_(id) {
+  return /^[0-9]{6}$/.test(String(id || ''));
+}
+// 職員番号の登録が必要な人（システム管理者だけの共用IDは除く）
+function needStaffNo_(u) {
+  return !isStaffNo_(u.id) && !(hasRole_(u, 'sysadmin') && !u.team);
+}
+function needsSetup_(u) {
+  return u.mustChange === '1' || needStaffNo_(u);
 }
 function checkPasswordRule_(pw) {
   if (pw.length < 8) throw new Error('パスワードは8文字以上にしてください。');
@@ -772,16 +824,17 @@ function hash_(salt, pw) {
 }
 function profile_(u) {
   return { id: u.id, name: u.name, team: u.team, roles: String(u.roles || '').split(',').filter(Boolean),
-           mustChange: u.mustChange === '1' };
+           mustChange: needsSetup_(u), pwChange: u.mustChange === '1', needNo: needStaffNo_(u) };
 }
 function publicUser_(u) {
   return { id: u.id, name: u.name, team: u.team, roles: String(u.roles || '').split(',').filter(Boolean),
-           active: u.active === '1', mustChange: u.mustChange === '1', updatedAt: u.updatedAt };
+           active: u.active === '1', mustChange: u.mustChange === '1', needNo: needStaffNo_(u), updatedAt: u.updatedAt };
 }
 function describeUserChange_(before, after) {
   const roleText = r => r.length ? r.map(x => ROLE_LABELS[x]).join('・') : '一般';
   if (!before) return after.id + ' ' + after.name + '（' + (after.team || 'チームなし') + '・' + roleText(after.roles) + '）';
   const diffs = [];
+  if (before.id !== after.id) diffs.push('ID ' + before.id + '→' + after.id);
   if (before.name !== after.name) diffs.push('名前 ' + before.name + '→' + after.name);
   if (before.team !== after.team) diffs.push('チーム ' + (before.team || 'なし') + '→' + (after.team || 'なし'));
   if (roleText(before.roles) !== roleText(after.roles)) diffs.push('権限 ' + roleText(before.roles) + '→' + roleText(after.roles));

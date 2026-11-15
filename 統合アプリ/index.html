@@ -206,13 +206,13 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
   <section id="v-login" style="display:none;">
     <div class="card" id="login-box">
       <h2>ログイン</h2>
-      <label class="f" for="li-id">ID</label>
+      <label class="f" for="li-id">職員番号（ID）</label>
       <input type="text" id="li-id" autocomplete="username" autocapitalize="off">
       <label class="f" for="li-pw">パスワード</label>
       <input type="password" id="li-pw" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
       <div class="err" id="li-err"></div>
       <button class="btn" style="width:100%; margin-top:8px; padding:10px;" onclick="doLogin()">ログイン</button>
-      <p class="hint">IDとパスワードは、システム管理者から配られたものを使います。パスワードを忘れたときは、システム管理者に再発行を頼んでください。</p>
+      <p class="hint">はじめてのときは、システム管理者から配られたIDと仮パスワードでログインし、自分の職員番号（6桁）とパスワードを登録します。2回目からは職員番号でログインします。パスワードを忘れたときは、システム管理者に再発行を頼んでください。</p>
     </div>
   </section>
 
@@ -220,11 +220,13 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
   <section id="v-password" style="display:none;">
     <button class="back" id="pw-back" onclick="show('home')">← メニューに戻る</button>
     <div class="card" style="max-width:420px;">
-      <h2>パスワード変更</h2>
-      <p class="hint" id="pw-first" style="display:none; color:var(--orange); font-weight:bold;">はじめてのログインです。自分だけが知っているパスワードに変更してください。</p>
+      <h2>パスワード・職員番号の変更</h2>
+      <p class="hint" id="pw-first" style="display:none; color:var(--orange); font-weight:bold;"></p>
+      <label class="f" for="pw-id">職員番号（6桁の数字。次回からこの番号でログインします）</label>
+      <input type="text" id="pw-id" inputmode="numeric" maxlength="6" autocomplete="username" placeholder="例: 012345">
       <label class="f" for="pw-cur">今のパスワード</label>
       <input type="password" id="pw-cur" autocomplete="current-password">
-      <label class="f" for="pw-new">新しいパスワード（英字と数字を含む8文字以上）</label>
+      <label class="f" for="pw-new" id="pw-new-label">新しいパスワード（英字と数字を含む8文字以上）</label>
       <input type="password" id="pw-new" autocomplete="new-password">
       <label class="f" for="pw-new2">新しいパスワード（確認のためもう一度）</label>
       <input type="password" id="pw-new2" autocomplete="new-password" onkeydown="if(event.key==='Enter')doChangePassword()">
@@ -244,7 +246,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
     <button class="back" onclick="show('home')">← メニューに戻る</button>
     <div class="card">
       <h2>スタッフ・権限の管理</h2>
-      <p class="hint">スタッフのIDを登録し、仮パスワードを配ります（本人は初回ログイン時に自分のパスワードに変更します）。
+      <p class="hint">スタッフを登録し、仮のIDと仮パスワードを配ります（本人は初回ログイン時に、自分の職員番号（6桁）とパスワードを登録します）。
         「承認者」にチェックした人が、勤務変更を承認できる管理者になります。「システム管理者」はすべての操作ができます。</p>
       <div class="toolbar">
         <button class="btn btn-green btn-sm" onclick="openUserModal()">＋ スタッフを追加</button>
@@ -505,8 +507,9 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 
       <details open><summary>はじめてのログイン・パスワード</summary>
         <ol>
-          <li>システム管理者から配られた <b>ID</b> と <b>仮パスワード</b> でログインします。</li>
-          <li>はじめてのときは「パスワード変更」の画面になります。英字と数字を含む8文字以上の、自分だけが知っているパスワードに変えてください。</li>
+          <li>はじめては、システム管理者から配られた <b>仮のID</b> と <b>仮パスワード</b> でログインします。</li>
+          <li>「パスワード・職員番号の変更」の画面になるので、自分の<b>職員番号（6桁の数字）</b>と、英字と数字を含む8文字以上の自分だけが知っているパスワードを入れます。</li>
+          <li>2回目からは、<b>職員番号</b>とそのパスワードでログインします。職員番号を入れ間違えたときは、メニューの「パスワード・職員番号の変更」で直せます。</li>
           <li>パスワードを忘れたときは、システム管理者に「パスワード再発行」を頼んでください。</li>
           <li>共用のパソコンでは、使い終わったら右上の「ログアウト」を押してください。</li>
         </ol>
@@ -614,9 +617,11 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
       </details>
       <details><summary>スタッフ・権限の管理</summary>
         <ul>
-          <li>「<b>＋ スタッフを追加</b>」で1人ずつ、「<b>まとめて追加</b>」で名前の一覧から一度に登録できます。仮パスワードが表示されるので、印刷か書き写しをして本人に渡します（閉じると二度と表示されません）。</li>
+          <li>「<b>＋ スタッフを追加</b>」で1人ずつ、「<b>まとめて追加</b>」で名前の一覧から一度に登録できます。仮のIDと仮パスワードが表示されるので、印刷か書き写しをして本人に渡します（閉じると二度と表示されません）。</li>
+          <li>ログインのIDは<b>職員番号（6桁）</b>です。本人が初回ログイン時に、仮のIDから自分の職員番号に変えます（それまでは状態が「初回ログイン前」「職員番号の登録前」）。職員番号がわかっていれば、追加のときに直接入れてもかまいません。番号の間違いは「編集」でも直せます。</li>
           <li>名前は、勤務表の名簿と同じ表記（漢字・空白）にしてください。違うと、その人は申請や集計で正しく扱われません（「期間・流れ・受付の設定」に食い違いの一覧が出ます）。</li>
-          <li>「編集」で「承認者」「システム管理者」にチェックすると、その権限が付きます。辞めた人は「有効」を外します。</li>
+          <li>「編集」で「承認者」「システム管理者」にチェックすると、その権限が付きます。一時的に止めるときは「有効」を外します。</li>
+          <li>「<b>削除</b>」でスタッフを消せます（元に戻せません）。試験用のIDや辞めた人に使います。申請・勤務変更・勤務表の記録は名前で残ります。自分自身は削除できません。</li>
           <li>パスワードを忘れた人は「<b>パスワード再発行</b>」で新しい仮パスワードを発行します。</li>
         </ul>
       </details>
@@ -673,7 +678,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 <div class="modal" id="user-modal" onclick="if(event.target===this)closeModal('user-modal')">
   <div class="box">
     <h3 id="um-title">スタッフを追加</h3>
-    <label class="f" for="um-id">ID（半角英数字。職員番号など）</label>
+    <label class="f" for="um-id">ID（職員番号6桁。わからないときは仮のID。仮のIDの人は初回ログイン時に本人が職員番号に変えます）</label>
     <input type="text" id="um-id" autocapitalize="off">
     <label class="f" for="um-name">名前（勤務表に出る表記）</label>
     <input type="text" id="um-name">
@@ -699,9 +704,9 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 <div class="modal" id="bulk-modal" onclick="if(event.target===this)closeModal('bulk-modal')">
   <div class="box">
     <h3>スタッフをまとめて追加</h3>
-    <p class="hint">1行に「チーム名: 名前、名前、…」の形で入れます。IDは下の番号から順に自動で付きます（あとで個別に変えることはできないので、職員番号を使う場合は1人ずつ追加してください）。すでに同じ名前の人がいる場合は飛ばします。</p>
+    <p class="hint">1行に「チーム名: 名前、名前、…」の形で入れます。下の番号から順に<b>仮のID</b>が付きます。本人が初回ログイン時に、自分の職員番号（6桁）に変えます。すでに同じ名前の人がいる場合は飛ばします。</p>
     <textarea id="bk-text" placeholder="Aチーム: 大澤、品川、木暮&#10;Bチーム: 髙麗、我妻&#10;事務: 鎌田"></textarea>
-    <label class="f" for="bk-start">IDの開始番号</label>
+    <label class="f" for="bk-start">仮IDの開始番号（5桁以下）</label>
     <input type="number" id="bk-start" value="1001" style="max-width:140px;">
     <div class="err" id="bk-err"></div>
     <div class="actions">
@@ -714,10 +719,10 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 <!-- 仮パスワードの一覧（配布用） -->
 <div class="modal" id="pw-modal">
   <div class="box" style="max-width:640px;">
-    <h3>仮パスワード（この画面を閉じると二度と表示されません）</h3>
+    <h3>仮ID・仮パスワード（この画面を閉じると二度と表示されません）</h3>
     <p class="hint noprint">印刷するか書き写して、本人に渡してください。本人は初回ログイン時に自分のパスワードに変更します。</p>
     <table class="list pwtable"><thead><tr><th>ID</th><th>名前</th><th>チーム</th><th>仮パスワード</th></tr></thead><tbody id="pw-list"></tbody></table>
-    <p class="hint">ログインのURLはシステム管理者にたずねてください。初回ログイン後、自分だけが知っているパスワードに変更します。</p>
+    <p class="hint">ログインのURLはシステム管理者にたずねてください。初回ログイン時に、自分の職員番号（6桁）と、自分だけが知っているパスワードを登録します。2回目からは職員番号でログインします。</p>
     <div class="actions">
       <button class="btn" onclick="window.print()">印刷</button>
       <button class="btn btn-gray" onclick="closePwModal()">閉じる</button>
@@ -799,9 +804,17 @@ function show(v) {
   if (v === 'help') renderHelp();
   if (v === 'password') {
     for (const id of ['pw-cur', 'pw-new', 'pw-new2']) document.getElementById(id).value = '';
+    document.getElementById('pw-id').value = ME && /^[0-9]{6}$/.test(ME.id) ? ME.id : '';
     document.getElementById('pw-err').textContent = '';
     const first = ME && ME.mustChange;
-    document.getElementById('pw-first').style.display = first ? '' : 'none';
+    const fm = document.getElementById('pw-first');
+    fm.style.display = first ? '' : 'none';
+    fm.textContent = !first ? '' : ME.pwChange
+      ? 'はじめてのログインです。自分の職員番号（6桁）を入れ、自分だけが知っているパスワードに変更してください。'
+      : '職員番号（6桁）を登録してください。パスワードは変えなければ空欄のままでかまいません。';
+    document.getElementById('pw-new-label').textContent = ME && ME.pwChange
+      ? '新しいパスワード（英字と数字を含む8文字以上）'
+      : '新しいパスワード（英字と数字を含む8文字以上。変えないときは空欄）';
     document.getElementById('pw-back').style.display = first ? 'none' : '';
   }
   window.scrollTo(0, 0);
@@ -846,9 +859,15 @@ async function doChangePassword() {
   const err = document.getElementById('pw-err');
   err.textContent = '';
   if (nw !== nw2) { err.textContent = '新しいパスワードが2回とも同じになっていません。'; return; }
+  const newId = document.getElementById('pw-id').value.trim();
+  if (newId && !/^[0-9]{6}$/.test(newId)) { err.textContent = '職員番号は6桁の数字で入れてください。'; return; }
   try {
-    ME = await call('changePassword', { current: cur, next: nw });
-    alert('パスワードを変更しました。');
+    const oldId = ME.id;
+    ME = await call('changePassword', { current: cur, next: nw, newId: newId });
+    const msgs = [];
+    if (ME.id !== oldId) msgs.push('職員番号を「' + ME.id + '」に登録しました。次回からこの番号でログインします。');
+    if (nw) msgs.push('パスワードを変更しました。');
+    alert(msgs.join('\n') || '変更しました。');
     show('home');
   } catch (e) { err.textContent = e.message; }
 }
@@ -874,7 +893,7 @@ function renderMenu() {
     items.push({ title: '操作記録', desc: 'ログインや権限変更などの記録を確認します。', go: 'log' });
   }
   items.push({ title: '使い方', desc: 'この画面の使い方です（' + (isAdmin() ? 'システム管理者・承認者・スタッフ' : isApprover() ? '承認者・スタッフ' : 'スタッフ') + '向け）。', go: 'help' });
-  items.push({ title: 'パスワード変更', desc: '自分のパスワードを変更します。', go: 'password' });
+  items.push({ title: 'パスワード・職員番号の変更', desc: '自分のパスワードや、ログインに使う職員番号を変更します。', go: 'password' });
   document.getElementById('menu').innerHTML = items.map((it, i) =>
     '<button class="item' + (it.soon ? ' soon' : '') + '" data-i="' + i + '">' +
     '<b>' + esc(it.title) + (it.soon ? '<span class="tag">準備中（' + it.soon + '）</span>' : '') + '</b>' +
@@ -949,22 +968,27 @@ function renderUsers() {
     if (!u.active) tr.className = 'inactive';
     tr.innerHTML = '<td>' + esc(u.id) + '</td><td><b>' + esc(u.name) + '</b></td><td class="hide-sm">' + esc(u.team) + '</td>' +
       '<td>' + (u.roles.length ? u.roles.map(r => '<span class="role ' + r + '">' + ROLE_LABELS[r] + '</span>').join('') : '<span class="hint">一般</span>') + '</td>' +
-      '<td class="hide-sm">' + (u.active ? (u.mustChange ? '<span class="hint">初回ログイン前</span>' : '有効') : '無効') + '</td><td style="white-space:nowrap;"></td>';
+      '<td class="hide-sm">' + (u.active ? (u.mustChange ? '<span class="hint">初回ログイン前</span>' : u.needNo ? '<span class="hint">職員番号の登録前</span>' : '有効') : '無効') + '</td><td style="white-space:nowrap;"></td>';
     const td = tr.lastChild;
     const be = document.createElement('button'); be.className = 'btn btn-sm'; be.textContent = '編集';
     be.onclick = () => openUserModal(u);
     const br = document.createElement('button'); br.className = 'btn btn-orange btn-sm'; br.textContent = 'パスワード再発行'; br.style.marginLeft = '4px';
     br.onclick = () => resetPassword(u);
     td.appendChild(be); td.appendChild(br);
+    if (u.id !== ME.id) {
+      const bd = document.createElement('button'); bd.className = 'btn btn-red btn-sm'; bd.textContent = '削除'; bd.style.marginLeft = '4px';
+      bd.onclick = () => deleteUser(u);
+      td.appendChild(bd);
+    }
     tb.appendChild(tr);
   }
 }
-let editingNew = true;
+let editingNew = true, editingId = '';
 function openUserModal(u) {
   editingNew = !u;
+  editingId = u ? u.id : '';
   document.getElementById('um-title').textContent = u ? 'スタッフの編集' : 'スタッフを追加';
   document.getElementById('um-id').value = u ? u.id : '';
-  document.getElementById('um-id').disabled = !!u;
   document.getElementById('um-name').value = u ? u.name : '';
   document.getElementById('um-team').value = u ? u.team : '';
   document.getElementById('um-approver').checked = !!u && u.roles.indexOf('approver') >= 0;
@@ -979,17 +1003,24 @@ async function saveUser() {
   if (document.getElementById('um-approver').checked) roles.push('approver');
   if (document.getElementById('um-sysadmin').checked) roles.push('sysadmin');
   const payload = {
-    isNew: editingNew, id: document.getElementById('um-id').value.trim(), name: document.getElementById('um-name').value.trim(),
+    isNew: editingNew, origId: editingId, id: document.getElementById('um-id').value.trim(), name: document.getElementById('um-name').value.trim(),
     team: document.getElementById('um-team').value.trim(), roles: roles, active: document.getElementById('um-active').checked,
   };
   try {
     const r = await call('saveUser', payload);
     closeModal('user-modal');
-    if (r.user.id === ME.id) ME = await call('me');
+    if (editingId === ME.id) ME = await call('me');
     await loadUsers();
     if (r.password) showPasswords([{ id: r.user.id, name: r.user.name, team: r.user.team, password: r.password }]);
     show(isAdmin() ? 'users' : 'home');
   } catch (e) { document.getElementById('um-err').textContent = e.message; }
+}
+async function deleteUser(u) {
+  if (!confirm(u.name + '（' + u.id + '）を削除しますか？\n\n削除すると元に戻せません。このIDではログインできなくなります。\n申請・勤務変更・勤務表の記録は名前で残ります。\n\n一時的に止めるだけなら「編集」で「有効」のチェックを外してください。')) return;
+  try {
+    await call('deleteUser', { id: u.id });
+    await loadUsers();
+  } catch (e) { alert(e.message); }
 }
 async function resetPassword(u) {
   if (!confirm(u.name + '（' + u.id + '）のパスワードを再発行しますか？\n今のパスワードは使えなくなり、新しい仮パスワードを本人に渡す必要があります。')) return;
@@ -1001,7 +1032,7 @@ async function resetPassword(u) {
 }
 function openBulkModal() {
   document.getElementById('bk-err').textContent = '';
-  const nums = USERS.map(u => Number(u.id)).filter(n => n > 0);
+  const nums = USERS.filter(u => /^[0-9]{1,5}$/.test(u.id)).map(u => Number(u.id)).filter(n => n > 0);
   document.getElementById('bk-start').value = nums.length ? Math.max(...nums) + 1 : 1001;
   openModal('bulk-modal');
 }
