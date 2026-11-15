@@ -585,13 +585,10 @@ const ACTIONS = {
     return statsBuild_(String(p.scope || ''));
   } },
 
-  // 自分の集計（だれでも。自分の分と、全員の平均だけを返す）
+  // 自分の集計（だれでも。自分の分だけを返す。ほかの人の回数や全員の平均は返さない）
   statsMine: { run: (me, p) => {
     const st = statsBuild_(String(p.scope || ''));
     const mine = st.persons.find(x => x.name === me.name) || null;
-    const avg = {};
-    const keys = st.cols.map(c => c[0]).concat(['maxStreak']);
-    keys.forEach(k => { const v = st.persons.map(x => x[k] || 0); avg[k] = v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 10) / 10 : 0; });
     const myChanges = rows_('changes').filter(r => r.requester === me.name || r.partner === me.name);
     const kinds = {};
     myChanges.forEach(r => {
@@ -603,7 +600,7 @@ const ACTIONS = {
       if (r.status === 'approved') k.approved++;
     });
     return { scope: st.scope, scopes: st.scopes, cols: st.cols, from: st.from, to: st.to, days: st.days, hourlyCap: st.hourlyCap,
-      months: st.monthly.map(m => m.month), me: mine, avg: avg, people: st.persons.length,
+      months: st.monthly.map(m => m.month), me: mine,
       diff: st.diff.filter(x => x.name === me.name), hourly: st.hourly[me.name] || {}, kinds: kinds };
   } },
 
