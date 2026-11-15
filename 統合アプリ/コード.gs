@@ -136,6 +136,26 @@ function 管理者パスワード再発行() {
   return out;
 }
 
+// 試験で入れたデータを消して、本番を始めるとき（スクリプトエディタから1回だけ実行）
+// - 消す前に、スプレッドシートを丸ごと複製して控えを残す（実行ログに控えのURLが出る）
+// - 消すもの: 勤務表・確定版・過去の勤務表・期間と受付の設定・希望休の申請・勤務変更・お知らせ・操作記録
+// - 残すもの: スタッフのID・パスワード・権限、時間休の設定
+function 試験データを消す() {
+  const ss = db_();
+  const keepHourly = docGet_('hourly');
+  const copy = ss.copy('勤務管理データ（試験の控え ' + todayJst_() + '）');
+  ['docs', 'archives', 'requests', 'changes', 'notices', 'log'].forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (sh && sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+  });
+  Object.keys(DOC_MEMO).forEach(k => { delete DOC_MEMO[k]; });
+  if (keepHourly) docPut_('hourly', keepHourly);
+  log_(null, '試験データの消去', '控え: ' + copy.getName());
+  Logger.log('試験データを消しました。スタッフのIDと時間休の設定は残っています。');
+  Logger.log('消す前の控え: ' + copy.getName() + ' ' + copy.getUrl());
+  return { copy: copy.getName(), url: copy.getUrl() };
+}
+
 // ------------------------------------------------------------
 // ログイン・ログアウト
 // ------------------------------------------------------------

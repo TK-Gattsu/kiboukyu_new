@@ -56,11 +56,15 @@
         return rg;
       },
       appendRow: vals => { const rows = get(); rows.push(vals.slice()); put(rows); },
+      deleteRows: (row, n) => { const rows = get(); rows.splice(row - 1, n); put(rows); },
     };
   }
   function spreadsheet(id) {
     return {
       getId: () => id,
+      getName: () => db()[id].name,
+      getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id,
+      copy: name => { const d = db(); const nid = 'ss' + Date.now() + 'c'; d[nid] = { name: name, sheets: JSON.parse(JSON.stringify(d[id].sheets)) }; saveDb(d); return spreadsheet(nid); },
       getSheetByName: n => (db()[id].sheets[n] ? makeSheet(id, n) : null),
       insertSheet: n => { const d = db(); d[id].sheets[n] = []; saveDb(d); return makeSheet(id, n); },
     };
