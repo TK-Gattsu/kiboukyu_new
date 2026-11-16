@@ -432,7 +432,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
         <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>自分の日直・夜勤・残り当番と、相手の勤務を入れ替えます（同時に入れ替わります）。相手と承認者の承認が必要です。</label>
         <label data-k="hand"><input type="radio" name="cg-kind" value="hand"><b>受け渡し</b>日直・夜勤・残り当番を、交換せずに相手にやってもらう／相手の分を引き受けます。相手と承認者の承認が必要です。</label>
         <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます。「次回へ繰越」の振休との交換もできます。相手と承認者の承認が必要です。</label>
-        <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れる、繰越の振休を取る・振休を次回へ回すなど。承認者の承認が必要です。</label>
+        <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど（振休は変えられません）。承認者の承認が必要です。</label>
         <label data-k="hourly"><input type="radio" name="cg-kind" value="hourly"><b>時間休</b>遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です（1時間単位）。時刻の変更・取り消しもここで行います。承認者の承認が必要です。</label>
       </div>
       <div id="cg-form"></div>
@@ -563,8 +563,8 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
           <li><b>受け渡し</b>：交換ではなく、日直・夜勤・残り当番を一方へ渡します。「どちら」で「<b>やってもらう</b>」（自分の勤務を相手に渡す）か「<b>引き受ける</b>」（相手の勤務を自分がする）を選び、「相手」と勤務の日を選びます。渡した人のその日は空き（平日は勤務、土日祝は休み）になります。夜勤（入）は翌日の「明」も一緒に移ります。相手 → 承認者の順に承認されると反映されます。</li>
           <li>交代・受け渡しで土日祝の日直・夜勤が移ると、その<b>振休も受け取った人のもの</b>になります。渡した人がその分の振休をもう取っている（日が決まっている）ときは、「内容を確認」のあとに「<b>振休の扱い</b>」が出るので、「同じ日の振休も相手に渡す」か「振休は取りやめ、相手の振休は次回へ繰越」を選びます。</li>
           <li><b>振休の交換</b>：自分の振休と相手の振休の日を入れ替えます。片方に「<b>繰越</b>」（次回へ繰越の、日が決まっていない振休）を選ぶと、繰越の人が相手の振休の日に振休を取り、日が決まっていた人の振休が次回へ繰越になります。相手 → 承認者の承認が必要です。</li>
-          <li><b>自分の勤務の変更</b>：有・夏・特を取る／取り消す、出張・業務・研修などに変えます。空いている平日を選ぶと、次回へ繰越の振休をその日に取れます。日付つきの振休の日を選ぶと、その振休を取りやめて次回へ繰り越せます。承認者の承認が必要です。</li>
-          <li>前回からの繰越の振休は、今回の期間に取るきまりです。また次回へ繰り越すときは、理由が必要です。</li>
+          <li><b>自分の勤務の変更</b>：有・夏・特を取る／取り消す、出張・業務・研修などに変えます。振休はここでは変えられません（振休は「振休の交換」だけで動かします）。承認者の承認が必要です。</li>
+          <li>前回からの繰越の振休は、今回の期間内に必ず取ります。また次回へ繰り越しになる申請（振休の交換・交代・受け渡し・承認後の取り消しを含む）はできません。</li>
           <li><b>時間休</b>：遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です。
             <ul>
               <li>日付・種類を選び、「休む時刻（から）」「休む時刻（まで）」を選びます。休憩が日によって違う場合は「その日の休憩」も選びます。</li>
@@ -1772,7 +1772,7 @@ function furiMineHtml(sv) {
     '<tr><td class="l">' + esc(r.src === '前回繰越' ? md(r.duty) : mdw(r.duty)) + '</td><td class="l">' + esc(r.src) + '</td><td class="l">' + furiStatus(r) + '</td></tr>').join('') + '</table></div>';
   const orphan = sv.furi.orphans.filter(o => o.name === ME.name);
   if (orphan.length) h += '<p class="err">⚠ 対応する出勤が見つからない振休：' + orphan.map(o => esc(mdw(o.date))).join('、') + '（システム管理者に確認してください）</p>';
-  h += '<p class="hint">振休の対象：土日祝の日直・業務・夜勤入り・夜勤明けと、前回からの繰越。次回へ繰越の振休は、「勤務変更・追加の申請」の「振休の交換」（相手の振休の日と交換）や「自分の勤務の変更」（空いている平日に取る）で、今回の期間に取ることもできます。</p>';
+  h += '<p class="hint">振休の対象：土日祝の日直・業務・夜勤入り・夜勤明けと、前回からの繰越。次回へ繰越の振休は、「勤務変更・追加の申請」の「振休の交換」で、相手の振休の日と交換すれば今回の期間に取れます。前回からの繰越の振休は、今回の期間内に必ず取ります（また次回へ繰り越すことはできません）。</p>';
   return h;
 }
 // 振休の状況（全員）: 次回へ繰越の振休を人ごとに
@@ -1921,12 +1921,10 @@ function renderChgForm() {
       '<p class="hint">勤務時間 ' + esc(H.cfg.start) + '〜' + esc(H.cfg.end) + '（休憩 ' + esc(H.breaks.map(b => b.label).join(' または ')) + '）。取る時間は、休憩を除いて1時間単位で数え、1時間に満たない分は切り上げます。勤務表には「有12-17」（12時から17時まで休み）のように表示され、休み人数には数えません。<br>' +
       H.usage.map(u => esc(u.label) + 'の時間休：申請中を含めて <b>' + u.used + '時間</b>／上限 ' + H.cap + '時間（' + H.cfg.yearDays + '日×' + H.cfg.dayHours + '時間）').join('<br>') + '</p>';
   } else {
-    const myCarry = carryOf(CG.sv, me);
     h = '<div class="form-row"><div><label class="f">日付</label><select id="cg-date"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
       '<div><label class="f">変更後</label><select id="cg-mark"></select></div></div>' +
       '<p class="hint" id="cg-now"></p>' +
-      (myCarry.length ? '<p class="hint">あなたの次回へ繰越の振休：' + myCarry.map(r => esc(carryText(r))).join('、') + '。空いている平日を選ぶと、「変更後」でこの振休を今回の期間に取れます。</p>' : '') +
-      '<p class="hint">日付つきの振休の日を選ぶと、その振休を取りやめて次回へ繰り越せます（その日は勤務になります）。</p>';
+      '<p class="hint">振休はここでは変えられません。振休は「振休の交換」で、ほかの人の振休（次回へ繰越の振休も含む）と入れ替えます。</p>';
   }
   if (h.indexOf('select') >= 0) h += '<button class="btn" onclick="previewChg()">内容を確認</button>';
   f.innerHTML = h;
@@ -1968,18 +1966,11 @@ function syncHandForm() {
   hd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '"' + (d.date === keep ? ' selected' : '') + '>' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(who, d.date))) + '</option>').join('')
     : '<option value="">' + (!who ? '先に相手を選んでください' : take ? 'この人には日直・夜勤・残り当番がありません' : 'あなたの日直・夜勤・残り当番はありません') + '</option>';
 }
-// 自分の勤務の変更: 選んだ日に合わせて「変更後」を並べる（日付つきの振休なら取りやめ、空いている平日なら繰越の振休も）
+// 自分の勤務の変更: 「変更後」を並べる（振休は「振休の交換」でだけ動かすので、ここには出さない）
 function syncSelfMarks() {
-  const ms = document.getElementById('cg-mark'), ds = document.getElementById('cg-date');
-  if (!ms || !ds) return;
-  const info = CG.sv.dates.find(x => x.date === ds.value), cur = info ? cellOf(ME.name, info.date) : '';
-  let opts;
-  if (isFuriLabelC(cur)) opts = [['', (info.rest ? '休み' : '勤務') + '（この振休を取りやめて、次回へ繰越）']];
-  else {
-    opts = Object.keys(SELF_LABELS).map(k => [k, SELF_LABELS[k]]);
-    if (info && !info.rest && !cur) carryOf(CG.sv, ME.name).forEach(r => opts.push(['carry:' + r.duty, '振休を取る：繰越の ' + carryText(r)]));
-  }
-  ms.innerHTML = opts.map(o => '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>').join('');
+  const ms = document.getElementById('cg-mark');
+  if (!ms || ms.options.length) return;
+  ms.innerHTML = Object.keys(SELF_LABELS).map(k => '<option value="' + esc(k) + '">' + esc(SELF_LABELS[k]) + '</option>').join('');
 }
 // 時間休: 種類に合わせて「から」「まで」の時刻を並べ、その日に時間休があれば「取り消す」も出す
 function hourlyHoursC(from, to, bi) {

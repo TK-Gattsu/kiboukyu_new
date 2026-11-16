@@ -1511,31 +1511,16 @@ function buildChange_(conf, act, me, p) {
     const d = String(p.date || ''), to = String(p.mark || '');
     if (!dateSet.has(d)) throw new Error('変更する日を選んでください。');
     const from = cell(name, d), rest = confRest_(conf, d);
-    if (isFuriLabel_(from)) {
-      // 日付つきの振休を取りやめて、次回へ繰り越す（その日は勤務）
-      if (to !== '') throw new Error('日付つきの振休は「勤務（この振休を取りやめて次回へ繰越）」にだけ変えられます。ほかの人の振休との入れ替えは「振休の交換」で行います。');
-      cells.push({ name: name, date: d, before: from, after: '' });
-      summary = name + ' ' + md_(d) + '：振休（' + md_(furiDuty_(from, conf)) + '出勤分）を取りやめ → ' + (rest ? '休み' : '勤務') + '（次回へ繰越）';
-    } else if (to.indexOf('carry:') === 0) {
-      // 次回へ繰越の振休を、今回の期間の空いている平日に取る
-      const duty = to.slice(6);
-      if (!furiState_(conf, act).carry.some(r => r.name === name && r.duty === duty)) throw new Error('次回へ繰越の振休を選んでください。');
-      if (rest) throw new Error('振休は平日に取ります。');
-      if (from) throw new Error(md_(d) + 'は「' + from + '」が入っているため、振休を取れません。');
-      if (onLeave(name, d)) throw new Error(md_(d) + 'は長期休暇の期間です。');
-      cells.push({ name: name, date: d, before: '', after: furiLabelOf_(duty) });
-      summary = name + ' ' + md_(d) + '：勤務 → 振休（' + md_(duty) + '出勤分。次回へ繰越の予定だった分）';
-    } else {
-      if (String(from).indexOf('振') >= 0) throw new Error('「' + from + '」は変更できません（日付つきの振休だけ、取りやめて次回へ繰り越せます）。');
-      if (SELF_MARKS.indexOf(from) < 0 && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」か「受け渡し」で、ほかの人と行います。');
-      if (SELF_MARKS.indexOf(to) < 0) throw new Error('変更後の勤務を選んでください。');
-      if (to === from) throw new Error('今と同じ内容です。');
-      if (rest && ['有', '夏', '特'].indexOf(to) >= 0) throw new Error('土日祝に「' + to + '」は入れられません。');
-      if (!rest && to === '×') throw new Error('「×」は土日祝だけに入れられます。');
-      cells.push({ name: name, date: d, before: from, after: to });
-      const empty = rest ? '休み' : '勤務';
-      summary = name + ' ' + md_(d) + '：' + (from || empty) + ' → ' + (to || empty);
-    }
+    // 振休は原則「振休の交換」でだけ動かす（ひとりで振休を取る・取りやめて繰り越すことはできない）
+    if (String(from).indexOf('振') >= 0) throw new Error('振休は「振休の交換」で、ほかの人の振休（次回へ繰越の振休も含む）と入れ替えてください。');
+    if (SELF_MARKS.indexOf(from) < 0 && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」か「受け渡し」で、ほかの人と行います。');
+    if (SELF_MARKS.indexOf(to) < 0) throw new Error('変更後の勤務を選んでください。');
+    if (to === from) throw new Error('今と同じ内容です。');
+    if (rest && ['有', '夏', '特'].indexOf(to) >= 0) throw new Error('土日祝に「' + to + '」は入れられません。');
+    if (!rest && to === '×') throw new Error('「×」は土日祝だけに入れられます。');
+    cells.push({ name: name, date: d, before: from, after: to });
+    const empty = rest ? '休み' : '勤務';
+    summary = name + ' ' + md_(d) + '：' + (from || empty) + ' → ' + (to || empty);
   }
   // 交代・受け渡しで振休の権利が人から人へ移るときは、置いてある振休も付け替える
   if (kind === 'swap' || kind === 'hand') {
@@ -1547,6 +1532,11 @@ function buildChange_(conf, act, me, p) {
     if (ff.notes.length) summary += '（' + ff.notes.join('、') + '）';
     furiAsks = ff.asks;
   }
+  // 前回からの繰越の振休は、今回の期間内に必ず取る（また次回へ繰り越す変更は受け付けない）
+  const fb = furiState_(conf, act), fa = furiState_(conf, applyCells_(act, cells));
+  const reCarry = fa.carry.filter(r => r.src === '前回繰越' && fb.rights.some(y => y.src === '前回繰越' && y.name === r.name && y.duty === r.duty && (y.at || y.kibou)));
+  if (reCarry.length) throw new Error(reCarry.map(r => r.name + 'さんの前回からの繰越の振休（' + md_(r.duty) + '出勤分）').join('、') +
+    'が、また次回へ繰り越しになるため申請できません。前回からの繰越の振休は、今回の期間内に必ず取ります。');
   const deviations = deviations_(conf, act, cells);
   const hcfg = hourlyCfg_();
   cells.forEach(x => {
@@ -1601,14 +1591,10 @@ function deviations_(conf, act, cells) {
     if (diff > FURI_AFTER_DAYS || diff < -FURI_BEFORE_DAYS)
       out.push(x.name + 'さんの振休（' + md_(duty) + '出勤分）が' + md_(x.date) + 'になり、付与期限（出勤後' + FURI_AFTER_DAYS + '日・前' + FURI_BEFORE_DAYS + '日）を外れます');
   });
-  // 5) 振休: 前回からの繰越をまた繰り越す／振休・振◆に対応する出勤がなくなる
+  // 5) 振休: 振休・振◆に対応する出勤がなくなる（前回繰越をまた繰り越す変更は、buildChange_ で受け付けない）
   const fb = furiState_(conf, act), fa = furiState_(conf, after);
   const key = o => o.name + '|' + o.date;
   const ob = fb.orphans.map(key), kb = fb.kibouUnmatched.map(key);
-  fa.rights.filter(r => r.src === '前回繰越' && !r.at && !r.kibou && people.indexOf(r.name) >= 0).forEach(r => {
-    const b = fb.rights.find(y => y.src === '前回繰越' && y.name === r.name && y.duty === r.duty);
-    if (b && (b.at || b.kibou)) out.push(r.name + 'さんの前回からの繰越の振休（' + md_(r.duty) + '出勤分）を、今回の期間に取らずに、また次回へ繰り越すことになります（前回繰越は今回の期間内に取るきまり）');
-  });
   fa.orphans.filter(o => ob.indexOf(key(o)) < 0).forEach(o => out.push(o.name + 'さんの' + md_(o.date) + 'の振休（' + o.label + '）に対応する出勤がなくなります'));
   fa.kibouUnmatched.filter(k => kb.indexOf(key(k)) < 0).forEach(k => out.push(k.name + 'さんの' + md_(k.date) + 'の振◆に充てる出勤がなくなります'));
   return out;
