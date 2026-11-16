@@ -70,11 +70,12 @@ const FLOW_LABELS = { request_first: '希望休が先（希望休 → 日直・�
 const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
 
 // ---- 勤務変更 ----
-// kind: swap＝交代（自分の勤務と相手の勤務を同時に入れ替える）／furi＝振休の交換（2人の振休の日を入れ替える）／self＝自分の勤務の変更
+// kind: swap＝交代（自分の勤務と相手の勤務を同時に入れ替える）／hand＝受け渡し（日直・夜勤・残り当番を、交換せずに一方へ渡す）
+//       furi＝振休の交換（2人の振休の日を入れ替える。片方は次回への繰越の振休でもよい）／self＝自分の勤務の変更
 //       hourly＝時間休／revert＝承認後の取り消し（承認済みの申請を元に戻す。元の申請と同じ人の承認が必要）
 // status: wait_partner（受け手の承認待ち）→ wait_approver（承認者の承認待ち）→ approved（承認・実績に反映）
 //         rejected（却下）／withdrawn（申請者が取り下げ）
-const CHANGE_KINDS = { swap: '交代', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休', revert: '承認後の取り消し' };
+const CHANGE_KINDS = { swap: '交代', hand: '受け渡し', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休', revert: '承認後の取り消し' };
 const CHANGE_STATUS = { wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち', approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
 const SWAP_MARKS = ['', '×', '○', '入', '明', '残'];              // 交代で入れ替えられる記号
 const SWAP_DUTIES = ['○', '入', '残'];                           // 交代で渡す・引き受ける勤務（日直・夜勤・残り当番）
@@ -526,7 +527,19 @@ const ACTIONS = {
     if (!doc) return { confirmed: null };
     const act = actual_(doc);
     const dates = periodDates_(doc.period).map(d => ({ date: d, dow: dowOf_(d), rest: confRest_(doc, d), holiday: doc.holidays[d] || '' }));
-    return { confirmed: Object.assign({}, doc, { data: act.data }), changed: act.changed, dates: dates };
+    // この機能より前に確定した版には「前回繰越」が入っていないので、同じ期間の勤務表作成アプリのデータから一度だけ入れておく
+    // （あとで次の期間の作成を始めて、勤務表作成アプリの前回繰越が変わっても、今の期間の表示が変わらないように）
+    if (!Array.isArray(doc.prevCarry)) {
+      const pc = prevCarry_(doc);
+      if (pc.length) withLock_(() => {
+        const d2 = docGet_('confirmed');
+        if (d2 && d2.label === doc.label && d2.rev === doc.rev && !Array.isArray(d2.prevCarry)) { d2.prevCarry = pc; docPut_('confirmed', d2); }
+      });
+    }
+    const fs = furiState_(doc, act.data);
+    delete doc._prev;
+    return { confirmed: Object.assign({}, doc, { data: act.data }), changed: act.changed, dates: dates,
+      furi: { rights: fs.rights, orphans: fs.orphans, kibouUnmatched: fs.kibouUnmatched } };
   } },
 
   // ---- 勤務変更 ----
@@ -960,6 +973,113 @@ function furiDuty_(mk, conf) {
   return best;
 }
 function daysBetween_(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+// ---- 振休の権利と次回への繰越（勤務表作成アプリの「振休繰越管理」と同じ考え方）----
+// 権利＝土日祝の日直（○）・業・夜勤入り・夜勤明け、と前回からの繰越。
+// 置いてある振休（M/D振）・振◆と出勤日で対応づけ、どちらにも当たらない権利が「次回へ繰越」
+const FURI_SRC = { '○': '日直', '業': '業務', '入': '夜勤入り', '明': '夜勤明け' };
+function furiLabelOf_(duty) { return Number(duty.slice(5, 7)) + '/' + Number(duty.slice(8, 10)) + '振'; }
+// 前回からの繰越（確定版に入っていなければ、同じ期間の勤務表作成アプリのデータから）
+function prevCarry_(conf) {
+  if (Array.isArray(conf.prevCarry)) return conf.prevCarry;
+  if (conf._prev) return conf._prev;
+  const st = docGet_('state'), s = (st && st.settings) || {};
+  const same = s.period && conf.period && stableJson_(s.period) === stableJson_(conf.period);
+  conf._prev = same && Array.isArray(s.prev_carryover) ? s.prev_carryover : [];
+  return conf._prev;
+}
+function furiState_(conf, data) {
+  const dates = periodDates_(conf.period);
+  const names = [].concat.apply([], conf.teams.map(t => t[1]));
+  const rights = prevCarry_(conf).filter(c => c && c.duty && names.indexOf(c.name) >= 0)
+    .map(c => ({ name: c.name, duty: String(c.duty), src: '前回繰越', at: '', kibou: '' }));
+  dates.forEach(d => {
+    if (!confRest_(conf, d)) return;
+    names.forEach(n => { const mk = (data[n] || {})[d]; if (FURI_SRC[mk]) rights.push({ name: n, duty: d, src: FURI_SRC[mk], at: '', kibou: '' }); });
+  });
+  rights.sort((a, b) => a.duty < b.duty ? -1 : a.duty > b.duty ? 1 : 0);
+  const open = r => !r.at && !r.kibou;
+  const orphans = [], kibous = [];
+  // 1) 置いてある振休（M/D振）と、同じ人・同じ出勤日の権利を対応づける
+  names.forEach(n => dates.forEach(d => {
+    const mk = String((data[n] || {})[d] || '');
+    if (isFuriLabel_(mk)) {
+      const duty = furiDuty_(mk, conf);
+      const r = rights.find(x => x.name === n && x.duty === duty && open(x));
+      if (r) r.at = d; else orphans.push({ name: n, date: d, label: mk });
+    } else if (/振◆$/.test(mk)) kibous.push({ name: n, date: d, mk: mk });
+  }));
+  // 2) 振◆: 出勤日が書いてあればその日、なければ出勤後14日以内（優先）か前7日以内のいちばん近い権利
+  kibous.sort((a, b) => a.date < b.date ? -1 : 1);
+  const unmatched = [];
+  kibous.forEach(k => {
+    const ex = k.mk.match(/^(\d{1,2})\/(\d{1,2})振◆$/);
+    let best = null;
+    if (ex) {
+      const duty = furiDuty_(ex[1] + '/' + ex[2] + '振', conf);
+      best = rights.find(r => open(r) && r.name === k.name && r.duty === duty) || null;
+    } else {
+      let bp = 9, ba = 99;
+      rights.forEach(r => {
+        if (!open(r) || r.name !== k.name) return;
+        const diff = daysBetween_(r.duty, k.date);
+        if (!((diff >= 1 && diff <= FURI_AFTER_DAYS) || (diff <= -1 && diff >= -FURI_BEFORE_DAYS))) return;
+        const pref = diff >= 1 ? 0 : 1, abs = Math.abs(diff);
+        if (pref < bp || (pref === bp && abs < ba)) { best = r; bp = pref; ba = abs; }
+      });
+    }
+    if (best) best.kibou = k.date; else unmatched.push({ name: k.name, date: k.date });
+  });
+  return { rights: rights, orphans: orphans, kibouUnmatched: unmatched, carry: rights.filter(open) };
+}
+function applyCells_(data, cells) {
+  const out = JSON.parse(JSON.stringify(data));
+  cells.forEach(x => { out[x.name] = out[x.name] || {}; if (x.after) out[x.name][x.date] = x.after; else delete out[x.name][x.date]; });
+  return out;
+}
+// 交代・受け渡しで、土日祝の勤務（振休の権利）が人から人へ移るとき、置いてある振休（M/D振）を付け替える
+//  ・渡した人が代わりに別の権利を受け取る → 振休の日はそのままで、何日の出勤分かだけ付け替える
+//  ・受け取らない → mode give＝同じ日の振休も相手に渡す（相手がその日空いているとき）
+//                   mode carry＝その振休は取りやめ（渡した人はその日勤務）、相手の振休は次回へ繰越
+function furiFollow_(conf, act, cells, mode) {
+  const fs = furiState_(conf, act), after = applyCells_(act, cells);
+  const onLeave = (n, d) => (conf.leaves || []).some(l => l.name === n && l.from <= d && d <= l.to);
+  const lost = [], gained = {};
+  cells.forEach(x => {
+    if (!confRest_(conf, x.date)) return;
+    if (FURI_SRC[x.before] && !FURI_SRC[x.after]) lost.push(x);
+    if (!FURI_SRC[x.before] && FURI_SRC[x.after]) (gained[x.name] = gained[x.name] || []).push(x.date);
+  });
+  const placed = lost.map(x => ({ x: x, r: fs.rights.find(y => y.name === x.name && y.duty === x.date) })).filter(o => o.r && o.r.at);
+  const add = [], notes = [], asks = [];
+  const used = (n, d) => cells.concat(add).some(y => y.name === n && y.date === d);
+  // 1) 代わりの権利を受け取った人は、出勤日の付け替えだけ
+  const rest = placed.filter(o => {
+    const g = (gained[o.x.name] || []).shift();
+    if (!g) return true;
+    add.push({ name: o.x.name, date: o.r.at, before: (act[o.x.name] || {})[o.r.at], after: furiLabelOf_(g) });
+    notes.push(o.x.name + 'の振休 ' + md_(o.r.at) + 'は' + md_(g) + '出勤分に付け替え');
+    return false;
+  });
+  // 2) 受け取らない人の振休は、相手に渡すか取りやめる
+  rest.forEach(o => {
+    const X = o.r.at, label = (act[o.x.name] || {})[X];
+    const taker = cells.find(y => y.date === o.x.date && y.name !== o.x.name && FURI_SRC[y.after] && !FURI_SRC[y.before]);
+    const tn = taker ? taker.name : '';
+    const canGive = !!tn && !((after[tn] || {})[X]) && !used(tn, X) && !onLeave(tn, X);
+    const m = mode === 'carry' || !canGive ? 'carry' : 'give';
+    add.push({ name: o.x.name, date: X, before: label, after: '' });
+    if (m === 'give') {
+      add.push({ name: tn, date: X, before: '', after: label });
+      notes.push(o.x.name + 'の振休 ' + md_(X) + 'も' + tn + 'へ');
+    } else {
+      notes.push(o.x.name + 'の振休 ' + md_(X) + 'は取りやめ' + (tn ? '・' + tn + 'の' + md_(o.x.date) + '出勤分は次回へ繰越' : ''));
+    }
+    const busy = !tn ? '' : onLeave(tn, X) ? '長期休暇' : (after[tn] || {})[X] || 'ほかの変更';
+    asks.push({ from: o.x.name, to: tn, date: X, duty: o.x.date, canGive: canGive, mode: m,
+      why: canGive || !tn ? '' : md_(X) + 'は' + tn + 'さんに「' + busy + '」があるため渡せません' });
+  });
+  return { cells: add, notes: notes, asks: asks };
+}
 // ---- 時間休 ----
 function hourlyCfg_() { return Object.assign({}, HOURLY_DEFAULT, docGet_('hourly') || {}); }
 function toMin_(t) { const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; }
@@ -1222,11 +1342,17 @@ function applyToState_(cells) {
     data[x.name] = data[x.name] || {};
     if (x.after) data[x.name][x.date] = x.after; else delete data[x.name][x.date];
   });
-  // 振休が別の日に移ったら、振休の自動配置の記録も付け替える（「3. 振休」のやり直しで重複しないように）
-  cells.filter(x => isFuriLabel_(x.before) && !x.after).forEach(from => {
-    const to = cells.find(y => y.name === from.name && y.after === from.before && !y.before);
-    if (!to) return;
-    (st.furi_auto || []).forEach(f => { if (f.name === from.name && f.iso === from.date) f.iso = to.date; });
+  // 振休が別の日・別の人に移ったら、振休の自動配置の記録も付け替える（「3. 振休」のやり直しで重複しないように）
+  const auto = st.furi_auto || [];
+  cells.filter(x => isFuriLabel_(x.before) && x.after !== x.before).forEach(from => {
+    const f = auto.find(a => a.name === from.name && a.iso === from.date);
+    if (!f) return;
+    if (isFuriLabel_(from.after)) {   // 何日の出勤分かの付け替え
+      if (st.period) f.duty = furiDuty_(from.after, { period: st.period });
+      return;
+    }
+    const to = cells.find(y => y !== from && y.after === from.before && !y.before && (y.name === from.name || y.date === from.date));
+    if (to) { f.name = to.name; f.iso = to.date; } else auto.splice(auto.indexOf(f), 1);
   });
   saveState_(state);
 }
@@ -1239,8 +1365,17 @@ function buildChange_(conf, act, me, p) {
   const name = me.name;
   if (kind !== 'revert' && roster.indexOf(name) < 0) throw new Error('あなたの名前（' + name + '）が勤務表の名簿にありません。システム管理者に確認してください。');
   const cell = (n, d) => (act[n] || {})[d] || '';
+  const onLeave = (n, d) => (conf.leaves || []).some(l => l.name === n && l.from <= d && d <= l.to);
+  const named = { '○': '日直', '入': '夜勤', '残': '残り当番' };
+  // 夜勤（入）は翌日の「明」も一緒に動かす
+  const span = (n, d) => {
+    const ds = [d], nx = addDays_(d, 1);
+    if (cell(n, d) === '入' && dateSet.has(nx) && cell(n, nx) === '明') ds.push(nx);
+    return ds;
+  };
+  const isFree = mk => mk === '' || mk === '×';
   const cells = [];
-  let partner = '', summary = '', hoursNote = '', revertOf = '';
+  let partner = '', summary = '', hoursNote = '', revertOf = '', furiAsks = [];
   if (kind === 'revert') {
     // 承認後の取り消し: 承認済みの申請のマスを、申請前の内容に戻す（その後にマスが変わっていないこと）
     const orig = rows_('changes').find(r => r.id === String(p.of || ''));
@@ -1263,9 +1398,9 @@ function buildChange_(conf, act, me, p) {
     if (partner === name) partner = orig.requester;   // 念のため（相手側が取り消すことはできないが、システム管理者のとき）
     revertOf = orig.id;
     summary = '取り消し：' + orig.summary;
-  } else if (kind === 'swap' || kind === 'furi') {
+  } else if (kind === 'swap' || kind === 'furi' || kind === 'hand') {
     partner = String(p.partner || '');
-    if (!partner || roster.indexOf(partner) < 0) throw new Error('交代する相手を選んでください。');
+    if (!partner || roster.indexOf(partner) < 0) throw new Error('相手を選んでください。');
     if (partner === name) throw new Error('相手には自分以外の人を選んでください。');
   }
   if (kind === 'revert') {
@@ -1277,14 +1412,8 @@ function buildChange_(conf, act, me, p) {
     const mine = cell(name, myDate), theirs = cell(partner, pDate);
     if (!dateSet.has(myDate) || SWAP_DUTIES.indexOf(mine) < 0) throw new Error('自分が渡す勤務（日直・夜勤・残り当番）の日を選んでください。');
     if (!dateSet.has(pDate) || SWAP_DUTIES.indexOf(theirs) < 0) throw new Error('代わりに引き受ける、相手の勤務（日直・夜勤・残り当番）の日を選んでください。');
-    const span = (n, d) => {
-      const ds = [d], nx = addDays_(d, 1);
-      if (cell(n, d) === '入' && dateSet.has(nx) && cell(n, nx) === '明') ds.push(nx);
-      return ds;
-    };
     const give = span(name, myDate), take = span(partner, pDate);
     const ds = give.concat(take).filter((d, i, a) => a.indexOf(d) === i).sort();
-    const isFree = mk => mk === '' || mk === '×';
     ds.forEach(d => {
       [name, partner].forEach(n => {
         const mk = cell(n, d);
@@ -1302,19 +1431,53 @@ function buildChange_(conf, act, me, p) {
       cells.push({ name: name, date: d, before: a, after: b }, { name: partner, date: d, before: b, after: a });
     });
     if (!cells.length) throw new Error('2人とも同じ勤務のため、入れ替えるものがありません。');
-    const named = { '○': '日直', '入': '夜勤', '残': '残り当番' };
     summary = name + 'の' + md_(myDate) + named[mine] + ' ⇄ ' + partner + 'の' + md_(pDate) + named[theirs];
+  } else if (kind === 'hand') {
+    // 受け渡し: 日直・夜勤・残り当番を、交換せずに一方へ渡す
+    // dir: give＝自分の勤務を相手にやってもらう／take＝相手の勤務を自分が引き受ける
+    const take = p.dir === 'take';
+    const giver = take ? partner : name, taker = take ? name : partner;
+    const d0 = String(p.date || ''), mk0 = cell(giver, d0);
+    if (!dateSet.has(d0) || SWAP_DUTIES.indexOf(mk0) < 0)
+      throw new Error(take ? '引き受ける、相手の勤務（日直・夜勤・残り当番）の日を選んでください。' : 'やってもらう、自分の勤務（日直・夜勤・残り当番）の日を選んでください。');
+    const who = n => n === name ? 'あなた' : n + 'さん';
+    span(giver, d0).forEach(d => {
+      const tm = cell(taker, d);
+      if (onLeave(taker, d)) throw new Error(md_(d) + 'は' + who(taker) + 'の長期休暇の期間のため、引き受けられません。');
+      if (!isFree(tm)) throw new Error(md_(d) + 'は' + who(taker) + 'に「' + tm + '」が入っているため、引き受けられません（勤務の入れ替えは「交代」で行います）。');
+      cells.push({ name: giver, date: d, before: cell(giver, d), after: '' }, { name: taker, date: d, before: tm, after: cell(giver, d) });
+    });
+    summary = giver + 'の' + md_(d0) + named[mk0] + ' → ' + taker + 'が引き受け';
   } else if (kind === 'furi') {
-    const myDate = String(p.myDate || ''), pDate = String(p.partnerDate || '');
-    if (!isFuriLabel_(cell(name, myDate))) throw new Error('自分の振休の日を選んでください。');
-    if (!isFuriLabel_(cell(partner, pDate))) throw new Error('相手の振休の日を選んでください。');
-    if (myDate === pDate) throw new Error('同じ日の振休どうしは入れ替える必要がありません。');
-    if (cell(name, pDate)) throw new Error(md_(pDate) + 'はあなたに「' + cell(name, pDate) + '」が入っているため、振休を移せません。');
-    if (cell(partner, myDate)) throw new Error(md_(myDate) + 'は' + partner + 'さんに「' + cell(partner, myDate) + '」が入っているため、振休を移せません。');
-    const myLb = cell(name, myDate), pLb = cell(partner, pDate);
-    cells.push({ name: name, date: myDate, before: myLb, after: '' }, { name: name, date: pDate, before: '', after: myLb },
-               { name: partner, date: pDate, before: pLb, after: '' }, { name: partner, date: myDate, before: '', after: pLb });
-    summary = name + 'の振休 ' + md_(myDate) + '→' + md_(pDate) + '、' + partner + 'の振休 ' + md_(pDate) + '→' + md_(myDate);
+    const myV = String(p.myDate || ''), pV = String(p.partnerDate || '');
+    const myC = myV.indexOf('carry:') === 0 ? myV.slice(6) : '', pC = pV.indexOf('carry:') === 0 ? pV.slice(6) : '';
+    if (myC && pC) throw new Error('次回へ繰越の振休どうしは交換できません（どちらも日が決まっていないため）。');
+    if (myC || pC) {
+      // 繰越の振休との交換: 繰越の人がその日に振休を取り、日が決まっていた人の振休は次回へ繰越になる
+      const fs = furiState_(conf, act);
+      const isCarry = (n, duty) => fs.carry.some(r => r.name === n && r.duty === duty);
+      if (myC && !isCarry(name, myC)) throw new Error('自分の、次回へ繰越の振休を選んでください。');
+      if (pC && !isCarry(partner, pC)) throw new Error('相手の、次回へ繰越の振休を選んでください。');
+      const holder = myC ? partner : name, carrier = myC ? name : partner, X = myC ? pV : myV, duty = myC || pC;
+      const lb = cell(holder, X);
+      if (!dateSet.has(X) || !isFuriLabel_(lb)) throw new Error((myC ? '相手' : '自分') + 'の振休の日を選んでください。');
+      if (cell(carrier, X)) throw new Error(md_(X) + 'は' + (carrier === name ? 'あなた' : carrier + 'さん') + 'に「' + cell(carrier, X) + '」が入っているため、その日に振休を取れません。');
+      if (onLeave(carrier, X)) throw new Error(md_(X) + 'は' + (carrier === name ? 'あなた' : carrier + 'さん') + 'の長期休暇の期間です。');
+      const hd = furiDuty_(lb, conf);
+      cells.push({ name: holder, date: X, before: lb, after: '' }, { name: carrier, date: X, before: '', after: furiLabelOf_(duty) });
+      summary = carrier + 'が' + md_(X) + 'に振休（繰越の' + md_(duty) + '出勤分）、' + holder + 'の' + md_(X) + '振休（' + md_(hd) + '出勤分）は次回へ繰越';
+    } else {
+      const myDate = myV, pDate = pV;
+      if (!isFuriLabel_(cell(name, myDate))) throw new Error('自分の振休の日を選んでください。');
+      if (!isFuriLabel_(cell(partner, pDate))) throw new Error('相手の振休の日を選んでください。');
+      if (myDate === pDate) throw new Error('同じ日の振休どうしは入れ替える必要がありません。');
+      if (cell(name, pDate)) throw new Error(md_(pDate) + 'はあなたに「' + cell(name, pDate) + '」が入っているため、振休を移せません。');
+      if (cell(partner, myDate)) throw new Error(md_(myDate) + 'は' + partner + 'さんに「' + cell(partner, myDate) + '」が入っているため、振休を移せません。');
+      const myLb = cell(name, myDate), pLb = cell(partner, pDate);
+      cells.push({ name: name, date: myDate, before: myLb, after: '' }, { name: name, date: pDate, before: '', after: myLb },
+                 { name: partner, date: pDate, before: pLb, after: '' }, { name: partner, date: myDate, before: '', after: pLb });
+      summary = name + 'の振休 ' + md_(myDate) + '→' + md_(pDate) + '、' + partner + 'の振休 ' + md_(pDate) + '→' + md_(myDate);
+    }
   } else if (kind === 'hourly') {
     // 時間休: 平日の勤務の日（空きマス）に「有12-17」を入れる／時刻を変える／取り消す
     const cfg = hourlyCfg_();
@@ -1348,15 +1511,41 @@ function buildChange_(conf, act, me, p) {
     const d = String(p.date || ''), to = String(p.mark || '');
     if (!dateSet.has(d)) throw new Error('変更する日を選んでください。');
     const from = cell(name, d), rest = confRest_(conf, d);
-    if (String(from).indexOf('振') >= 0) throw new Error('振休は「振休の交換」で、ほかの人の振休と入れ替えてください。');
-    if (SELF_MARKS.indexOf(from) < 0 && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」で、ほかの人と入れ替えてください。');
-    if (SELF_MARKS.indexOf(to) < 0) throw new Error('変更後の勤務を選んでください。');
-    if (to === from) throw new Error('今と同じ内容です。');
-    if (rest && ['有', '夏', '特'].indexOf(to) >= 0) throw new Error('土日祝に「' + to + '」は入れられません。');
-    if (!rest && to === '×') throw new Error('「×」は土日祝だけに入れられます。');
-    cells.push({ name: name, date: d, before: from, after: to });
-    const empty = rest ? '休み' : '勤務';
-    summary = name + ' ' + md_(d) + '：' + (from || empty) + ' → ' + (to || empty);
+    if (isFuriLabel_(from)) {
+      // 日付つきの振休を取りやめて、次回へ繰り越す（その日は勤務）
+      if (to !== '') throw new Error('日付つきの振休は「勤務（この振休を取りやめて次回へ繰越）」にだけ変えられます。ほかの人の振休との入れ替えは「振休の交換」で行います。');
+      cells.push({ name: name, date: d, before: from, after: '' });
+      summary = name + ' ' + md_(d) + '：振休（' + md_(furiDuty_(from, conf)) + '出勤分）を取りやめ → ' + (rest ? '休み' : '勤務') + '（次回へ繰越）';
+    } else if (to.indexOf('carry:') === 0) {
+      // 次回へ繰越の振休を、今回の期間の空いている平日に取る
+      const duty = to.slice(6);
+      if (!furiState_(conf, act).carry.some(r => r.name === name && r.duty === duty)) throw new Error('次回へ繰越の振休を選んでください。');
+      if (rest) throw new Error('振休は平日に取ります。');
+      if (from) throw new Error(md_(d) + 'は「' + from + '」が入っているため、振休を取れません。');
+      if (onLeave(name, d)) throw new Error(md_(d) + 'は長期休暇の期間です。');
+      cells.push({ name: name, date: d, before: '', after: furiLabelOf_(duty) });
+      summary = name + ' ' + md_(d) + '：勤務 → 振休（' + md_(duty) + '出勤分。次回へ繰越の予定だった分）';
+    } else {
+      if (String(from).indexOf('振') >= 0) throw new Error('「' + from + '」は変更できません（日付つきの振休だけ、取りやめて次回へ繰り越せます）。');
+      if (SELF_MARKS.indexOf(from) < 0 && !isHourly_(from)) throw new Error(md_(d) + 'は「' + from + '」です。日直・夜勤・残り当番は「交代」か「受け渡し」で、ほかの人と行います。');
+      if (SELF_MARKS.indexOf(to) < 0) throw new Error('変更後の勤務を選んでください。');
+      if (to === from) throw new Error('今と同じ内容です。');
+      if (rest && ['有', '夏', '特'].indexOf(to) >= 0) throw new Error('土日祝に「' + to + '」は入れられません。');
+      if (!rest && to === '×') throw new Error('「×」は土日祝だけに入れられます。');
+      cells.push({ name: name, date: d, before: from, after: to });
+      const empty = rest ? '休み' : '勤務';
+      summary = name + ' ' + md_(d) + '：' + (from || empty) + ' → ' + (to || empty);
+    }
+  }
+  // 交代・受け渡しで振休の権利が人から人へ移るときは、置いてある振休も付け替える
+  if (kind === 'swap' || kind === 'hand') {
+    const ff = furiFollow_(conf, act, cells, p.furiMode);
+    ff.cells.forEach(x => {
+      if (cells.some(y => y.name === x.name && y.date === x.date)) throw new Error(x.name + 'さんの' + md_(x.date) + 'の振休を付け替えられません。システム管理者に相談してください。');
+      cells.push(x);
+    });
+    if (ff.notes.length) summary += '（' + ff.notes.join('、') + '）';
+    furiAsks = ff.asks;
   }
   const deviations = deviations_(conf, act, cells);
   const hcfg = hourlyCfg_();
@@ -1366,7 +1555,7 @@ function buildChange_(conf, act, me, p) {
     if (isHourly_(x.before) && x.beforeHours === undefined) x.beforeHours = recordedHours_(x.name, x.date, x.before, hcfg);
     if (isHourly_(x.after) && x.afterHours === undefined) x.afterHours = hourlyHours_(hcfg, x.after);
   });
-  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote, revertOf: revertOf };
+  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote, revertOf: revertOf, furiAsks: furiAsks };
 }
 // 変更によって新しく起きる、きまりから外れること
 function deviations_(conf, act, cells) {
@@ -1412,6 +1601,16 @@ function deviations_(conf, act, cells) {
     if (diff > FURI_AFTER_DAYS || diff < -FURI_BEFORE_DAYS)
       out.push(x.name + 'さんの振休（' + md_(duty) + '出勤分）が' + md_(x.date) + 'になり、付与期限（出勤後' + FURI_AFTER_DAYS + '日・前' + FURI_BEFORE_DAYS + '日）を外れます');
   });
+  // 5) 振休: 前回からの繰越をまた繰り越す／振休・振◆に対応する出勤がなくなる
+  const fb = furiState_(conf, act), fa = furiState_(conf, after);
+  const key = o => o.name + '|' + o.date;
+  const ob = fb.orphans.map(key), kb = fb.kibouUnmatched.map(key);
+  fa.rights.filter(r => r.src === '前回繰越' && !r.at && !r.kibou && people.indexOf(r.name) >= 0).forEach(r => {
+    const b = fb.rights.find(y => y.src === '前回繰越' && y.name === r.name && y.duty === r.duty);
+    if (b && (b.at || b.kibou)) out.push(r.name + 'さんの前回からの繰越の振休（' + md_(r.duty) + '出勤分）を、今回の期間に取らずに、また次回へ繰り越すことになります（前回繰越は今回の期間内に取るきまり）');
+  });
+  fa.orphans.filter(o => ob.indexOf(key(o)) < 0).forEach(o => out.push(o.name + 'さんの' + md_(o.date) + 'の振休（' + o.label + '）に対応する出勤がなくなります'));
+  fa.kibouUnmatched.filter(k => kb.indexOf(key(k)) < 0).forEach(k => out.push(k.name + 'さんの' + md_(k.date) + 'の振◆に充てる出勤がなくなります'));
   return out;
 }
 // アプリ内のお知らせを入れる（操作した本人には入れない）
@@ -1445,7 +1644,7 @@ function saveState_(state) {
 // 確定版の中身（版の番号・日時・確定した人を除いた部分）
 function confirmBody_(pl) {
   return { period: pl.period, teams: pl.teams, data: pl.data, jimu: pl.jimu || {}, holidays: pl.holidays || {},
-    dutyTeam: pl.dutyTeam || {}, leaves: pl.leaves || [] };
+    dutyTeam: pl.dutyTeam || {}, leaves: pl.leaves || [], prevCarry: prevCarry_(pl) };
 }
 // 項目の並び順によらず同じ中身なら同じ文字列にする（比べる用）
 function stableJson_(v) {

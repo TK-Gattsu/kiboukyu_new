@@ -4625,6 +4625,7 @@ function buildPublishPayload() {
   return JSON.parse(JSON.stringify({
     label: periodLabel(PERIOD), period: PERIOD, teams: TEAMS, data, jimu, holidays, dutyTeam,
     leaves: LEAVES.filter(l => l.to >= dates[0] && l.from <= dates[dates.length - 1]),
+    prevCarry: PREV_CARRY.map(c => ({ name: c.name, duty: c.duty })),   // 前回からの繰越の振休（統合アプリで次回への繰越を出すため）
     warnings: checkWarnings(dates).filter(w => w.indexOf("⚠") === 0).length,
   }));
 }

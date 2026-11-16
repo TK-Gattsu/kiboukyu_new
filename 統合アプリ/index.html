@@ -430,8 +430,9 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
       <p class="hint" id="cg-period"></p>
       <div class="kind-cards" id="cg-kinds">
         <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>自分の日直・夜勤・残り当番と、相手の勤務を入れ替えます（同時に入れ替わります）。相手と承認者の承認が必要です。</label>
-        <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手と承認者の承認が必要です。</label>
-        <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど。承認者の承認が必要です。</label>
+        <label data-k="hand"><input type="radio" name="cg-kind" value="hand"><b>受け渡し</b>日直・夜勤・残り当番を、交換せずに相手にやってもらう／相手の分を引き受けます。相手と承認者の承認が必要です。</label>
+        <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます。「次回へ繰越」の振休との交換もできます。相手と承認者の承認が必要です。</label>
+        <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れる、繰越の振休を取る・振休を次回へ回すなど。承認者の承認が必要です。</label>
         <label data-k="hourly"><input type="radio" name="cg-kind" value="hourly"><b>時間休</b>遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です（1時間単位）。時刻の変更・取り消しもここで行います。承認者の承認が必要です。</label>
       </div>
       <div id="cg-form"></div>
@@ -451,7 +452,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
     <button class="back" onclick="show('home')">← メニューに戻る</button>
     <div class="card">
       <h2>自分あての承認</h2>
-      <p class="hint">ほかの人から頼まれた交代・振休の交換です。承認すると、承認者の確認に進みます。</p>
+      <p class="hint">ほかの人から頼まれた交代・受け渡し・振休の交換です。承認すると、承認者の確認に進みます。</p>
       <div id="cm-list"></div>
     </div>
   </div>
@@ -551,15 +552,19 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
           <li>メニューの「<b>勤務表を見る</b>」で、確定して配布された勤務表を見られます。「自分の勤務」はカレンダー、「全員」は一覧表です。</li>
           <li>確定後の勤務変更で変わったマスには、オレンジの枠（自分の勤務では「変更あり」）が付きます。</li>
           <li>時間休は「有12-17」（12時から17時まで休み）のように表示されます。</li>
+          <li>「自分の勤務」の下の「<b>あなたの振休</b>」に、振休の対象になる出勤（土日祝の日直・業務・夜勤入り・夜勤明けと前回からの繰越）ごとに、振休の日か「<b>次回へ繰越</b>」かが出ます。「全員」の下には、全員の「次回へ繰越の振休」が出ます。</li>
         </ul>
       </details>
 
-      <details><summary>勤務変更・追加の申請（交代・振休の交換・自分の勤務の変更・時間休）</summary>
+      <details><summary>勤務変更・追加の申請（交代・受け渡し・振休の交換・自分の勤務の変更・時間休）</summary>
         <p>メニューの「<b>勤務変更・追加の申請</b>」で、確定した勤務表を変える申請をします。下の小さな勤務表のマスを押しても選べます。選んだら「<b>内容を確認</b>」→ 変わるマスがオレンジで表示されるので、確かめて「<b>申請する</b>」を押します。</p>
         <ul>
           <li><b>交代</b>：自分の日直・夜勤・残り当番と、相手の日直・夜勤・残り当番を同時に入れ替えます。「自分が渡す勤務」「相手」「代わりに引き受ける相手の勤務」を選びます。夜勤（入）は翌日の「明」も一緒に移ります。相手 → 承認者の順に承認されると反映されます。</li>
-          <li><b>振休の交換</b>：自分の振休と相手の振休の日を入れ替えます（振休は振休同士でだけ交換できます）。相手 → 承認者の承認が必要です。</li>
-          <li><b>自分の勤務の変更</b>：有・夏・特を取る／取り消す、出張・業務・研修などに変えます。承認者の承認が必要です。</li>
+          <li><b>受け渡し</b>：交換ではなく、日直・夜勤・残り当番を一方へ渡します。「どちら」で「<b>やってもらう</b>」（自分の勤務を相手に渡す）か「<b>引き受ける</b>」（相手の勤務を自分がする）を選び、「相手」と勤務の日を選びます。渡した人のその日は空き（平日は勤務、土日祝は休み）になります。夜勤（入）は翌日の「明」も一緒に移ります。相手 → 承認者の順に承認されると反映されます。</li>
+          <li>交代・受け渡しで土日祝の日直・夜勤が移ると、その<b>振休も受け取った人のもの</b>になります。渡した人がその分の振休をもう取っている（日が決まっている）ときは、「内容を確認」のあとに「<b>振休の扱い</b>」が出るので、「同じ日の振休も相手に渡す」か「振休は取りやめ、相手の振休は次回へ繰越」を選びます。</li>
+          <li><b>振休の交換</b>：自分の振休と相手の振休の日を入れ替えます。片方に「<b>繰越</b>」（次回へ繰越の、日が決まっていない振休）を選ぶと、繰越の人が相手の振休の日に振休を取り、日が決まっていた人の振休が次回へ繰越になります。相手 → 承認者の承認が必要です。</li>
+          <li><b>自分の勤務の変更</b>：有・夏・特を取る／取り消す、出張・業務・研修などに変えます。空いている平日を選ぶと、次回へ繰越の振休をその日に取れます。日付つきの振休の日を選ぶと、その振休を取りやめて次回へ繰り越せます。承認者の承認が必要です。</li>
+          <li>前回からの繰越の振休は、今回の期間に取るきまりです。また次回へ繰り越すときは、理由が必要です。</li>
           <li><b>時間休</b>：遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です。
             <ul>
               <li>日付・種類を選び、「休む時刻（から）」「休む時刻（まで）」を選びます。休憩が日によって違う場合は「その日の休憩」も選びます。</li>
@@ -569,13 +574,13 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
             </ul></li>
           <li>休みが5人を超える・連続勤務が7日以上になる、などの条件から外れる場合は、理由（5文字以上）が必要です。理由はシステム管理者と承認者だけが見られます（交代の相手には見えません）。</li>
           <li>承認される前なら、「自分の申請」の「<b>取り下げる</b>」で取り下げられます。</li>
-          <li>承認されたあとに取り消したいときは、「自分の申請」の「<b>承認後の取り消しを申請</b>」を押します。元の申請と同じく、相手（交代・振休の交換のとき）と承認者の承認で、勤務表が元に戻ります。承認後に同じマスがさらに変わっているときは、取り消せません。</li>
+          <li>承認されたあとに取り消したいときは、「自分の申請」の「<b>承認後の取り消しを申請</b>」を押します。元の申請と同じく、相手（交代・受け渡し・振休の交換のとき）と承認者の承認で、勤務表が元に戻ります。承認後に同じマスがさらに変わっているときは、取り消せません。</li>
         </ul>
       </details>
 
       <details><summary>自分あての承認</summary>
         <ul>
-          <li>ほかの人から交代・振休の交換を頼まれると、お知らせが届き、メニューの「<b>自分あての承認</b>」に件数が出ます。</li>
+          <li>ほかの人から交代・受け渡し・振休の交換を頼まれると、お知らせが届き、メニューの「<b>自分あての承認</b>」に件数が出ます。</li>
           <li>内容と「勤務表で確認 ▼」で変わるマスを確かめ、「<b>承認する</b>」か「<b>却下する</b>」を押します。承認すると、承認者の承認に進みます。</li>
         </ul>
       </details>
@@ -935,8 +940,8 @@ function renderMenu() {
   const items = [
     { title: '希望休の申請', desc: '希望休（有・夏・特・×など）を申請します。日ごとの残り人数を見ながら申請できます。', go: 'req' },
     { title: '勤務表を見る', desc: '確定して配布された勤務表を見ます（自分の勤務・全員）。', go: 'schedule' },
-    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、振休の交換（振休同士）、自分の勤務の変更、時間休（遅く来る・早く帰る）を申請します。', go: 'chg' },
-    { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
+    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、受け渡し（やってもらう・引き受ける）、振休の交換、自分の勤務の変更、時間休（遅く来る・早く帰る）を申請します。', go: 'chg' },
+    { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・受け渡し・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
     { title: '自分の集計', desc: '自分の日直・夜勤・有給・時間休などの回数を、月別・年度で見られます。', go: 'mystats' },
   ];
   if (isApprover()) items.push({ title: '管理者の承認', desc: '勤務変更・追加を管理者として承認します。条件から外れる申請の理由も確認できます。', go: 'chgadm', key: 'approvals' });
@@ -1727,6 +1732,7 @@ function renderSchedule() {
     }
     h += '</div>';
     if (!c.teams.some(t => t[1].indexOf(ME.name) >= 0)) h = '<p class="notice">あなたの名前（' + esc(ME.name) + '）が勤務表の名簿にありません。「全員」で確認してください。</p>' + h;
+    else h += furiMineHtml(SV);
     body.innerHTML = h;
     return;
   }
@@ -1747,7 +1753,45 @@ function renderSchedule() {
     });
   });
   h += '</tbody></table></div><p class="hint">オレンジの枠は、確定後の勤務変更で変わったマスです。事務連絡の「●」は、マスにカーソルを合わせると内容が出ます（スマホは「自分の勤務」で確認できます）。</p>';
+  h += furiAllHtml(SV);
   body.innerHTML = h;
+}
+// 振休の状況（自分）: 振休の対象になる出勤ごとに、振休の日・振◆・次回へ繰越を出す
+function furiStatus(r) {
+  return r.at ? '振休 ' + esc(mdw(r.at)) : r.kibou ? '振◆ ' + esc(mdw(r.kibou))
+    : r.src === '前回繰越' ? '<b style="color:var(--red);">次回へ繰越（⚠ 前回からの繰越は今回の期間内に取るきまり）</b>' : '<b style="color:var(--orange);">次回へ繰越</b>';
+}
+function furiMineHtml(sv) {
+  if (!sv.furi) return '';
+  const mine = sv.furi.rights.filter(r => r.name === ME.name), carry = carryOf(sv, ME.name);
+  let h = '<h3 class="st">あなたの振休</h3>';
+  if (!mine.length) return h + '<p class="hint">この期間に、振休の対象になる出勤（土日祝の日直・夜勤など）や前回からの繰越はありません。</p>';
+  h += '<p class="' + (carry.length ? 'notice' : 'hint') + '" style="margin:4px 0;">' + (carry.length ? '次回へ繰越の振休：<b>' + carry.length + '日</b>（' + carry.map(r => esc(carryText(r))).join('、') + '）'
+    : '次回へ繰り越す振休はありません。') + '</p>';
+  h += '<div class="scroll"><table class="st"><tr><th class="l">出勤日</th><th class="l">出勤</th><th class="l">振休</th></tr>' + mine.map(r =>
+    '<tr><td class="l">' + esc(r.src === '前回繰越' ? md(r.duty) : mdw(r.duty)) + '</td><td class="l">' + esc(r.src) + '</td><td class="l">' + furiStatus(r) + '</td></tr>').join('') + '</table></div>';
+  const orphan = sv.furi.orphans.filter(o => o.name === ME.name);
+  if (orphan.length) h += '<p class="err">⚠ 対応する出勤が見つからない振休：' + orphan.map(o => esc(mdw(o.date))).join('、') + '（システム管理者に確認してください）</p>';
+  h += '<p class="hint">振休の対象：土日祝の日直・業務・夜勤入り・夜勤明けと、前回からの繰越。次回へ繰越の振休は、「勤務変更・追加の申請」の「振休の交換」（相手の振休の日と交換）や「自分の勤務の変更」（空いている平日に取る）で、今回の期間に取ることもできます。</p>';
+  return h;
+}
+// 振休の状況（全員）: 次回へ繰越の振休を人ごとに
+function furiAllHtml(sv) {
+  if (!sv.furi) return '';
+  const c = sv.confirmed, by = {};
+  sv.furi.rights.filter(r => !r.at && !r.kibou).forEach(r => { (by[r.name] = by[r.name] || []).push(r); });
+  const names = [].concat.apply([], c.teams.map(t => t[1])).filter(n => by[n]);
+  const total = names.reduce((s, n) => s + by[n].length, 0);
+  let h = '<h3 class="st">次回へ繰越の振休（' + total + '日）</h3>';
+  h += names.length ? '<div class="scroll"><table class="st"><tr><th class="l">氏名</th><th>日数</th><th class="l">出勤日</th></tr>' + names.map(n =>
+    '<tr class="' + (n === ME.name ? 'mine' : '') + '"><td class="l">' + esc(n) + '</td><td>' + by[n].length + '</td><td class="l">' + by[n].map(r => esc(carryText(r))).join('、') + '</td></tr>').join('') + '</table></div>'
+    : '<p class="hint">次回へ繰り越す振休はありません。</p>';
+  if (isApprover() && (sv.furi.orphans.length || sv.furi.kibouUnmatched.length)) {
+    h += '<p class="err">⚠ 確認が必要な振休：' + sv.furi.orphans.map(o => esc(o.name + ' ' + md(o.date) + '（' + o.label + '・対応する出勤なし）')).concat(
+      sv.furi.kibouUnmatched.map(k => esc(k.name + ' ' + md(k.date) + '（振◆・充てる出勤なし）'))).join('、') + '</p>';
+  }
+  h += '<p class="hint">振休の対象（土日祝の日直・業務・夜勤入り・夜勤明けと前回からの繰越）のうち、この期間に振休の日が決まっていない分です。勤務変更が承認されると、ここにも反映されます。</p>';
+  return h;
 }
 
 /* ============================================================
@@ -1800,6 +1844,14 @@ const SELF_LABELS = { '': '勤務（休みなどを取り消す）', '有': '有
   '業': '業（業務）', '出': '出（出張）', '研': '研（研修）', '×': '×（土日祝の休み）' };
 const SWAP_DUTIES_C = ['○', '入', '残'];
 function isFuriLabelC(mk) { return !!mk && mk.slice(-1) === '振' && mk.indexOf('/') > 0; }
+// 振休の権利（sv.furi.rights: {name, duty, src, at, kibou}）。at も kibou もないものが「次回へ繰越」
+function carryOf(sv, n) { return ((sv && sv.furi) || { rights: [] }).rights.filter(r => r.name === n && !r.at && !r.kibou); }
+function carryText(r) { return md(r.duty) + '出勤分（' + r.src + '）'; }
+function carryOptions(sv, n) {
+  const list = carryOf(sv, n);
+  return list.length ? '<optgroup label="次回へ繰越（日が決まっていない振休）">' + list.map(r => '<option value="carry:' + r.duty + '">繰越　' + esc(carryText(r)) + '</option>').join('') + '</optgroup>' : '';
+}
+let CG_FURI_MODE = '';   // 交代・受け渡しで振休も移るときの扱い（give＝相手に渡す／carry＝取りやめて次回へ繰越）
 async function loadChg() {
   document.getElementById('cg-period').textContent = '読み込み中…';
   try {
@@ -1840,14 +1892,21 @@ function renderChgForm() {
         '<div><label class="f">代わりに引き受ける相手の勤務</label><select id="cg-pd"><option value="">先に相手を選んでください</option></select></div></div>' +
         '<p class="hint">承認されると、あなたの勤務は相手に、相手の勤務はあなたに、同時に入れ替わります（例：あなたの2/21（日）の日直 ⇄ 相手の2/7（日）の日直）。夜勤（入）は翌日の「明」も一緒に移ります。</p>'
       : '<p class="notice">この期間に、あなたの日直・夜勤・残り当番はありません。</p>';
+  } else if (CG_KIND === 'hand') {
+    h = '<div class="form-row"><div><label class="f">どちら</label><select id="cg-dir"><option value="give">やってもらう（自分の勤務を相手に渡す）</option><option value="take">引き受ける（相手の勤務を自分がする）</option></select></div>' +
+      '<div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
+      '<div><label class="f" id="cg-hd-label">勤務</label><select id="cg-hd"></select></div></div>' +
+      '<p class="hint">交換ではなく、一方へ渡します。承認されると、渡した人のその日は空き（平日は勤務、土日祝は休み）になり、受け取った人に勤務が入ります。夜勤（入）は翌日の「明」も一緒に移ります。土日祝の日直・夜勤の振休は、勤務と一緒に受け取った人のものになります。</p>';
   } else if (CG_KIND === 'furi') {
-    const mine = CG.sv.dates.filter(d => isFuriLabelC(cellOf(me, d.date)));
-    h = mine.length
-      ? '<div class="form-row"><div><label class="f">自分の振休</label><select id="cg-my"><option value="">選んでください</option>' + mine.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '（' + esc(markText(cellOf(me, d.date))) + '）</option>').join('') + '</select></div>' +
+    const mine = CG.sv.dates.filter(d => isFuriLabelC(cellOf(me, d.date))), myCarry = carryOf(CG.sv, me);
+    h = mine.length || myCarry.length
+      ? '<div class="form-row"><div><label class="f">自分の振休</label><select id="cg-my"><option value="">選んでください</option>' + mine.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '（' + esc(markText(cellOf(me, d.date))) + '）</option>').join('') + carryOptions(CG.sv, me) + '</select></div>' +
         '<div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
         '<div><label class="f">相手の振休</label><select id="cg-pd"><option value="">先に相手を選んでください</option></select></div></div>' +
-        '<p class="hint">あなたの振休は相手の振休の日へ、相手の振休はあなたの振休の日へ移ります。それぞれ、移る先の日に勤務が入っていないことが必要です。</p>'
-      : '<p class="notice">この期間に、あなたの日付つきの振休はありません。</p>';
+        '<p class="hint">あなたの振休は相手の振休の日へ、相手の振休はあなたの振休の日へ移ります。それぞれ、移る先の日に勤務が入っていないことが必要です。<br>' +
+        '片方に「<b>繰越</b>」（次回へ繰越の、日が決まっていない振休）を選ぶと、繰越の人が相手の振休の日に振休を取り、日が決まっていた人の振休は次回へ繰越になります。</p>' +
+        (myCarry.length ? '<p class="hint">あなたの次回へ繰越の振休：' + myCarry.map(r => esc(carryText(r))).join('、') + '</p>' : '')
+      : '<p class="notice">この期間に、あなたの振休（日付つき・次回へ繰越）はありません。</p>';
   } else if (CG_KIND === 'hourly') {
     const H = CG.hourly, onLv = d => (CG.sv.confirmed.leaves || []).some(l => l.name === me && l.from <= d.date && d.date <= l.to);
     const days = CG.sv.dates.filter(d => !d.rest && !onLv(d) && (!cellOf(me, d.date) || isHourlyC(cellOf(me, d.date))));
@@ -1862,21 +1921,29 @@ function renderChgForm() {
       '<p class="hint">勤務時間 ' + esc(H.cfg.start) + '〜' + esc(H.cfg.end) + '（休憩 ' + esc(H.breaks.map(b => b.label).join(' または ')) + '）。取る時間は、休憩を除いて1時間単位で数え、1時間に満たない分は切り上げます。勤務表には「有12-17」（12時から17時まで休み）のように表示され、休み人数には数えません。<br>' +
       H.usage.map(u => esc(u.label) + 'の時間休：申請中を含めて <b>' + u.used + '時間</b>／上限 ' + H.cap + '時間（' + H.cfg.yearDays + '日×' + H.cfg.dayHours + '時間）').join('<br>') + '</p>';
   } else {
+    const myCarry = carryOf(CG.sv, me);
     h = '<div class="form-row"><div><label class="f">日付</label><select id="cg-date"><option value="">選んでください</option>' + dateOptions(all) + '</select></div>' +
-      '<div><label class="f">変更後</label><select id="cg-mark">' + Object.keys(SELF_LABELS).map(k => '<option value="' + esc(k) + '">' + esc(SELF_LABELS[k]) + '</option>').join('') + '</select></div></div>' +
-      '<p class="hint" id="cg-now"></p>';
+      '<div><label class="f">変更後</label><select id="cg-mark"></select></div></div>' +
+      '<p class="hint" id="cg-now"></p>' +
+      (myCarry.length ? '<p class="hint">あなたの次回へ繰越の振休：' + myCarry.map(r => esc(carryText(r))).join('、') + '。空いている平日を選ぶと、「変更後」でこの振休を今回の期間に取れます。</p>' : '') +
+      '<p class="hint">日付つきの振休の日を選ぶと、その振休を取りやめて次回へ繰り越せます（その日は勤務になります）。</p>';
   }
   if (h.indexOf('select') >= 0) h += '<button class="btn" onclick="previewChg()">内容を確認</button>';
   f.innerHTML = h;
   f.querySelectorAll('select').forEach(sel => { sel.addEventListener('change', () => { clearChgPreview(); renderChgGrid(); }); });
   const ps = document.getElementById('cg-partner');
-  if (ps) ps.onchange = () => {
+  if (ps && CG_KIND === 'hand') {
+    ps.onchange = () => { syncHandForm(); renderChgGrid(); };
+    document.getElementById('cg-dir').onchange = () => { syncHandForm(); renderChgGrid(); };
+    syncHandForm();
+  } else if (ps) ps.onchange = () => {
     // 相手の振休（振休の交換）または相手の日直・夜勤・残り当番（交代）を並べる
     const pd = document.getElementById('cg-pd'), pn = ps.value;
     const pick = CG_KIND === 'furi' ? (d => isFuriLabelC(cellOf(pn, d.date))) : (d => SWAP_DUTIES_C.indexOf(cellOf(pn, d.date)) >= 0);
     const list = pn ? CG.sv.dates.filter(pick) : [];
-    const none = CG_KIND === 'furi' ? 'この人には日付つきの振休がありません' : 'この人には日直・夜勤・残り当番がありません';
-    pd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(pn, d.date))) + '</option>').join('')
+    const carry = CG_KIND === 'furi' && pn ? carryOptions(CG.sv, pn) : '';
+    const none = CG_KIND === 'furi' ? 'この人には振休がありません' : 'この人には日直・夜勤・残り当番がありません';
+    pd.innerHTML = list.length || carry ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(pn, d.date))) + '</option>').join('') + carry
       : '<option value="">' + (pn ? none : '先に相手を選んでください') + '</option>';
   };
   renderChgGrid();
@@ -1885,9 +1952,34 @@ function renderChgForm() {
     const d = CG.sv.dates.find(x => x.date === ds.value);
     document.getElementById('cg-now').textContent = d ? '今: ' + (markText(cellOf(me, d.date)) || (d.rest ? '休み' : '勤務')) : '';
     if (CG_KIND === 'hourly') syncHourlyForm();
+    if (CG_KIND === 'self') syncSelfMarks();
   };
+  if (CG_KIND === 'self') syncSelfMarks();
   const ws = document.getElementById('cg-way');
   if (ws) { ['cg-way', 'cg-hfrom', 'cg-hto', 'cg-hbrk'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', syncHourlyForm); }); syncHourlyForm(); }
+}
+// 受け渡し: 「やってもらう」なら自分の、「引き受ける」なら相手の日直・夜勤・残り当番を並べる
+function syncHandForm() {
+  const dir = document.getElementById('cg-dir'), ps = document.getElementById('cg-partner'), hd = document.getElementById('cg-hd');
+  if (!dir || !ps || !hd) return;
+  const take = dir.value === 'take', who = take ? ps.value : ME.name, keep = hd.value;
+  document.getElementById('cg-hd-label').textContent = take ? '引き受ける相手の勤務' : 'やってもらう自分の勤務';
+  const list = who ? CG.sv.dates.filter(d => SWAP_DUTIES_C.indexOf(cellOf(who, d.date)) >= 0) : [];
+  hd.innerHTML = list.length ? '<option value="">選んでください</option>' + list.map(d => '<option value="' + d.date + '"' + (d.date === keep ? ' selected' : '') + '>' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(who, d.date))) + '</option>').join('')
+    : '<option value="">' + (!who ? '先に相手を選んでください' : take ? 'この人には日直・夜勤・残り当番がありません' : 'あなたの日直・夜勤・残り当番はありません') + '</option>';
+}
+// 自分の勤務の変更: 選んだ日に合わせて「変更後」を並べる（日付つきの振休なら取りやめ、空いている平日なら繰越の振休も）
+function syncSelfMarks() {
+  const ms = document.getElementById('cg-mark'), ds = document.getElementById('cg-date');
+  if (!ms || !ds) return;
+  const info = CG.sv.dates.find(x => x.date === ds.value), cur = info ? cellOf(ME.name, info.date) : '';
+  let opts;
+  if (isFuriLabelC(cur)) opts = [['', (info.rest ? '休み' : '勤務') + '（この振休を取りやめて、次回へ繰越）']];
+  else {
+    opts = Object.keys(SELF_LABELS).map(k => [k, SELF_LABELS[k]]);
+    if (info && !info.rest && !cur) carryOf(CG.sv, ME.name).forEach(r => opts.push(['carry:' + r.duty, '振休を取る：繰越の ' + carryText(r)]));
+  }
+  ms.innerHTML = opts.map(o => '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>').join('');
 }
 // 時間休: 種類に合わせて「から」「まで」の時刻を並べ、その日に時間休があれば「取り消す」も出す
 function hourlyHoursC(from, to, bi) {
@@ -1927,7 +2019,8 @@ function syncHourlyForm() {
 }
 function chgPayload() {
   const v = id => (document.getElementById(id) || {}).value || '';
-  if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
+  if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd'), furiMode: CG_FURI_MODE };
+  if (CG_KIND === 'hand') return { kind: 'hand', dir: v('cg-dir'), partner: v('cg-partner'), date: v('cg-hd'), furiMode: CG_FURI_MODE };
   if (CG_KIND === 'furi') return { kind: 'furi', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
   if (CG_KIND === 'hourly') return { kind: 'hourly', date: v('cg-date'), way: v('cg-way'), from: v('cg-hfrom'), to: v('cg-hto'), brk: Number(v('cg-hbrk') || 0) };
   return { kind: 'self', date: v('cg-date'), mark: v('cg-mark') };
@@ -1946,6 +2039,13 @@ async function previewChg() {
     renderChgGrid();
     let h = '<div class="chg-card"><b>この内容で申請します</b>（上の勤務表のオレンジのマスが変わります）' + cellsTable(r.cells) +
       (r.hoursNote ? '<p class="hint" style="margin:2px 0;">' + esc(r.hoursNote) + '</p>' : '');
+    // 土日祝の勤務と一緒に振休の権利が移り、渡す人がその振休をもう置いているとき: 相手に渡すか、取りやめるか
+    (r.furiAsks || []).forEach((a, i) => {
+      h += '<div class="mg-box"><b>振休の扱い</b><p style="margin:4px 0;">' + esc(a.from) + 'さんの' + esc(mdw(a.date)) + 'の振休（' + esc(md(a.duty)) + '出勤分）は、この勤務と一緒に' + esc(a.to) + 'さんに移ります。</p>' +
+        '<label style="display:block;"><input type="radio" name="cg-fm' + i + '" value="give"' + (a.mode === 'give' ? ' checked' : '') + (a.canGive ? '' : ' disabled') + '> 同じ日（' + esc(md(a.date)) + '）の振休も' + esc(a.to) + 'さんに渡す（' + esc(a.to) + 'さんが休み、' + esc(a.from) + 'さんは勤務）' +
+        (a.why ? '<span class="hint">　※' + esc(a.why) + '</span>' : '') + '</label>' +
+        '<label style="display:block;"><input type="radio" name="cg-fm' + i + '" value="carry"' + (a.mode === 'carry' ? ' checked' : '') + '> ' + esc(a.from) + 'さんの振休は取りやめ（' + esc(md(a.date)) + 'は勤務）、' + esc(a.to) + 'さんの振休は次回へ繰越</label></div>';
+    });
     if (r.deviations.length) {
       h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>' +
         '<label class="f" for="cg-reason">理由（必須・5文字以上）</label><textarea id="cg-reason" style="min-height:70px;" placeholder="例：家族の通院の付き添いのため。交代できる人がいなかったため。"></textarea>' +
@@ -1954,25 +2054,29 @@ async function previewChg() {
     h += '<p class="hint">' + (r.partner ? r.partner + 'さんの承認 → 承認者の承認' : '承認者の承認') + 'で、勤務表に反映されます。</p>' +
       '<button class="btn btn-green" onclick="submitChg()">申請する</button></div>';
     pv.innerHTML = h;
+    pv.querySelectorAll('input[type=radio][name^=cg-fm]').forEach(rb => { rb.onchange = () => { CG_FURI_MODE = rb.value; previewChg(); }; });
   } catch (e) { pv.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; CGG.cells = null; renderChgGrid(); }
 }
 // 申請フォームの勤務表（マスを押して選べる）
 const CGG = { month: null, all: false, cells: null };
-function clearChgPreview() { const pv = document.getElementById('cg-preview'); if (pv) pv.innerHTML = ''; CGG.cells = null; }
+function clearChgPreview() { const pv = document.getElementById('cg-preview'); if (pv) pv.innerHTML = ''; CGG.cells = null; CG_FURI_MODE = ''; }
 function renderChgGrid() {
   const el = document.getElementById('cg-grid');
   if (!el || !CG || !CG.sv.confirmed || !CG_KIND) { if (el) el.innerHTML = ''; return; }
   const v = id => (document.getElementById(id) || {}).value || '';
   const me = ME.name, partner = v('cg-partner');
+  const day = id => v(id).indexOf('carry:') === 0 ? '' : v(id);   // 繰越の振休は日がないので選択の印を付けない
   const sel = {};
-  if (v('cg-my')) sel[me + '|' + v('cg-my')] = 1;
+  if (day('cg-my')) sel[me + '|' + day('cg-my')] = 1;
   if (v('cg-date')) sel[me + '|' + v('cg-date')] = 1;
-  if (partner && v('cg-pd')) sel[partner + '|' + v('cg-pd')] = 1;
+  if (partner && day('cg-pd')) sel[partner + '|' + day('cg-pd')] = 1;
+  if (v('cg-hd')) { const giver = v('cg-dir') === 'take' ? partner : me; if (giver) sel[giver + '|' + v('cg-hd')] = 1; }
   const keys = monthKeys(CG.sv.dates);
-  const pickMonth = v('cg-my') || v('cg-date') || v('cg-pd');
+  const pickMonth = day('cg-my') || v('cg-date') || day('cg-pd') || v('cg-hd');
   if (!CGG.month || keys.indexOf(CGG.month) < 0) CGG.month = pickMonth ? pickMonth.slice(0, 7) : keys[0];
   const names = CGG.all ? [].concat.apply([], CG.sv.confirmed.teams.map(t => t[1])) : [me].concat(partner ? [partner] : []);
   const hint = CG_KIND === 'self' || CG_KIND === 'hourly' ? '自分の行のマスを押すと、その日を選べます。'
+    : CG_KIND === 'hand' ? '自分の日直・夜勤・残り当番のマスを押すと「やってもらう」、相手の行のマスを押すと「引き受ける」になります。「全員」でほかの人のマスを押すと、その人が相手になります。'
     : '自分の' + (CG_KIND === 'furi' ? '振休' : '日直・夜勤・残り当番') + 'のマスを押すと「自分」の欄に、相手の行のマスを押すと「相手」の欄に入ります。「全員」でほかの人のマスを押すと、その人が相手になります。';
   el.innerHTML = '<div class="mg-box"><div class="toolbar" style="margin-bottom:6px;"><div class="tabs" id="cgg-tabs" style="margin:0;"></div>' +
     '<span class="seg"><button id="cgg-two" class="' + (CGG.all ? '' : 'on') + '">自分と相手</button><button id="cgg-all" class="' + (CGG.all ? 'on' : '') + '">全員</button></span></div>' +
@@ -1994,6 +2098,14 @@ function chgGridClick(n, d) {
   const okMark = mk => CG_KIND === 'furi' ? isFuriLabelC(mk) : SWAP_DUTIES_C.indexOf(mk) >= 0;
   const what = CG_KIND === 'furi' ? '日付つきの振休' : '日直・夜勤・残り当番';
   clearChgPreview();
+  if (CG_KIND === 'hand') {
+    if (SWAP_DUTIES_C.indexOf(cellOf(n, d)) < 0) { say(mdw(d) + 'は' + (n === me ? 'あなた' : n + 'さん') + 'の日直・夜勤・残り当番ではありません。'); return; }
+    document.getElementById('cg-dir').value = n === me ? 'give' : 'take';
+    if (n !== me) document.getElementById('cg-partner').value = n;
+    syncHandForm(); setSel('cg-hd', d);
+    renderChgGrid();
+    return;
+  }
   if (CG_KIND === 'self' || CG_KIND === 'hourly') {
     if (n !== me) { say('自分の行のマスを押してください。'); return; }
     if (CG_KIND === 'hourly' && !setSel('cg-date', d)) { say(mdw(d) + 'は時間休を取れない日です（平日の勤務の日だけ取れます）。'); return; }
