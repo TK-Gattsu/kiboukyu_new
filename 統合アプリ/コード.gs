@@ -39,7 +39,8 @@ const TABLES = {
   // 勤務変更（確定後の交代・振休の交換・自分の勤務の変更）。cells は [{name, date, before, after}] のJSON
   changes:  ['id', 'kind', 'requester', 'requesterId', 'partner', 'status', 'cells', 'summary', 'deviations', 'reason',
              'createdAt', 'updatedAt', 'partnerAt', 'partnerBy', 'approverAt', 'approverBy', 'rejectedBy', 'note', 'appliedAt',
-             'revertOf', 'revertedBy'],
+             'revertOf', 'revertedBy', 'want', 'offeredAt', 'requesterAt'],
+  // want＝募集の元の内容 {date, accept, note, cells, summary} のJSON／offeredAt＝だれかが申し出た日時／requesterAt＝交代の申し出を募集した人が受けた日時
   // アプリ内のお知らせ（勤務変更の承認依頼・承認・却下・取り消しなど）。to は名前、link は開く画面
   notices:  ['id', 'to', 'at', 'text', 'link', 'changeId', 'read'],   // revertOf＝取り消す元の申請のID（承認後の取り消しの申請）／revertedBy＝取り消した申請のID
 };
@@ -73,10 +74,16 @@ const ROUND_STATUS = ['before', 'open', 'adjust', 'closed'];
 // kind: swap＝交代（自分の勤務と相手の勤務を同時に入れ替える）／hand＝受け渡し（日直・夜勤・残り当番を、交換せずに一方へ渡す）
 //       furi＝振休の交換（2人の振休の日を入れ替える。片方は次回への繰越の振休でもよい）／self＝自分の勤務の変更
 //       hourly＝時間休／revert＝承認後の取り消し（承認済みの申請を元に戻す。元の申請と同じ人の承認が必要）
+//       want＝募集（相手を決めずに、自分の日直・夜勤・残り当番の交代・引き受けを全員に募る。だれかが申し出ると swap か hand になる）
 // status: wait_partner（受け手の承認待ち）→ wait_approver（承認者の承認待ち）→ approved（承認・実績に反映）
 //         rejected（却下）／withdrawn（申請者が取り下げ）
-const CHANGE_KINDS = { swap: '交代', hand: '受け渡し', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休', revert: '承認後の取り消し' };
-const CHANGE_STATUS = { wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち', approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
+//         募集: recruiting（募集中）→ 引き受けの申し出なら wait_approver、交代の申し出なら wait_requester（申請者の確認待ち）→ wait_approver
+//               申請者が断る・申し出た人が取り消すと recruiting に戻る（元の募集の内容は want 列に残す）
+const CHANGE_KINDS = { swap: '交代', hand: '受け渡し', furi: '振休の交換', self: '自分の勤務の変更', hourly: '時間休', revert: '承認後の取り消し', want: '募集' };
+const CHANGE_STATUS = { recruiting: '募集中', wait_requester: '申請者の確認待ち', wait_partner: '受け手の承認待ち', wait_approver: '承認者の承認待ち',
+  approved: '承認済み', rejected: '却下', withdrawn: '取り下げ' };
+const PENDING_STATUS = ['recruiting', 'wait_requester', 'wait_partner', 'wait_approver'];   // 終わっていない申請（同じマスに新しい申請を出せない）
+const WANT_ACCEPT = { any: '交代でも引き受けでもよい', hand: '引き受けてほしい（交換なし）', swap: '交代してほしい（相手の勤務と交換）' };
 const SWAP_MARKS = ['', '×', '○', '入', '明', '残'];              // 交代で入れ替えられる記号
 const SWAP_DUTIES = ['○', '入', '残'];                           // 交代で渡す・引き受ける勤務（日直・夜勤・残り当番）
 const SELF_MARKS = ['', '有', '夏', '特', '業', '出', '研', '×'];   // 自分の勤務の変更で使える記号
@@ -554,18 +561,21 @@ const ACTIONS = {
     if (!conf) throw new Error('確定した勤務表がまだありません。');
     const ch = buildChange_(conf, actual_(conf).data, me, p);
     // 同じマスに承認待ちの申請があれば受け付けない（先に承認・却下・取り下げを済ませる）
-    const pending = rows_('changes').filter(r => r.status === 'wait_partner' || r.status === 'wait_approver');
-    const busy = ch.cells.filter(x => pending.some(r => JSON.parse(r.cells).some(y => y.name === x.name && y.date === x.date)));
-    if (busy.length) throw new Error(busy.map(x => x.name + 'さんの' + md_(x.date)).filter((v, i, a) => a.indexOf(v) === i).join('、') + 'には、承認待ちの勤務変更があります。その申請が終わってから申請してください。');
+    checkBusy_(ch.cells, '');
     const reason = String(p.reason || '').trim();
     if (ch.deviations.length && reason.length < 5) throw new Error('条件から外れる変更のため、理由を5文字以上で書いてください。');
     const now = new Date().toISOString();
     const row = { id: Utilities.getUuid().slice(0, 8), kind: ch.kind, requester: me.name, requesterId: me.id, partner: ch.partner || '',
-      status: ch.partner ? 'wait_partner' : 'wait_approver', cells: JSON.stringify(ch.cells), summary: ch.summary,
-      deviations: JSON.stringify(ch.deviations), reason: ch.deviations.length || ch.kind === 'revert' ? reason.slice(0, 500) : '', createdAt: now, updatedAt: now, revertOf: ch.revertOf || '' };
+      status: ch.kind === 'want' ? 'recruiting' : ch.partner ? 'wait_partner' : 'wait_approver', cells: JSON.stringify(ch.cells), summary: ch.summary,
+      deviations: JSON.stringify(ch.deviations), reason: ch.deviations.length || ch.kind === 'revert' ? reason.slice(0, 500) : '', createdAt: now, updatedAt: now, revertOf: ch.revertOf || '',
+      want: ch.want ? JSON.stringify(Object.assign({ cells: ch.cells, summary: ch.summary }, ch.want)) : '' };
     writeRow_('changes', row);
     const kl = CHANGE_KINDS[ch.kind];
-    if (row.partner) notify_(row.partner, me.name + 'さんから「' + kl + '」の承認を頼まれました：' + ch.summary, 'chgme', row.id, me);
+    if (ch.kind === 'want') {
+      // 募集: その日に引き受けられそうな人（その日が空いていて、長期休暇でない人）全員に知らせる
+      wantCandidates_(conf, actual_(conf).data, row).forEach(n => notify_(n, me.name + 'さんが、勤務を代わってくれる人を募集しています：' + ch.summary +
+        (ch.want.note ? '（' + ch.want.note + '）' : '') + '。「勤務変更・追加の申請」の「募集中の勤務」から申し出られます。', 'chg', row.id, me));
+    } else if (row.partner) notify_(row.partner, me.name + 'さんから「' + kl + '」の承認を頼まれました：' + ch.summary, 'chgme', row.id, me);
     else notifyApprovers_(row, me.name + 'さんの「' + kl + '」が承認者の承認待ちになりました：' + ch.summary, me);
     if (ch.kind === 'revert') {
       const orig = rows_('changes').find(x => x.id === ch.revertOf);
@@ -581,6 +591,7 @@ const ACTIONS = {
     return {
       mine: all.filter(r => r.requester === me.name).map(r => publicChange_(r, me)),
       toMe: all.filter(r => r.partner === me.name).map(r => publicChange_(r, me)),
+      wanted: wantedFor_(all, me),
       approvals: approver ? all.map(r => publicChange_(r, me)) : null,
       canApprove: approver, isAdmin: hasRole_(me, 'sysadmin'),
     };
@@ -591,6 +602,8 @@ const ACTIONS = {
     const approver = hasRole_(me, 'approver') || hasRole_(me, 'sysadmin');
     return {
       toMe: all.filter(r => r.partner === me.name && r.status === 'wait_partner').length,
+      mine: all.filter(r => r.requester === me.name && r.status === 'wait_requester').length,   // 交代の申し出を確かめる
+      wanted: all.filter(r => r.status === 'recruiting' && r.requester !== me.name && JSON.parse(r.want || '{}').date >= todayJst_()).length,
       approvals: approver ? all.filter(r => r.status === 'wait_approver' && r.requester !== me.name && r.partner !== me.name).length : 0,
     };
   } },
@@ -602,7 +615,20 @@ const ACTIONS = {
     const approver = hasRole_(me, 'approver') || admin;
     const ok = p.decision === 'approve';
     const now = new Date().toISOString();
-    if (r.status === 'wait_partner') {
+    const from = r.status;
+    if (r.status === 'wait_requester') {
+      // 募集への交代の申し出: 募集した人が受ける（→承認者へ）か、断る（→募集中に戻す）
+      if (r.requester !== me.name && !admin) throw new Error('募集した人だけが、申し出を受けるか決められます。');
+      if (ok) { r.status = 'wait_approver'; r.requesterAt = now; }
+      else {
+        const who = r.partner, sum = r.summary;
+        resetWant_(r);
+        writeRow_('changes', r);
+        notify_(who, r.requester + 'さんが、あなたの交代の申し出を断りました' + (p.note ? '（' + String(p.note).slice(0, 200) + '）' : '') + '：' + sum, 'chgme', r.id, me);
+        log_(me, '募集への申し出を断る', sum);
+        return publicChange_(r, me);
+      }
+    } else if (r.status === 'wait_partner') {
       if (r.partner !== me.name && !admin) throw new Error('この申請の受け手だけが承認できます。');
       if (ok) { r.status = 'wait_approver'; r.partnerAt = now; r.partnerBy = me.name + (r.partner !== me.name ? '（システム管理者が代理）' : ''); }
     } else if (r.status === 'wait_approver') {
@@ -634,7 +660,10 @@ const ACTIONS = {
     // お知らせ: 申請者・相手（・取り消された元の申請の申請者）、承認者の番になったら承認者に
     const kl = CHANGE_KINDS[r.kind], who = [r.requester].concat(r.partner ? [r.partner] : []);
     if (r.kind === 'revert') { const o = rows_('changes').find(x => x.id === r.revertOf); if (o && who.indexOf(o.requester) < 0) who.push(o.requester); }
-    if (r.status === 'wait_approver') {
+    if (r.status === 'wait_approver' && from === 'wait_requester') {
+      notify_(r.partner, r.requester + 'さんが、あなたの交代の申し出を受けました。次は承認者の承認です：' + r.summary, 'chgme', r.id, me);
+      notifyApprovers_(r, r.requester + 'さんの「' + kl + '」（募集への申し出）が承認者の承認待ちになりました：' + r.summary, me);
+    } else if (r.status === 'wait_approver') {
       notify_(r.requester, me.name + 'さんが「' + kl + '」を承認しました。次は承認者の承認です：' + r.summary, 'chg', r.id, me);
       notifyApprovers_(r, r.requester + 'さんの「' + kl + '」が承認者の承認待ちになりました：' + r.summary, me);
     } else if (r.status === 'approved') {
@@ -650,12 +679,57 @@ const ACTIONS = {
     const r = rows_('changes').find(x => x.id === String(p.id || ''));
     if (!r) throw new Error('申請が見つかりません。');
     if (r.requester !== me.name && !hasRole_(me, 'sysadmin')) throw new Error('自分の申請だけ取り下げられます。');
-    if (r.status !== 'wait_partner' && r.status !== 'wait_approver') throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
-    const wasPartner = r.status === 'wait_partner' || !!r.partnerAt;
+    if (PENDING_STATUS.indexOf(r.status) < 0) throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
+    const wasPartner = r.status === 'wait_partner' || r.status === 'wait_requester' || !!r.partnerAt;
     r.status = 'withdrawn'; r.updatedAt = new Date().toISOString();
     writeRow_('changes', r);
     if (r.partner && wasPartner) notify_(r.partner, r.requester + 'さんが「' + CHANGE_KINDS[r.kind] + '」を取り下げました：' + r.summary, 'chgme', r.id, me);
     log_(me, '勤務変更の取り下げ', CHANGE_KINDS[r.kind] + '：' + r.summary);
+    return true;
+  }) },
+
+  // ---- 募集（だれでも）への申し出 ----
+  // 申し出る前に内容を確かめる（kind: hand＝引き受ける／swap＝自分の勤務（partnerDate）と交代する）
+  chgOfferPreview: { run: (me, p) => {
+    const conf = docGet_('confirmed');
+    if (!conf) throw new Error('確定した勤務表がまだありません。');
+    return buildOffer_(conf, actual_(conf).data, findChange_(p.id), me, p);
+  } },
+  chgOffer: { run: (me, p) => withLock_(() => {
+    const conf = docGet_('confirmed');
+    if (!conf) throw new Error('確定した勤務表がまだありません。');
+    const r = findChange_(p.id);
+    const ch = buildOffer_(conf, actual_(conf).data, r, me, p);
+    checkBusy_(ch.cells, r.id);
+    const reason = String(p.reason || '').trim();
+    if (ch.deviations.length && reason.length < 5) throw new Error('条件から外れる変更のため、理由を5文字以上で書いてください。');
+    const now = new Date().toISOString();
+    Object.assign(r, { kind: ch.kind, partner: me.name, cells: JSON.stringify(ch.cells), summary: ch.summary, deviations: JSON.stringify(ch.deviations),
+      reason: ch.deviations.length ? reason.slice(0, 500) : '', offeredAt: now, partnerAt: now, partnerBy: me.name, updatedAt: now });
+    // 引き受け（交換なし）は募集した人の望みどおりなので、そのまま承認者へ。交代は、もらう勤務を募集した人が確かめる
+    r.status = ch.kind === 'hand' ? 'wait_approver' : 'wait_requester';
+    if (ch.kind === 'hand') r.requesterAt = now;
+    writeRow_('changes', r);
+    if (ch.kind === 'hand') {
+      notify_(r.requester, me.name + 'さんが、募集していた勤務を引き受けると申し出ました。次は承認者の承認です：' + ch.summary, 'chg', r.id, me);
+      notifyApprovers_(r, r.requester + 'さんの募集に' + me.name + 'さんが申し出た「受け渡し」が承認者の承認待ちになりました：' + ch.summary, me);
+    } else {
+      notify_(r.requester, me.name + 'さんが、募集していた勤務の交代を申し出ました。受けるか断るかを決めてください：' + ch.summary, 'chg', r.id, me);
+    }
+    log_(me, '募集への申し出', CHANGE_KINDS[ch.kind] + '：' + ch.summary + (ch.deviations.length ? '（条件外' + ch.deviations.length + '件・理由あり）' : ''));
+    return publicChange_(r, me);
+  }) },
+  // 申し出た人が、承認者の承認の前に申し出を取り消す（募集中に戻る）
+  chgOfferCancel: { run: (me, p) => withLock_(() => {
+    const r = findChange_(p.id);
+    if (!r.offeredAt || !r.want) throw new Error('募集への申し出ではありません。');
+    if (r.partner !== me.name && !hasRole_(me, 'sysadmin')) throw new Error('自分の申し出だけ取り消せます。');
+    if (r.status !== 'wait_requester' && r.status !== 'wait_approver') throw new Error('この申請はすでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
+    const sum = r.summary;
+    resetWant_(r);
+    writeRow_('changes', r);
+    notify_(r.requester, me.name + 'さんが申し出を取り消しました。募集中に戻りました：' + sum, 'chg', r.id, me);
+    log_(me, '募集への申し出の取り消し', sum);
     return true;
   }) },
 
@@ -1264,7 +1338,7 @@ function statsBuild_(scope) {
   let apprHours = 0, apprN = 0;
   chs.forEach(x => {
     const r = x.r, k = byKind[r.kind] = byKind[r.kind] || { label: CHANGE_KINDS[r.kind] || r.kind, approved: 0, rejected: 0, withdrawn: 0, waiting: 0, reverted: 0 };
-    const st = r.status === 'wait_partner' || r.status === 'wait_approver' ? 'waiting' : r.status;
+    const st = PENDING_STATUS.indexOf(r.status) >= 0 ? 'waiting' : r.status;
     if (k[st] !== undefined) k[st]++;
     if (r.revertedBy) k.reverted++;
     const q = byReq[r.requester] = byReq[r.requester] || { name: r.requester, total: 0, approved: 0, deviations: 0 };
@@ -1375,7 +1449,7 @@ function buildChange_(conf, act, me, p) {
   };
   const isFree = mk => mk === '' || mk === '×';
   const cells = [];
-  let partner = '', summary = '', hoursNote = '', revertOf = '', furiAsks = [];
+  let partner = '', summary = '', hoursNote = '', revertOf = '', furiAsks = [], want = null;
   if (kind === 'revert') {
     // 承認後の取り消し: 承認済みの申請のマスを、申請前の内容に戻す（その後にマスが変わっていないこと）
     const orig = rows_('changes').find(r => r.id === String(p.of || ''));
@@ -1405,6 +1479,16 @@ function buildChange_(conf, act, me, p) {
   }
   if (kind === 'revert') {
     // 上で組み立て済み
+  } else if (kind === 'want') {
+    // 募集: 相手を決めずに、自分の日直・夜勤・残り当番を交代・引き受けしてくれる人を全員に募る（この時点ではマスは変わらない）
+    const d0 = String(p.date || ''), mk0 = cell(name, d0);
+    if (!dateSet.has(d0) || SWAP_DUTIES.indexOf(mk0) < 0) throw new Error('代わってほしい、自分の勤務（日直・夜勤・残り当番）の日を選んでください。');
+    if (d0 < todayJst_()) throw new Error('過ぎた日の勤務は募集できません。');
+    const acc = WANT_ACCEPT[p.accept] ? String(p.accept) : '';
+    if (!acc) throw new Error('募集の内容（交代・引き受け）を選んでください。');
+    span(name, d0).forEach(d => cells.push({ name: name, date: d, before: cell(name, d), after: cell(name, d) }));
+    summary = name + 'の' + md_(d0) + named[mk0] + '（' + { any: '交代か引き受け', hand: '引き受け', swap: '交代' }[acc] + 'を募集）';
+    want = { date: d0, accept: acc, note: String(p.note || '').trim().slice(0, 100) };
   } else if (kind === 'swap') {
     // 交代: 自分が渡す勤務（myDate）と、代わりに引き受ける相手の勤務（partnerDate）を同時に入れ替える。
     // 夜勤（入）は翌日の「明」も一緒に移す
@@ -1545,7 +1629,75 @@ function buildChange_(conf, act, me, p) {
     if (isHourly_(x.before) && x.beforeHours === undefined) x.beforeHours = recordedHours_(x.name, x.date, x.before, hcfg);
     if (isHourly_(x.after) && x.afterHours === undefined) x.afterHours = hourlyHours_(hcfg, x.after);
   });
-  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote, revertOf: revertOf, furiAsks: furiAsks };
+  return { kind: kind, partner: partner, cells: cells, summary: summary, deviations: deviations, hoursNote: hoursNote, revertOf: revertOf, furiAsks: furiAsks, want: want };
+}
+// 同じマスに終わっていない申請（募集中を含む）があれば受け付けない（skipId＝自分自身の行）
+function checkBusy_(cells, skipId) {
+  const pending = rows_('changes').filter(r => r.id !== skipId && PENDING_STATUS.indexOf(r.status) >= 0);
+  const busy = cells.filter(x => pending.some(r => JSON.parse(r.cells).some(y => y.name === x.name && y.date === x.date)));
+  if (busy.length) throw new Error(busy.map(x => x.name + 'さんの' + md_(x.date)).filter((v, i, a) => a.indexOf(v) === i).join('、') +
+    'には、承認待ち（または募集中）の勤務変更があります。その申請が終わってから申請してください。');
+}
+function findChange_(id) {
+  const r = rows_('changes').find(x => x.id === String(id || ''));
+  if (!r) throw new Error('申請が見つかりません。');
+  return r;
+}
+// 募集への申し出を組み立てる（募集した人の「交代」または「受け渡し（やってもらう）」として作る）
+function buildOffer_(conf, act, r, me, p) {
+  if (!r.want) throw new Error('募集ではありません。');
+  if (r.status !== 'recruiting') throw new Error(r.status === 'wait_requester' || r.status === 'wait_approver' ? 'この募集には、ほかの人がすでに申し出ています。' : 'この募集は、すでに' + (CHANGE_STATUS[r.status] || r.status) + 'です。');
+  if (r.requester === me.name) throw new Error('自分の募集には申し出られません。');
+  const w = JSON.parse(r.want);
+  if (w.date < todayJst_()) throw new Error('募集の日が過ぎています。');
+  const kind = p.kind === 'swap' ? 'swap' : 'hand';
+  if (w.accept !== 'any' && w.accept !== kind) throw new Error('この募集は「' + WANT_ACCEPT[w.accept] + '」です。');
+  const pd = String(p.partnerDate || '');
+  if (kind === 'swap' && SWAP_DUTIES.indexOf((act[me.name] || {})[pd] || '') < 0) throw new Error('代わりに渡す、あなたの勤務（日直・夜勤・残り当番）の日を選んでください。');
+  try {
+    return buildChange_(conf, act, { name: r.requester, roles: '' },
+      { kind: kind, partner: me.name, dir: 'give', date: w.date, myDate: w.date, partnerDate: pd, furiMode: p.furiMode });
+  } catch (e) {
+    // buildChange_ の文は募集した人から見た書き方なので、申し出た人向けに言い換える
+    throw new Error(String(e.message).replace(/あなた/g, r.requester + 'さん'));
+  }
+}
+// 交代の申し出を断った・申し出が取り消されたとき、募集中に戻す
+function resetWant_(r) {
+  const w = JSON.parse(r.want || '{}');
+  Object.assign(r, { kind: 'want', partner: '', status: 'recruiting', cells: JSON.stringify(w.cells || []), summary: w.summary || r.summary,
+    deviations: '[]', reason: '', partnerAt: '', partnerBy: '', offeredAt: '', requesterAt: '', updatedAt: new Date().toISOString() });
+}
+// 募集を引き受けられそうな人（名簿にいてIDがあり、この期間に同じ種類の勤務（日直・夜勤・残り当番）が入っていて、
+// その日が空いていて、長期休暇でない人）。同じ種類の勤務の人がいなければ、日直・夜勤・残り当番のどれかがある人
+function wantCandidates_(conf, act, r) {
+  const cells = JSON.parse(r.cells || '[]');
+  const roster = [].concat.apply([], conf.teams.map(t => t[1]));
+  const users = rows_('users').filter(u => u.active === '1').map(u => u.name);
+  const mk0 = cells.length ? cells[0].before : '';
+  const has = (n, marks) => Object.keys(act[n] || {}).some(d => marks.indexOf(act[n][d]) >= 0);
+  let doers = roster.filter(n => n !== r.requester && has(n, [mk0]));
+  if (!doers.length) doers = roster.filter(n => n !== r.requester && has(n, SWAP_DUTIES));
+  return doers.filter(n => users.indexOf(n) >= 0 && cells.every(x => {
+    const mk = (act[n] || {})[x.date] || '';
+    return (mk === '' || mk === '×') && !(conf.leaves || []).some(l => l.name === n && l.from <= x.date && x.date <= l.to);
+  }));
+}
+// 画面の「募集中の勤務」: ほかの人の募集と、自分が申し出られるか（引き受けはここで確かめる。交代は選んだ勤務で確かめる）
+function wantedFor_(all, me) {
+  const list = all.filter(r => r.status === 'recruiting' && r.requester !== me.name);
+  if (!list.length) return [];
+  const conf = docGet_('confirmed');
+  if (!conf) return [];
+  const act = actual_(conf).data, today = todayJst_();
+  return list.map(r => {
+    const w = JSON.parse(r.want || '{}'), o = publicChange_(r, me);
+    o.past = w.date < today;
+    if (!o.past && w.accept !== 'swap') {
+      try { buildOffer_(conf, act, r, me, { kind: 'hand' }); o.canHand = true; } catch (e) { o.canHand = false; o.handWhy = e.message; }
+    }
+    return o;
+  });
 }
 // 変更によって新しく起きる、きまりから外れること
 function deviations_(conf, act, cells) {
@@ -1613,12 +1765,16 @@ function notifyApprovers_(r, text, actor) {
 }
 // 画面に返す形（理由はシステム管理者・承認者・申請者本人にだけ見せる）
 function publicChange_(r, me) {
-  const canSeeReason = hasRole_(me, 'sysadmin') || hasRole_(me, 'approver') || r.requester === me.name;
+  // 募集への申し出の理由は、申し出た人が書いたもの
+  const canSeeReason = hasRole_(me, 'sysadmin') || hasRole_(me, 'approver') || r.requester === me.name || (!!r.offeredAt && r.partner === me.name);
+  let want = null;
+  if (r.want) { const w = JSON.parse(r.want); want = { date: w.date, accept: w.accept, acceptLabel: WANT_ACCEPT[w.accept] || '', note: w.note || '' }; }
   return { id: r.id, kind: r.kind, kindLabel: CHANGE_KINDS[r.kind], requester: r.requester, partner: r.partner, status: r.status,
     statusLabel: CHANGE_STATUS[r.status] || r.status, cells: JSON.parse(r.cells || '[]'), summary: r.summary,
     deviations: JSON.parse(r.deviations || '[]'), reason: canSeeReason ? r.reason : (r.reason ? '（理由は管理者だけが見られます）' : ''),
     createdAt: r.createdAt, updatedAt: r.updatedAt, partnerAt: r.partnerAt, partnerBy: r.partnerBy, approverAt: r.approverAt,
-    approverBy: r.approverBy, rejectedBy: r.rejectedBy, note: r.note, revertOf: r.revertOf || '', revertedBy: r.revertedBy || '' };
+    approverBy: r.approverBy, rejectedBy: r.rejectedBy, note: r.note, revertOf: r.revertOf || '', revertedBy: r.revertedBy || '',
+    want: want, offeredAt: r.offeredAt || '', requesterAt: r.requesterAt || '' };
 }
 
 // 勤務表（state）を保存するたびに版（rev）を1つ上げる。作成画面の自動保存が古い内容で上書きしないための目印

@@ -183,7 +183,9 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 .chg-card .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .chg-card table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
 .chg-card td, .chg-card th { border: 1px solid #E3E3E3; padding: 2px 8px; }
-.pill.wait_partner, .pill.wait_approver { background: var(--orange-light); color: var(--orange); }
+.pill.wait_partner, .pill.wait_approver, .pill.wait_requester { background: var(--orange-light); color: var(--orange); }
+.pill.recruiting { background: #E3EEFA; color: #2F6FB3; }
+.want-card { border-color: #9DC3E6; background: #F7FBFF; }
 .pill.approved { background: var(--green-light); color: var(--green); }
 .pill.rejected, .pill.withdrawn { background: #EEE; color: #666; }
 .dev { background: var(--red-light); border-radius: 4px; padding: 4px 8px; margin: 4px 0; color: var(--red); }
@@ -425,12 +427,18 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
 <section id="v-chg" style="display:none;">
   <div style="max-width:1000px; margin:0 auto; padding:16px;">
     <button class="back" onclick="show('home')">← メニューに戻る</button>
+    <div class="card want-card" id="cg-wanted-card" style="display:none;">
+      <h2>募集中の勤務（だれでも）</h2>
+      <p class="hint">ほかの人が「代わってくれる人」を募集している勤務です。引き受ける・交代するときは、申し出てください（先に申し出た1人が対象になります）。</p>
+      <div id="cg-wanted"></div>
+    </div>
     <div class="card">
       <h2>勤務変更・追加の申請</h2>
       <p class="hint" id="cg-period"></p>
       <div class="kind-cards" id="cg-kinds">
         <label data-k="swap"><input type="radio" name="cg-kind" value="swap"><b>交代</b>自分の日直・夜勤・残り当番と、相手の勤務を入れ替えます（同時に入れ替わります）。相手と承認者の承認が必要です。</label>
         <label data-k="hand"><input type="radio" name="cg-kind" value="hand"><b>受け渡し</b>日直・夜勤・残り当番を、交換せずに相手にやってもらう／相手の分を引き受けます。相手と承認者の承認が必要です。</label>
+        <label data-k="want"><input type="radio" name="cg-kind" value="want"><b>募集（だれでも）</b>自分の日直・夜勤・残り当番を、だれでもいいので交代・引き受けしてくれる人を全員に募集します。申し出た人（交代のときはあなたも確認）と承認者の承認で反映されます。</label>
         <label data-k="furi"><input type="radio" name="cg-kind" value="furi"><b>振休の交換</b>自分の振休と相手の振休の日を入れ替えます。「次回へ繰越」の振休との交換もできます。相手と承認者の承認が必要です。</label>
         <label data-k="self"><input type="radio" name="cg-kind" value="self"><b>自分の勤務の変更</b>有・夏・特を取る／取り消す、出張・業務・研修を入れるなど（振休は変えられません）。承認者の承認が必要です。</label>
         <label data-k="hourly"><input type="radio" name="cg-kind" value="hourly"><b>時間休</b>遅く来る・早く帰る・途中で抜けるときの、時間単位の有給です（1時間単位）。時刻の変更・取り消しもここで行います。承認者の承認が必要です。</label>
@@ -452,7 +460,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
     <button class="back" onclick="show('home')">← メニューに戻る</button>
     <div class="card">
       <h2>自分あての承認</h2>
-      <p class="hint">ほかの人から頼まれた交代・受け渡し・振休の交換です。承認すると、承認者の確認に進みます。</p>
+      <p class="hint">ほかの人から頼まれた交代・受け渡し・振休の交換です。承認すると、承認者の確認に進みます。募集に申し出たものもここに出ます（承認者の承認の前なら、申し出を取り消せます）。</p>
       <div id="cm-list"></div>
     </div>
   </div>
@@ -556,11 +564,18 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
         </ul>
       </details>
 
-      <details><summary>勤務変更・追加の申請（交代・受け渡し・振休の交換・自分の勤務の変更・時間休）</summary>
+      <details><summary>勤務変更・追加の申請（交代・受け渡し・募集・振休の交換・自分の勤務の変更・時間休）</summary>
         <p>メニューの「<b>勤務変更・追加の申請</b>」で、確定した勤務表を変える申請をします。下の小さな勤務表のマスを押しても選べます。選んだら「<b>内容を確認</b>」→ 変わるマスがオレンジで表示されるので、確かめて「<b>申請する</b>」を押します。</p>
         <ul>
           <li><b>交代</b>：自分の日直・夜勤・残り当番と、相手の日直・夜勤・残り当番を同時に入れ替えます。「自分が渡す勤務」「相手」「代わりに引き受ける相手の勤務」を選びます。夜勤（入）は翌日の「明」も一緒に移ります。相手 → 承認者の順に承認されると反映されます。</li>
           <li><b>受け渡し</b>：交換ではなく、日直・夜勤・残り当番を一方へ渡します。「どちら」で「<b>やってもらう</b>」（自分の勤務を相手に渡す）か「<b>引き受ける</b>」（相手の勤務を自分がする）を選び、「相手」と勤務の日を選びます。渡した人のその日は空き（平日は勤務、土日祝は休み）になります。夜勤（入）は翌日の「明」も一緒に移ります。相手 → 承認者の順に承認されると反映されます。</li>
+          <li><b>募集（だれでも）</b>：相手を決めずに、「だれでもいいので交代・引き受けしてほしい」ときに使います。
+            <ul>
+              <li>「代わってほしい自分の勤務」と「募集の内容」（交代でも引き受けでもよい／引き受けてほしい／交代してほしい）を選び、必要なら「ひとこと」（全員に見えます）を書いて「<b>募集する</b>」を押します。その日が空いている人にお知らせが届きます。</li>
+              <li>ほかの人の募集は、「勤務変更・追加の申請」の一番上の「<b>募集中の勤務（だれでも）</b>」に出ます（メニューにも「募集 ○件」と出ます）。「<b>引き受ける（交換なし）</b>」か、交代に出す自分の勤務を選んで「<b>この勤務と交代を申し出る</b>」を押し、内容を確かめて「<b>申し出る</b>」を押します。先に申し出た1人が対象になります。</li>
+              <li>引き受けの申し出は、そのまま承認者の承認へ進みます。交代の申し出は、募集した人が「自分の申請」で「<b>申し出を受ける</b>」か「<b>断る（募集に戻す）</b>」を選びます（メニューに「確認待ち ○件」と出ます）。受けると承認者の承認へ進みます。</li>
+              <li>申し出た人は、承認者の承認の前なら「自分あての承認」の「<b>申し出を取り消す</b>」で取り消せます（募集中に戻ります）。募集をやめるときは「自分の申請」の「取り下げる」を押します。</li>
+            </ul></li>
           <li>交代・受け渡しで土日祝の日直・夜勤が移ると、その<b>振休も受け取った人のもの</b>になります。渡した人がその分の振休をもう取っている（日が決まっている）ときは、「内容を確認」のあとに「<b>振休の扱い</b>」が出るので、「同じ日の振休も相手に渡す」か「振休は取りやめ、相手の振休は次回へ繰越」を選びます。</li>
           <li><b>振休の交換</b>：自分の振休と相手の振休の日を入れ替えます。片方に「<b>繰越</b>」（次回へ繰越の、日が決まっていない振休）を選ぶと、繰越の人が相手の振休の日に振休を取り、日が決まっていた人の振休が次回へ繰越になります。相手 → 承認者の承認が必要です。</li>
           <li><b>自分の勤務の変更</b>：有・夏・特を取る／取り消す、出張・業務・研修などに変えます。振休はここでは変えられません（振休は「振休の交換」だけで動かします）。承認者の承認が必要です。</li>
@@ -582,6 +597,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
         <ul>
           <li>ほかの人から交代・受け渡し・振休の交換を頼まれると、お知らせが届き、メニューの「<b>自分あての承認</b>」に件数が出ます。</li>
           <li>内容と「勤務表で確認 ▼」で変わるマスを確かめ、「<b>承認する</b>」か「<b>却下する</b>」を押します。承認すると、承認者の承認に進みます。</li>
+          <li>募集に申し出たものも、ここに「募集への申し出」として出ます。承認者の承認の前なら「<b>申し出を取り消す</b>」で取り消せます。</li>
         </ul>
       </details>
 
@@ -602,6 +618,7 @@ h3.st { font-size: 14px; color: var(--blue); margin: 14px 0 4px; }
           <li>「承認待ち」の一覧で、内容・変わるマス（「勤務表で確認 ▼」）・条件から外れる点と理由を確かめます。</li>
           <li>「<b>承認する</b>」を押すと、すぐに勤務表の実績に反映されます。「<b>却下する</b>」では理由を書けます（申請者に表示されます）。</li>
           <li>自分が申請者または相手になっている申請は承認できません。ほかの承認者かシステム管理者が承認します。</li>
+          <li>「募集への申し出」の印があるものは、スタッフの募集にだれかが申し出た交代・受け渡しです（交代は、募集した人が申し出を受けたあとに承認待ちになります）。ふつうの申請と同じように確かめて承認します。</li>
           <li>申請したあとに勤務表が変わっていると承認できません。その場合は却下して、申請し直してもらってください。</li>
           <li>「すべて」に切り替えると、承認済み・却下・取り下げを含む全部の申請を見られます。</li>
         </ol>
@@ -767,6 +784,7 @@ const BUSY_LABEL = {
   login: 'ログインしています', logout: 'ログアウトしています', changePassword: '変更しています',
   reqSave: '申請しています', reqCancel: '取り消しています', reqImport: '勤務表に取り込んでいます',
   chgPreview: '内容を確かめています', chgCreate: '申請しています', chgDecide: '処理しています', chgWithdraw: '取り下げています',
+  chgOfferPreview: '内容を確かめています', chgOffer: '申し出ています', chgOfferCancel: '申し出を取り消しています',
   saveUser: '保存しています', deleteUser: '削除しています', resetPassword: '再発行しています',
   bulkAddUsers: 'スタッフを登録しています', rosterAddUsers: 'スタッフを登録しています',
   wfSave: '保存しています', periodSave: '保存しています', hourlySave: '保存しています',
@@ -940,7 +958,7 @@ function renderMenu() {
   const items = [
     { title: '希望休の申請', desc: '希望休（有・夏・特・×など）を申請します。日ごとの残り人数を見ながら申請できます。', go: 'req' },
     { title: '勤務表を見る', desc: '確定して配布された勤務表を見ます（自分の勤務・全員）。', go: 'schedule' },
-    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、受け渡し（やってもらう・引き受ける）、振休の交換、自分の勤務の変更、時間休（遅く来る・早く帰る）を申請します。', go: 'chg' },
+    { title: '勤務変更・追加の申請', desc: '確定した勤務表の交代、受け渡し（やってもらう・引き受ける）、だれでもよい交代・引き受けの募集、振休の交換、自分の勤務の変更、時間休（遅く来る・早く帰る）を申請します。', go: 'chg', key: 'mine', badge: '確認待ち', key2: 'wanted', badge2: '募集' },
     { title: '自分あての承認', desc: 'ほかの人から頼まれた交代・受け渡し・振休の交換を承認します。', go: 'chgme', key: 'toMe' },
     { title: '自分の集計', desc: '自分の日直・夜勤・有給・時間休などの回数を、月別・年度で見られます。', go: 'mystats' },
   ];
@@ -967,9 +985,10 @@ function renderMenu() {
   // 承認待ちの件数をメニューに出す
   call('chgCounts').then(n => {
     items.forEach((it, i) => {
-      if (!it.key || !n[it.key]) return;
       const el = document.querySelector('#menu .item[data-i="' + i + '"] b');
-      if (el) el.insertAdjacentHTML('beforeend', '<span class="badge">承認待ち ' + n[it.key] + '件</span>');
+      if (!el) return;
+      if (it.key && n[it.key]) el.insertAdjacentHTML('beforeend', '<span class="badge">' + (it.badge || '承認待ち') + ' ' + n[it.key] + '件</span>');
+      if (it.key2 && n[it.key2]) el.insertAdjacentHTML('beforeend', '<span class="badge" style="background:#2F6FB3;">' + it.badge2 + ' ' + n[it.key2] + '件</span>');
     });
   }).catch(() => {});
   // 自分の申請日が上限を超えていれば、メニューに注意を出す
@@ -1866,6 +1885,7 @@ async function loadChg() {
     }
     document.querySelectorAll('input[name=cg-kind]').forEach(r => { r.onchange = () => { CG_KIND = r.value; renderChgForm(); }; r.checked = r.value === CG_KIND; });
     renderChgForm();
+    renderWanted(list.wanted);
     renderChgList('cg-mine', list.mine, 'mine');
   } catch (e) { document.getElementById('cg-period').textContent = e.message; }
 }
@@ -1897,6 +1917,15 @@ function renderChgForm() {
       '<div><label class="f">相手</label><select id="cg-partner"><option value="">選んでください</option>' + staffOptions(me) + '</select></div>' +
       '<div><label class="f" id="cg-hd-label">勤務</label><select id="cg-hd"></select></div></div>' +
       '<p class="hint">交換ではなく、一方へ渡します。承認されると、渡した人のその日は空き（平日は勤務、土日祝は休み）になり、受け取った人に勤務が入ります。夜勤（入）は翌日の「明」も一緒に移ります。土日祝の日直・夜勤の振休は、勤務と一緒に受け取った人のものになります。</p>';
+  } else if (CG_KIND === 'want') {
+    const today = todayC(), duties = CG.sv.dates.filter(d => d.date >= today && SWAP_DUTIES_C.indexOf(cellOf(me, d.date)) >= 0);
+    h = duties.length
+      ? '<div class="form-row"><div><label class="f">代わってほしい自分の勤務</label><select id="cg-my"><option value="">選んでください</option>' +
+        duties.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(me, d.date))) + '</option>').join('') + '</select></div>' +
+        '<div><label class="f">募集の内容</label><select id="cg-acc"><option value="any">交代でも引き受けでもよい</option><option value="hand">引き受けてほしい（交換なし）</option><option value="swap">交代してほしい（相手の勤務と交換）</option></select></div></div>' +
+        '<div style="margin:6px 0;"><label class="f" for="cg-wnote">ひとこと（任意・全員に見えます）</label><input type="text" id="cg-wnote" maxlength="100" placeholder="例：家族の用事があるため、どなたかお願いします。"></div>' +
+        '<p class="hint">相手を決めずに全員に募集します（その日が空いている人にお知らせが届きます）。だれかが「引き受ける」と申し出ると、そのまま承認者の承認へ進みます。「交代」の申し出のときは、代わりにもらう勤務をあなたが確かめて「受ける」か「断る」を選びます（断ると募集中に戻ります）。夜勤（入）は翌日の「明」も一緒です。</p>'
+      : '<p class="notice">これから先の日に、あなたの日直・夜勤・残り当番はありません。</p>';
   } else if (CG_KIND === 'furi') {
     const mine = CG.sv.dates.filter(d => isFuriLabelC(cellOf(me, d.date))), myCarry = carryOf(CG.sv, me);
     h = mine.length || myCarry.length
@@ -2012,6 +2041,7 @@ function chgPayload() {
   const v = id => (document.getElementById(id) || {}).value || '';
   if (CG_KIND === 'swap') return { kind: 'swap', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd'), furiMode: CG_FURI_MODE };
   if (CG_KIND === 'hand') return { kind: 'hand', dir: v('cg-dir'), partner: v('cg-partner'), date: v('cg-hd'), furiMode: CG_FURI_MODE };
+  if (CG_KIND === 'want') return { kind: 'want', date: v('cg-my'), accept: v('cg-acc'), note: v('cg-wnote') };
   if (CG_KIND === 'furi') return { kind: 'furi', partner: v('cg-partner'), myDate: v('cg-my'), partnerDate: v('cg-pd') };
   if (CG_KIND === 'hourly') return { kind: 'hourly', date: v('cg-date'), way: v('cg-way'), from: v('cg-hfrom'), to: v('cg-hto'), brk: Number(v('cg-hbrk') || 0) };
   return { kind: 'self', date: v('cg-date'), mark: v('cg-mark') };
@@ -2026,17 +2056,19 @@ async function previewChg() {
   CG_PAYLOAD = chgPayload();
   try {
     const r = await call('chgPreview', CG_PAYLOAD);
+    if (r.kind === 'want') {
+      // 募集: この時点では勤務表は変わらない
+      pv.innerHTML = '<div class="chg-card"><b>この内容で募集します</b><p style="margin:4px 0;">' + esc(r.summary) + '</p><p style="margin:4px 0;">対象：' + esc(wantCellsText(r.cells)) + '</p>' +
+        (r.want && r.want.note ? '<div class="reason">ひとこと：' + esc(r.want.note) + '</div>' : '') +
+        '<p class="hint">全員に募集します。申し出があると、お知らせで知らせます。募集中は、この勤務について別の申請はできません（やめるときは「自分の申請」の「取り下げる」）。</p>' +
+        '<button class="btn btn-green" onclick="submitChg()">募集する</button></div>';
+      return;
+    }
     CGG.cells = r.cells; CGG.month = monthsOfCells(r.cells)[0];
     renderChgGrid();
     let h = '<div class="chg-card"><b>この内容で申請します</b>（上の勤務表のオレンジのマスが変わります）' + cellsTable(r.cells) +
       (r.hoursNote ? '<p class="hint" style="margin:2px 0;">' + esc(r.hoursNote) + '</p>' : '');
-    // 土日祝の勤務と一緒に振休の権利が移り、渡す人がその振休をもう置いているとき: 相手に渡すか、取りやめるか
-    (r.furiAsks || []).forEach((a, i) => {
-      h += '<div class="mg-box"><b>振休の扱い</b><p style="margin:4px 0;">' + esc(a.from) + 'さんの' + esc(mdw(a.date)) + 'の振休（' + esc(md(a.duty)) + '出勤分）は、この勤務と一緒に' + esc(a.to) + 'さんに移ります。</p>' +
-        '<label style="display:block;"><input type="radio" name="cg-fm' + i + '" value="give"' + (a.mode === 'give' ? ' checked' : '') + (a.canGive ? '' : ' disabled') + '> 同じ日（' + esc(md(a.date)) + '）の振休も' + esc(a.to) + 'さんに渡す（' + esc(a.to) + 'さんが休み、' + esc(a.from) + 'さんは勤務）' +
-        (a.why ? '<span class="hint">　※' + esc(a.why) + '</span>' : '') + '</label>' +
-        '<label style="display:block;"><input type="radio" name="cg-fm' + i + '" value="carry"' + (a.mode === 'carry' ? ' checked' : '') + '> ' + esc(a.from) + 'さんの振休は取りやめ（' + esc(md(a.date)) + 'は勤務）、' + esc(a.to) + 'さんの振休は次回へ繰越</label></div>';
-    });
+    h += furiAsksHtml(r.furiAsks, 'cg-fm');
     if (r.deviations.length) {
       h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>' +
         '<label class="f" for="cg-reason">理由（必須・5文字以上）</label><textarea id="cg-reason" style="min-height:70px;" placeholder="例：家族の通院の付き添いのため。交代できる人がいなかったため。"></textarea>' +
@@ -2047,6 +2079,72 @@ async function previewChg() {
     pv.innerHTML = h;
     pv.querySelectorAll('input[type=radio][name^=cg-fm]').forEach(rb => { rb.onchange = () => { CG_FURI_MODE = rb.value; previewChg(); }; });
   } catch (e) { pv.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; CGG.cells = null; renderChgGrid(); }
+}
+// 土日祝の勤務と一緒に振休の権利が移り、渡す人がその振休をもう置いているとき: 相手に渡すか、取りやめるか
+function furiAsksHtml(asks, nm) {
+  return (asks || []).map((a, i) =>
+    '<div class="mg-box"><b>振休の扱い</b><p style="margin:4px 0;">' + esc(a.from) + 'さんの' + esc(mdw(a.date)) + 'の振休（' + esc(md(a.duty)) + '出勤分）は、この勤務と一緒に' + esc(a.to) + 'さんに移ります。</p>' +
+    '<label style="display:block;"><input type="radio" name="' + nm + i + '" value="give"' + (a.mode === 'give' ? ' checked' : '') + (a.canGive ? '' : ' disabled') + '> 同じ日（' + esc(md(a.date)) + '）の振休も' + esc(a.to) + 'さんに渡す（' + esc(a.to) + 'さんが休み、' + esc(a.from) + 'さんは勤務）' +
+    (a.why ? '<span class="hint">　※' + esc(a.why) + '</span>' : '') + '</label>' +
+    '<label style="display:block;"><input type="radio" name="' + nm + i + '" value="carry"' + (a.mode === 'carry' ? ' checked' : '') + '> ' + esc(a.from) + 'さんの振休は取りやめ（' + esc(md(a.date)) + 'は勤務）、' + esc(a.to) + 'さんの振休は次回へ繰越</label></div>').join('');
+}
+function todayC() { const t = new Date(); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
+// 募集の対象のマス（夜勤は入と明）を文にする
+function wantCellsText(cells) { return (cells || []).map(x => mdw(x.date) + ' ' + markText(x.before)).join('、'); }
+
+/* ---- 募集中の勤務（ほかの人の募集に申し出る）---- */
+let OF = null;   // 申し出の内容 {id, kind, partnerDate, furiMode}
+function renderWanted(list) {
+  const card = document.getElementById('cg-wanted-card'), el = document.getElementById('cg-wanted');
+  const open = (list || []).filter(c => !c.past);
+  card.style.display = open.length && CG.sv.confirmed ? '' : 'none';
+  if (!open.length || !CG.sv.confirmed) { el.innerHTML = ''; return; }
+  const me = ME.name, myDuties = CG.sv.dates.filter(d => SWAP_DUTIES_C.indexOf(cellOf(me, d.date)) >= 0);
+  el.innerHTML = open.map(c => {
+    const w = c.want || {};
+    let h = '<div class="chg-card"><div class="top"><b>募集</b><span class="pill recruiting">' + esc(w.acceptLabel || '') + '</span><span>' + esc(c.summary) + '</span></div>' +
+      '<div>対象：' + esc(wantCellsText(c.cells)) + '</div>' + (w.note ? '<div class="reason">ひとこと：' + esc(w.note) + '</div>' : '') +
+      '<div class="hint">募集 ' + fmtDateTime(c.createdAt) + '（' + esc(c.requester) + '）</div><div class="toolbar" style="margin:6px 0 0; gap:8px; flex-wrap:wrap;">';
+    if (w.accept !== 'swap') h += c.canHand ? '<button class="btn btn-green btn-sm" data-of-hand="' + c.id + '">引き受ける（交換なし）</button>' : '<span class="hint">引き受け：' + esc(c.handWhy || 'できません') + '</span>';
+    if (w.accept !== 'hand') h += myDuties.length
+      ? '<select id="of-pd-' + c.id + '" style="width:auto;"><option value="">交代に出す自分の勤務を選ぶ</option>' + myDuties.map(d => '<option value="' + d.date + '">' + esc(mdw(d.date)) + '　' + esc(markText(cellOf(me, d.date))) + '</option>').join('') + '</select>' +
+        '<button class="btn btn-sm" data-of-swap="' + c.id + '">この勤務と交代を申し出る</button>'
+      : '<span class="hint">交代：あなたの日直・夜勤・残り当番がありません。</span>';
+    return h + '</div><div id="of-box-' + c.id + '"></div></div>';
+  }).join('');
+  el.querySelectorAll('button[data-of-hand]').forEach(b => { b.onclick = () => previewOffer(b.dataset.ofHand, 'hand', ''); });
+  el.querySelectorAll('button[data-of-swap]').forEach(b => { b.onclick = () => previewOffer(b.dataset.ofSwap, 'swap', ''); });
+  el.querySelectorAll('select[id^=of-pd-]').forEach(sel => { sel.onchange = () => { document.getElementById('of-box-' + sel.id.slice(6)).innerHTML = ''; }; });
+}
+async function previewOffer(id, kind, furiMode) {
+  const box = document.getElementById('of-box-' + id);
+  const pd = kind === 'swap' ? (document.getElementById('of-pd-' + id) || {}).value || '' : '';
+  if (kind === 'swap' && !pd) { box.innerHTML = '<p class="err">交代に出す、自分の勤務を選んでください。</p>'; return; }
+  OF = { id: id, kind: kind, partnerDate: pd, furiMode: furiMode || '' };
+  try {
+    const r = await call('chgOfferPreview', OF);
+    const c = ((CG.list && CG.list.wanted) || []).find(x => x.id === id) || {};
+    const names = r.cells.map(x => x.name).filter((v, i, a) => a.indexOf(v) === i);
+    let h = '<div class="mg-box"><b>' + (kind === 'hand' ? 'この勤務を引き受けます' : 'この内容で交代を申し出ます') + '</b>（オレンジのマスが変わります）' + cellsTable(r.cells) +
+      monthsOfCells(r.cells).map(m => miniGrid(CG.sv, names, m, { cells: r.cells })).join('') + furiAsksHtml(r.furiAsks, 'of-fm');
+    if (r.deviations.length) h += '<div class="dev"><b>⚠ 条件から外れます</b><br>' + r.deviations.map(esc).join('<br>') + '</div>' +
+      '<label class="f" for="of-reason">理由（必須・5文字以上）</label><textarea id="of-reason" style="min-height:60px;"></textarea>' +
+      '<p class="hint">理由は、システム管理者と承認者（と募集した人・あなた）だけが見られます。</p>';
+    h += '<p class="hint">' + (kind === 'hand' ? '承認者の承認' : esc(c.requester || '募集した人') + 'さんの確認 → 承認者の承認') + 'で、勤務表に反映されます。</p>' +
+      '<button class="btn btn-green" id="of-go">申し出る</button> <button class="btn btn-gray" id="of-cancel">やめる</button></div>';
+    document.querySelectorAll('[id^=of-box-]').forEach(b => { if (b !== box) b.innerHTML = ''; });
+    box.innerHTML = h;
+    box.querySelectorAll('input[type=radio][name^=of-fm]').forEach(rb => { rb.onchange = () => previewOffer(id, kind, rb.value); });
+    document.getElementById('of-cancel').onclick = () => { box.innerHTML = ''; };
+    document.getElementById('of-go').onclick = async () => {
+      const rs = document.getElementById('of-reason');
+      try {
+        await call('chgOffer', Object.assign({ reason: rs ? rs.value : '' }, OF));
+        alert(kind === 'hand' ? '引き受けると申し出ました。承認者の承認を待っています。' : '交代を申し出ました。' + (c.requester || '募集した人') + 'さんの確認を待っています。');
+        await loadChg();
+      } catch (e) { alert(e.message); }
+    };
+  } catch (e) { box.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; }
 }
 // 申請フォームの勤務表（マスを押して選べる）
 const CGG = { month: null, all: false, cells: null };
@@ -2066,7 +2164,7 @@ function renderChgGrid() {
   const pickMonth = day('cg-my') || v('cg-date') || day('cg-pd') || v('cg-hd');
   if (!CGG.month || keys.indexOf(CGG.month) < 0) CGG.month = pickMonth ? pickMonth.slice(0, 7) : keys[0];
   const names = CGG.all ? [].concat.apply([], CG.sv.confirmed.teams.map(t => t[1])) : [me].concat(partner ? [partner] : []);
-  const hint = CG_KIND === 'self' || CG_KIND === 'hourly' ? '自分の行のマスを押すと、その日を選べます。'
+  const hint = CG_KIND === 'self' || CG_KIND === 'hourly' || CG_KIND === 'want' ? '自分の行のマスを押すと、その日を選べます。'
     : CG_KIND === 'hand' ? '自分の日直・夜勤・残り当番のマスを押すと「やってもらう」、相手の行のマスを押すと「引き受ける」になります。「全員」でほかの人のマスを押すと、その人が相手になります。'
     : '自分の' + (CG_KIND === 'furi' ? '振休' : '日直・夜勤・残り当番') + 'のマスを押すと「自分」の欄に、相手の行のマスを押すと「相手」の欄に入ります。「全員」でほかの人のマスを押すと、その人が相手になります。';
   el.innerHTML = '<div class="mg-box"><div class="toolbar" style="margin-bottom:6px;"><div class="tabs" id="cgg-tabs" style="margin:0;"></div>' +
@@ -2097,6 +2195,7 @@ function chgGridClick(n, d) {
     renderChgGrid();
     return;
   }
+  if (CG_KIND === 'want' && n !== me) { say('自分の行のマスを押してください。'); return; }
   if (CG_KIND === 'self' || CG_KIND === 'hourly') {
     if (n !== me) { say('自分の行のマスを押してください。'); return; }
     if (CG_KIND === 'hourly' && !setSel('cg-date', d)) { say(mdw(d) + 'は時間休を取れない日です（平日の勤務の日だけ取れます）。'); return; }
@@ -2115,7 +2214,7 @@ async function submitChg() {
   const rs = document.getElementById('cg-reason');
   try {
     await call('chgCreate', Object.assign({ reason: rs ? rs.value : '' }, CG_PAYLOAD));
-    alert('申請しました。' + (CG_PAYLOAD.partner ? CG_PAYLOAD.partner + 'さんの承認を待っています。' : '承認者の承認を待っています。'));
+    alert(CG_PAYLOAD.kind === 'want' ? '募集しました。申し出があると、お知らせで知らせます。' : '申請しました。' + (CG_PAYLOAD.partner ? CG_PAYLOAD.partner + 'さんの承認を待っています。' : '承認者の承認を待っています。'));
     CG_KIND = null;
     await loadChg();
   } catch (e) { alert(e.message); }
@@ -2126,12 +2225,22 @@ function renderChgList(elId, list, mode) {
   if (!list.length) { el.innerHTML = '<p class="hint">' + (mode === 'adm' ? '該当する申請はありません。' : 'まだありません。') + '</p>'; return; }
   el.innerHTML = list.map(c => {
     const steps = [];
-    steps.push('申請 ' + fmtDateTime(c.createdAt) + '（' + esc(c.requester) + '）');
-    if (c.partner) steps.push(c.partnerAt ? '受け手の承認 ' + fmtDateTime(c.partnerAt) + '（' + esc(c.partnerBy) + '）' : '受け手（' + esc(c.partner) + '）の承認待ち');
+    steps.push((c.want ? '募集 ' : '申請 ') + fmtDateTime(c.createdAt) + '（' + esc(c.requester) + '）');
+    if (c.offeredAt) {
+      steps.push('申し出 ' + fmtDateTime(c.offeredAt) + '（' + esc(c.partner) + '）');
+      if (c.kind === 'swap') steps.push(c.requesterAt ? '募集した人の確認 ' + fmtDateTime(c.requesterAt) : '募集した人（' + esc(c.requester) + '）の確認待ち');
+    } else if (c.partner) steps.push(c.partnerAt ? '受け手の承認 ' + fmtDateTime(c.partnerAt) + '（' + esc(c.partnerBy) + '）' : '受け手（' + esc(c.partner) + '）の承認待ち');
+    else if (c.status === 'recruiting') steps.push('申し出を待っています');
     if (c.approverAt) steps.push('承認者の承認 ' + fmtDateTime(c.approverAt) + '（' + esc(c.approverBy) + '）');
     if (c.status === 'rejected') steps.push('却下（' + esc(c.rejectedBy) + '）' + (c.note ? '：' + esc(c.note) : ''));
     let act = '';
-    if (mode === 'mine' && (c.status === 'wait_partner' || c.status === 'wait_approver')) act = '<button class="btn btn-gray btn-sm" data-w="' + c.id + '">取り下げる</button>';
+    if (mode === 'mine' && ['recruiting', 'wait_requester', 'wait_partner', 'wait_approver'].indexOf(c.status) >= 0) act = '<button class="btn btn-gray btn-sm" data-w="' + c.id + '">取り下げる</button>';
+    // 募集への交代の申し出: 募集した人が受けるか断る
+    if (mode === 'mine' && c.status === 'wait_requester')
+      act = '<button class="btn btn-green btn-sm" data-ok="' + c.id + '">申し出を受ける</button> <button class="btn btn-red btn-sm" data-ng="' + c.id + '">断る（募集に戻す）</button> ' + act;
+    // 募集に申し出た人は、承認者の承認の前なら取り消せる（募集中に戻る）
+    if (mode === 'toMe' && c.offeredAt && (c.status === 'wait_requester' || c.status === 'wait_approver'))
+      act = '<button class="btn btn-gray btn-sm" data-oc="' + c.id + '">申し出を取り消す</button>';
     // 承認後の取り消し（申請者本人、またはシステム管理者）
     if (c.status === 'approved' && c.kind !== 'revert' && !c.revertedBy && (mode === 'mine' || (mode === 'adm' && isAdmin())))
       act = '<button class="btn btn-orange btn-sm" data-rv="' + c.id + '">承認後の取り消しを申請</button><div id="rvbox-' + c.id + '"></div>';
@@ -2140,9 +2249,10 @@ function renderChgList(elId, list, mode) {
     if (canPartner || canApprove)
       act = '<button class="btn btn-green btn-sm" data-ok="' + c.id + '">' + (canPartner && mode === 'adm' ? '受け手の代わりに承認' : '承認する') + '</button> <button class="btn btn-red btn-sm" data-ng="' + c.id + '">却下する</button>';
     return '<div class="chg-card"><div class="top"><b>' + esc(c.kindLabel) + '</b><span class="pill ' + c.status + '">' + esc(c.statusLabel) + '</span>' +
-      (c.revertedBy ? '<span class="pill withdrawn">取り消し済み</span>' : '') + '<span>' + esc(c.summary) + '</span></div>' +
-      cellsTable(c.cells) +
-      (CHG_SV && CHG_SV.confirmed ? '<button class="btn btn-gray btn-sm" data-mg="' + c.id + '">勤務表で確認 ▼</button><div class="mg-box" id="mg-' + c.id + '" style="display:none;"></div>' : '') +
+      (c.revertedBy ? '<span class="pill withdrawn">取り消し済み</span>' : '') + (c.offeredAt ? '<span class="pill recruiting">募集への申し出</span>' : '') + '<span>' + esc(c.summary) + '</span></div>' +
+      (c.kind === 'want' ? '<div>対象：' + esc(wantCellsText(c.cells)) + '（' + esc((c.want && c.want.acceptLabel) || '') + '）</div>' : cellsTable(c.cells)) +
+      (c.want && c.want.note ? '<div class="reason">ひとこと：' + esc(c.want.note) + '</div>' : '') +
+      (CHG_SV && CHG_SV.confirmed && c.kind !== 'want' ? '<button class="btn btn-gray btn-sm" data-mg="' + c.id + '">勤務表で確認 ▼</button><div class="mg-box" id="mg-' + c.id + '" style="display:none;"></div>' : '') +
       (c.deviations.length ? '<div class="dev">⚠ 条件から外れます：' + c.deviations.map(esc).join('／') + '</div>' : '') +
       (c.reason ? '<div class="reason">理由：' + esc(c.reason) + '</div>' : '') +
       '<div class="hint">' + steps.join(' → ') + '</div>' + (act ? '<div style="margin-top:6px;">' + act + '</div>' : '') + '</div>';
@@ -2160,8 +2270,12 @@ function renderChgList(elId, list, mode) {
   }; });
   el.querySelectorAll('button[data-w]').forEach(b => { b.onclick = () => withdrawChg(b.dataset.w); });
   el.querySelectorAll('button[data-rv]').forEach(b => { b.onclick = () => previewRevert(b.dataset.rv, mode); });
-  el.querySelectorAll('button[data-ok]').forEach(b => { b.onclick = () => decideChg(b.dataset.ok, 'approve', mode); });
-  el.querySelectorAll('button[data-ng]').forEach(b => { b.onclick = () => decideChg(b.dataset.ng, 'reject', mode); });
+  el.querySelectorAll('button[data-ok]').forEach(b => { b.onclick = () => decideChg(b.dataset.ok, 'approve', mode, list.find(x => x.id === b.dataset.ok)); });
+  el.querySelectorAll('button[data-ng]').forEach(b => { b.onclick = () => decideChg(b.dataset.ng, 'reject', mode, list.find(x => x.id === b.dataset.ng)); });
+  el.querySelectorAll('button[data-oc]').forEach(b => { b.onclick = async () => {
+    if (!confirm('この申し出を取り消しますか？（募集中に戻ります）')) return;
+    try { await call('chgOfferCancel', { id: b.dataset.oc }); await loadChgMe(); } catch (e) { alert(e.message); }
+  }; });
 }
 // 承認後の取り消し: 元に戻す内容を確かめてから申請する（元の申請と同じく、相手→承認者の承認が必要）
 async function previewRevert(id, mode) {
@@ -2190,14 +2304,16 @@ async function withdrawChg(id) {
   if (!confirm('この申請を取り下げますか？')) return;
   try { await call('chgWithdraw', { id: id }); await loadChg(); } catch (e) { alert(e.message); }
 }
-async function decideChg(id, decision, mode) {
+async function decideChg(id, decision, mode, c) {
+  const offer = c && c.status === 'wait_requester';
   let note = '';
-  if (decision === 'reject') { note = prompt('却下する理由（申請者に表示されます。空欄でも可）:', ''); if (note === null) return; }
-  else if (!confirm('この申請を承認しますか？')) return;
+  if (decision === 'reject') { note = prompt(offer ? '断る理由（申し出た人に表示されます。空欄でも可）:' : '却下する理由（申請者に表示されます。空欄でも可）:', ''); if (note === null) return; }
+  else if (!confirm(offer ? 'この交代の申し出を受けますか？（承認者の承認に進みます）' : 'この申請を承認しますか？')) return;
   try {
     const r = await call('chgDecide', { id: id, decision: decision, note: note });
     if (r.status === 'approved') alert('承認しました。勤務表の実績に反映しました。');
-    if (mode === 'toMe') await loadChgMe(); else await loadChgAdm();
+    if (offer) alert(decision === 'approve' ? '申し出を受けました。承認者の承認を待っています。' : '断りました。募集中に戻りました。');
+    if (mode === 'mine') await loadChg(); else if (mode === 'toMe') await loadChgMe(); else await loadChgAdm();
   } catch (e) { alert(e.message); }
 }
 async function loadChgMe() {
